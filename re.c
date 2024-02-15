@@ -1,6 +1,11 @@
 #include <assert.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include "re.h"
 
 #define REF_NONE 0
 
@@ -15,9 +20,6 @@
 #define AST_T(v) ((v) & 3)
 #define AST(v, t) ((v) << 2 | (t))
 
-typedef unsigned int u32;
-typedef unsigned char u8;
-
 typedef struct ast {
   u32 car, cdr;
 } ast;
@@ -26,13 +28,13 @@ typedef struct stk {
   u32 *ptr, size, alloc;
 } stk;
 
-typedef struct re {
+struct re {
   ast *ast;
-  u32 ast_size, ast_alloc;
+  u32 ast_size, ast_alloc, ast_root;
   stk arg_stk, op_stk;
   stk comp_stk;
   stk prog;
-} re;
+};
 
 void *re_alloc(re *re, size_t prev, size_t next, void *ptr) {
   (void)(re);
@@ -81,19 +83,30 @@ u32 stk_peek(re *r, stk *s, u32 idx) {
   return s->ptr[s->size - 1 - idx];
 }
 
-void re_init(re *re) {
-  re->ast = NULL;
-  re->ast_size = re->ast_alloc = 0;
-  stk_init(re, &re->arg_stk);
-  stk_init(re, &re->op_stk);
-  stk_init(re, &re->comp_stk);
-  stk_init(re, &re->prog);
+int re_parse(re *r, const char *s, size_t sz, u32 *root);
+
+re *re_init(const char *regex) {
+  re *r = (re *)malloc(sizeof(re));
+  if (!r)
+    return r;
+  r->ast = NULL;
+  r->ast_size = r->ast_alloc = r->ast_root = 0;
+  stk_init(r, &r->arg_stk);
+  stk_init(r, &r->op_stk);
+  stk_init(r, &r->comp_stk);
+  stk_init(r, &r->prog);
+  if (re_parse(r, regex, strlen(regex), &r->ast_root)) {
+    re_destroy(r);
+    return NULL;
+  }
+  return r;
 }
 
 void re_destroy(re *re) {
   re_alloc(re, re->ast_alloc * sizeof(*re->ast), 0, re->ast);
   stk_destroy(re, &re->op_stk);
   stk_destroy(re, &re->arg_stk);
+  free(re);
 }
 
 u32 re_ast_new(re *re) {
@@ -205,15 +218,9 @@ void re_decompast(re *re, u32 root, u32 nargs, u32 *args) {
 }
 
 u32 *re_astarg(re *re, u32 root, u32 n, u32 nargs) {
-  if (nargs == 1)
-    return re_cdr(re, root);
-  else {
-    u32 i, next = AST_V(*(re_cdr(re, root)));
-    for (i = 0; i < n; i++) {
-      next = AST_V(*(re_cdr(re, next)));
-    }
-    return re_car(re, next);
-  }
+  while (nargs > 1)
+    root = AST_V(*re_cdr(re, root)), nargs--, n--;
+  return (n == nargs - 1) ? re_cdr(re, root) : re_car(re, root);
 }
 
 #define MAXREP 100000
@@ -415,6 +422,10 @@ compframe compframe_pop(re *r) {
 
 enum op { RANGE, ASSERT, MATCH, SPLIT };
 
+#define IMATCH(s, i) ((i) << 1 | (s))
+#define IMATCH_S(m) ((m) & 1)
+#define IMATCH_I(m) ((m) >> 1)
+
 inst patch_set(re *r, u32 pc, u32 val) {
   inst prev = re_prog_get(r, pc >> 1);
   re_prog_set(r, pc >> 1,
@@ -565,20 +576,20 @@ int re_compile(re *r, u32 root) {
       child = args[0] = AST_V(args[0]);
       if (child && !frame.child_ref) {
         /* before child */
-        if (re_emit(r, INST(MATCH, re_prog_size(r) + 1, 1)))
+        if (re_emit(r, INST(MATCH, re_prog_size(r) + 1, IMATCH(1, 0))))
           return ERR_MEM;
         frame.child_ref = child_ref = child;
       } else if (child && frame.child_ref) {
         /* after child */
         patch(r, &returned_frame, re_prog_size(r));
-        if (re_emit(r, INST(MATCH, 0, 2)))
+        if (re_emit(r, INST(MATCH, 0, IMATCH(1, 1))))
           return ERR_MEM;
         patch_add(r, &frame, re_prog_size(r) - 1, 0);
       } else {
         /* no child */
-        if (re_emit(r, INST(MATCH, re_prog_size(r) + 1, 1)))
+        if (re_emit(r, INST(MATCH, re_prog_size(r) + 1, IMATCH(1, 0))))
           return ERR_MEM;
-        if (re_emit(r, INST(MATCH, 0, 2)))
+        if (re_emit(r, INST(MATCH, 0, IMATCH(1, 1))))
           return ERR_MEM;
         patch_add(r, &frame, re_prog_size(r) - 1, 0);
       }
@@ -600,7 +611,7 @@ int re_compile(re *r, u32 root) {
   }
   assert(!r->comp_stk.size);
   patch(r, &returned_frame, re_prog_size(r));
-  if (re_emit(r, INST(MATCH, 0, 0)))
+  if (re_emit(r, INST(MATCH, 0, IMATCH(0, 1))))
     return ERR_MEM;
   return 0;
 }
@@ -625,8 +636,8 @@ typedef struct sset {
   u32 dense_size, dense_alloc;
 } sset;
 
-int sset_alloc(re *r, sset *s) {
-  size_t next_alloc = r->prog.size;
+int sset_reset(re *r, sset *s, size_t sz) {
+  size_t next_alloc = sz;
   u32 *next_sparse;
   thrdspec *next_dense;
   if (!next_alloc)
@@ -639,8 +650,12 @@ int sset_alloc(re *r, sset *s) {
                               sizeof(thrdspec) * next_alloc, s->dense)))
     return 1;
   s->dense = next_dense;
+  s->dense_size = 0;
+  s->dense_alloc = next_alloc;
   return 0;
 }
+
+void sset_clear(sset *s) { s->dense_size = 0; }
 
 void sset_init(re *r, sset *s) {
   (void)(r);
@@ -649,8 +664,6 @@ void sset_init(re *r, sset *s) {
   s->dense = NULL;
   s->dense_alloc = s->dense_size = 0;
 }
-
-void sset_clear(sset *s) { s->dense_size = 0; }
 
 void sset_destroy(re *r, sset *s) {
   re_alloc(r, sizeof(u32) * s->sparse_alloc, 0, s->sparse);
@@ -684,33 +697,277 @@ void save_slots_destroy(re *r, save_slots *s) {
 }
 
 void save_slots_clear(save_slots *s, size_t per_thrd) {
-  s->slots_size = 0, s->last_empty = 0, s->per_thrd = per_thrd;
+  s->slots_size = 0, s->last_empty = 0,
+  s->per_thrd = per_thrd + 1 /* for refcnt */;
 }
 
-u32 save_slots_new(re *r, save_slots *s);
-u32 save_slots_incref(save_slots *s, u32 ref);
-u32 save_slots_decref(save_slots *s, u32 ref);
+u32 save_slots_new(re *r, save_slots *s) {
+  u32 out;
+  if (!s->per_thrd) {
+    out = 1;
+  } else {
+    if (s->last_empty) {
+      /* reclaim */
+      out = s->last_empty;
+      s->last_empty = s->slots[out * s->per_thrd];
+    } else {
+      if (s->slots_size + s->per_thrd > s->slots_alloc) {
+        /* initial alloc / realloc */
+        size_t new_alloc =
+            (s->slots_alloc ? s->slots_alloc * 2 : 16) * s->per_thrd;
+        size_t *new_slots = re_alloc(r, s->slots_alloc * sizeof(size_t),
+                                     new_alloc * sizeof(size_t), s->slots);
+        if (!new_slots)
+          return 0;
+        s->slots = new_slots, s->slots_alloc = new_alloc;
+      }
+      if (s->slots_size++)
+        out = s->slots_size;
+      else
+        out = save_slots_new(r, s); /* create sentinel 0th */
+    }
+    memset(s->slots + out * s->per_thrd, 0, sizeof(*s->slots) * s->per_thrd);
+  }
+  return out;
+}
+
+u32 save_slots_fork(save_slots *s, u32 ref) {
+  if (s->per_thrd)
+    s->slots[ref * s->per_thrd + s->per_thrd - 1]++;
+  return ref;
+}
+
+void save_slots_kill(save_slots *s, u32 ref) {
+  if (!s->per_thrd)
+    return;
+  if (!s->slots[ref * s->per_thrd + s->per_thrd - 1]--) {
+    /* prepend to free list */
+    s->slots[ref * s->per_thrd] = s->last_empty;
+    s->last_empty = ref;
+  }
+}
+
+u32 save_slots_set(re *r, save_slots *s, u32 ref, u32 idx, size_t v) {
+  u32 out = ref;
+  if (!s->per_thrd) {
+    /* not saving anything */
+  } else if (v == s->slots[ref * s->per_thrd + idx]) {
+    /* not changing anything */
+  } else if (!s->slots[ref * s->per_thrd + s->per_thrd - 1]) {
+    s->slots[ref * s->per_thrd + idx] = v;
+  } else {
+    if (!(out = save_slots_new(r, s)))
+      return out;
+    save_slots_kill(s, ref); /* decrement refcount */
+    memcpy(s->slots + out * s->per_thrd, s->slots + ref * s->per_thrd,
+           sizeof(*s->slots) * s->per_thrd);
+    s->slots[out * s->per_thrd + idx] = v;
+  }
+  return out;
+}
+
+u32 save_slots_perthrd(save_slots *s) {
+  return s->per_thrd ? s->per_thrd - 1 : s->per_thrd;
+}
 
 typedef struct exec_nfa {
   sset a, b, c;
+  stk thrd_stk;
   save_slots slots;
 } exec_nfa;
 
 void exec_nfa_init(re *r, exec_nfa *n) {
-  sset_init(r, &n->a);
-  sset_init(r, &n->b);
-  sset_init(r, &n->c);
+  sset_init(r, &n->a), sset_init(r, &n->b), sset_init(r, &n->c);
+  stk_init(r, &n->thrd_stk);
+  save_slots_init(r, &n->slots);
 }
 
-#include <string.h>
+void exec_nfa_destroy(re *r, exec_nfa *n) {
+  sset_destroy(r, &n->a), sset_destroy(r, &n->b), sset_destroy(r, &n->c);
+  stk_destroy(r, &n->thrd_stk);
+  save_slots_destroy(r, &n->slots);
+}
 
-int main(void) {
-  re r;
-  u32 root;
-  const char *g = "(a*b)*";
-  re_init(&r);
-  printf("parse: %u\n", re_parse(&r, g, strlen(g), &root));
-  re_ast_dump(&r, root, 0);
-  printf("%u\n", re_compile(&r, root));
-  re_prog_dump(&r);
+int exec_nfa_start(re *r, exec_nfa *n, u32 pc) {
+  thrdspec initial_thrd;
+  if (sset_reset(r, &n->a, r->prog.size) ||
+      sset_reset(r, &n->b, r->prog.size) || sset_reset(r, &n->c, r->prog.size))
+    return ERR_MEM;
+  n->thrd_stk.size = 0;
+  save_slots_clear(&n->slots, /*TODO memoize ngrp*/ 10);
+  initial_thrd.pc = pc;
+  if (!(initial_thrd.slot = save_slots_new(r, &n->slots)))
+    return ERR_MEM;
+  sset_add(&n->a, initial_thrd);
+  return 0;
+}
+
+int thrdstk_push(re *r, stk *s, thrdspec t) {
+  return stk_push(r, s, t.pc) || stk_push(r, s, t.slot);
+}
+
+thrdspec thrdstk_pop(re *r, stk *s) {
+  thrdspec out;
+  out.slot = stk_pop(r, s);
+  out.pc = stk_pop(r, s);
+  return out;
+}
+
+int exec_nfa_eps(re *r, exec_nfa *n, size_t pos) {
+  size_t i;
+  sset_clear(&n->b);
+  for (i = 0; i < n->a.dense_size; i++) {
+    thrdspec thrd = n->a.dense[i];
+    if (thrdstk_push(r, &n->thrd_stk, thrd))
+      return ERR_MEM;
+    sset_clear(&n->c);
+    while (n->thrd_stk.size) {
+      thrdspec top = thrdstk_pop(r, &n->thrd_stk);
+      inst i = re_prog_get(r, top.pc);
+      assert(top.pc);
+      if (sset_memb(&n->c, top.pc))
+        /* we already processed this thread */
+        continue;
+      sset_add(&n->c, top);
+      switch (INST_OP(re_prog_get(r, top.pc))) {
+      case ASSERT:
+        /* TODO asserts */
+        assert(0);
+        break;
+      case MATCH:
+        if (IMATCH_S(INST_P(i))) /* this is a save */ {
+          if (IMATCH_I(INST_P(i)) < save_slots_perthrd(&n->slots)) {
+            if (!(top.slot = save_slots_set(r, &n->slots, top.slot,
+                                            IMATCH_I(INST_P(i)), pos)))
+              return ERR_MEM;
+          }
+          top.pc = INST_N(i);
+          if (thrdstk_push(r, &n->thrd_stk, top))
+            return ERR_MEM;
+          break;
+        } /* else fall-through */
+      case RANGE:
+        sset_add(&n->b, top); /* this is a range or match */
+        break;
+      case SPLIT: {
+        thrdspec pri, sec;
+        pri.pc = INST_N(i), pri.slot = top.slot;
+        sec.pc = INST_P(i), sec.slot = save_slots_fork(&n->slots, top.slot);
+        if (thrdstk_push(r, &n->thrd_stk, pri) ||
+            thrdstk_push(r, &n->thrd_stk, sec))
+          return ERR_MEM;
+        break;
+      }
+      }
+    }
+  }
+  sset_clear(&n->a);
+  return 0;
+}
+
+int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, u32 *match) {
+  size_t i;
+  for (i = 0; i < n->b.dense_size; i++) {
+    thrdspec thrd = n->b.dense[i];
+    inst i = re_prog_get(r, thrd.pc);
+    switch (INST_OP(i)) {
+    case ASSERT:
+    case SPLIT:
+      assert(0);
+      break;
+    case RANGE: {
+      byte_range br = u2br(INST_P(i));
+      if (ch >= br.l && ch <= br.h) {
+        thrd.pc = INST_N(i);
+        sset_add(&n->a, thrd);
+      } else {
+        save_slots_kill(&n->slots, thrd.slot);
+      }
+      break;
+    }
+    case MATCH: {
+      assert(!IMATCH_S(INST_P(i)));
+      save_slots_kill(&n->slots, thrd.slot);
+      *match = IMATCH_I(INST_P(i));
+      break;
+    }
+    }
+  }
+  return 0;
+}
+
+int exec_nfa_run(re *r, exec_nfa *n, unsigned int ch, size_t pos, u32 *match) {
+  if (exec_nfa_eps(r, n, pos))
+    return ERR_MEM;
+  *match = 0;
+  return exec_nfa_chr(r, n, ch, match);
+}
+
+int exec_nfa_gen(re *r, exec_nfa *n, size_t pos, u32 *match) {
+  char bytes[256] = {0};
+  size_t i, nok = 0;
+  if (exec_nfa_eps(r, n, pos))
+    return ERR_MEM;
+  for (i = 0; i < n->b.dense_size; i++) {
+    thrdspec thrd = n->b.dense[i];
+    inst i = re_prog_get(r, thrd.pc);
+    switch (INST_OP(i)) {
+    case ASSERT:
+    case SPLIT:
+      assert(0);
+      break;
+    case RANGE: {
+      byte_range br = u2br(INST_P(i));
+      u32 j;
+      for (j = br.l; j <= br.h; j++) {
+        bytes[j] = 1, nok++;
+      }
+      break;
+    }
+    case MATCH: {
+      break;
+    }
+    }
+  }
+  {
+    if (!nok)
+      return 1;
+    else {
+      int j;
+      while (!bytes[(j = rand() & 0xFF)])
+        continue;
+      printf("%c ", j);
+      if (exec_nfa_chr(r, n, j, match))
+        return 1;
+    }
+  }
+  return 0;
+}
+
+int re_fullmatch(re *r, const char *s, size_t n, u32 *match) {
+  exec_nfa nfa;
+  int err = 0;
+  size_t i;
+  *match = 0;
+  srand(time(NULL));
+  if (!re_prog_size(r) && (err = re_compile(r, r->ast_root)))
+    return err;
+  re_ast_dump(r, r->ast_root, 0);
+  re_prog_dump(r);
+  exec_nfa_init(r, &nfa);
+  if (0) {
+    if ((err = exec_nfa_start(r, &nfa, 1)))
+      goto done;
+    for (i = 0; i < n; i++)
+      exec_nfa_run(r, &nfa, s[i], i, match);
+    exec_nfa_run(r, &nfa, 256, i, match); /* eot */
+  } else {
+    if ((err = exec_nfa_start(r, &nfa, 1)))
+      goto done;
+    while (!*match && !exec_nfa_gen(r, &nfa, 0, match))
+      continue;
+  }
+done:
+  exec_nfa_destroy(r, &nfa);
+  return err;
 }
