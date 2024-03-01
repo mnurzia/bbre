@@ -7,7 +7,7 @@ int main(void) {
   re *r;
   u32 match;
   int ret;
-  r = re_init("a|b");
+  r = re_init("(a|)*");
   ret = re_fullmatch(r, "aaab", 4, &match);
   printf("%i %u\n", ret, match);
   re_destroy(r);

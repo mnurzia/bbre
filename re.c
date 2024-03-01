@@ -437,7 +437,6 @@ inst patch_set(re *r, u32 pc, u32 val) {
 void patch_add(re *r, compframe *f, u32 dest_pc, int p) {
   u32 out_val = dest_pc << 1 | !!p;
   assert(dest_pc);
-  printf("patch_add %04X %i\n", dest_pc, p);
   if (!f->patch_head)
     f->patch_head = f->patch_tail = out_val;
   else {
@@ -447,7 +446,6 @@ void patch_add(re *r, compframe *f, u32 dest_pc, int p) {
 }
 
 void patch_merge(re *r, compframe *p, compframe *q) {
-  assert(q->patch_head);
   if (!p->patch_head) {
     p->patch_head = q->patch_head;
     p->patch_tail = q->patch_tail;
@@ -455,6 +453,12 @@ void patch_merge(re *r, compframe *p, compframe *q) {
   }
   patch_set(r, p->patch_tail, q->patch_head);
   p->patch_tail = q->patch_tail;
+}
+
+void patch_xfer(compframe *dst, compframe *src) {
+  dst->patch_head = src->patch_head;
+  dst->patch_tail = src->patch_tail;
+  src->patch_head = src->patch_tail = REF_NONE;
 }
 
 void patch(re *r, compframe *p, u32 dest_pc) {
@@ -468,103 +472,111 @@ void patch(re *r, compframe *p, u32 dest_pc) {
 }
 
 int re_compile(re *r, u32 root) {
-  compframe initial_frame, returned_frame;
-  initial_frame.root_ref = root;
-  initial_frame.child_ref = REF_NONE;
-  initial_frame.patch_head = REF_NONE;
-  initial_frame.patch_tail = REF_NONE;
-  initial_frame.idx = 0;
-  initial_frame.pc = 1;
-  if (compframe_push(r, initial_frame))
+  compframe initial_frame, returned_frame, child_frame;
+  if (!r->prog.size && (stk_push(r, &r->prog, 0) || stk_push(r, &r->prog, 0)))
     return ERR_MEM;
-  if (stk_push(r, &r->prog, 0) || stk_push(r, &r->prog, 0))
+  initial_frame.root_ref = root;
+  initial_frame.child_ref = initial_frame.patch_head =
+      initial_frame.patch_tail = REF_NONE;
+  initial_frame.idx = 0;
+  initial_frame.pc = r->prog.size;
+  if (compframe_push(r, initial_frame))
     return ERR_MEM;
   while (r->comp_stk.size) {
     compframe frame = compframe_pop(r);
     ast_type type;
-    u32 args[4], child_ref = REF_NONE;
-    assert(frame.root_ref);
+    u32 args[4], my_pc = re_prog_size(r);
+    frame.child_ref = frame.root_ref;
+    child_frame.child_ref = child_frame.root_ref = child_frame.patch_head =
+        child_frame.patch_tail = REF_NONE;
     type = AST_V(*re_car(r, frame.root_ref));
-    if (type == CHR) {
+    if (!frame.root_ref) {
+      /* epsilon */
+    } else if (type == CHR) {
+      patch(r, &frame, my_pc);
       re_decompast(r, frame.root_ref, 1, args);
       args[0] = AST_V(args[0]);
       if (re_emit(r, INST(RANGE, 0, br2u(BYTE_RANGE(args[0], args[0])))))
         return ERR_MEM;
-      patch_add(r, &frame, re_prog_size(r) - 1, 0);
+      patch_add(r, &frame, my_pc, 0);
     } else if (type == CAT) {
       re_decompast(r, frame.root_ref, 2, args);
       args[0] = AST_V(args[0]);
       args[1] = AST_V(args[1]);
-      if (!frame.child_ref) {
+      if (frame.idx == 0) {
         /* before left child */
-        frame.child_ref = child_ref = args[0]; /* push left child */
-      } else if (frame.child_ref == args[0]) {
+        frame.child_ref = args[0]; /* push left child */
+        patch_xfer(&child_frame, &frame);
+        frame.idx++;
+      } else if (frame.idx == 1) {
         /* after left child */
-        patch(r, &returned_frame, re_prog_size(r));
-        frame.child_ref = child_ref = args[1]; /* push right child */
-      } else if (frame.child_ref == args[1]) {
+        frame.child_ref = args[1]; /* push right child */
+        patch_xfer(&child_frame, &returned_frame);
+        frame.idx++;
+      } else if (frame.idx == 2) {
         /* after right child */
-        patch_merge(r, &frame, &returned_frame);
+        patch_xfer(&frame, &returned_frame);
       }
     } else if (type == ALT) {
       re_decompast(r, frame.root_ref, 2, args);
       args[0] = AST_V(args[0]);
       args[1] = AST_V(args[1]);
-      if (!frame.child_ref) {
+      if (frame.idx == 0) {
+        patch(r, &frame, frame.pc);
         /* before left child */
         if (re_emit(r, INST(SPLIT, 0, 0)))
           return ERR_MEM;
-        if (args[0])
-          frame.child_ref = child_ref = args[0];
-        else {
-          patch_add(r, &frame, frame.pc, 0);
-          if (args[1])
-            frame.child_ref = child_ref = args[1];
-        }
-      } else if (args[0] && frame.child_ref == args[0]) {
+        patch_add(r, &child_frame, frame.pc, 0);
+        frame.child_ref = args[0];
+        frame.idx++;
+      } else if (frame.idx == 1) {
         /* after left child */
-        patch_set(r, frame.pc << 1, returned_frame.pc);
         patch_merge(r, &frame, &returned_frame);
-        if (args[1])
-          frame.child_ref = child_ref = args[1];
-        else
-          patch_add(r, &frame, frame.pc, 1);
-      } else if (args[1] && frame.child_ref == args[1]) {
+        patch_add(r, &child_frame, frame.pc, 1);
+        frame.child_ref = args[1];
+        frame.idx++;
+      } else if (frame.idx == 2) {
         /* after right child */
-        patch_set(r, frame.pc << 1 | 1, returned_frame.pc);
         patch_merge(r, &frame, &returned_frame);
       }
     } else if (type == QNT) {
       u32 child, min, max;
       re_decompast(r, frame.root_ref, 3, args);
-      printf("%i %i %i\n", type, frame.root_ref, frame.child_ref);
       child = args[0] = AST_V(args[0]);
       min = args[1] = AST_V(args[1]);
       max = args[2] = AST_V(args[2]);
       if (frame.idx < min) {
         /* generate child min times */
-        if (frame.idx)
-          patch(r, &returned_frame, re_prog_size(r));
-        frame.child_ref = child_ref = child;
+        if (!frame.idx) {
+          patch_xfer(&child_frame, &frame);
+        } else {
+          patch_xfer(&child_frame, &returned_frame);
+        }
+        frame.child_ref = child;
       } else if (max == INFTY && frame.idx == min) {
         /* before infinite bound */
-        if (frame.idx)
-          patch(r, &returned_frame, re_prog_size(r));
-        if (re_emit(r, INST(SPLIT, re_prog_size(r) + 1, 0)))
+        if (!frame.idx) {
+          patch(r, &frame, my_pc);
+        } else {
+          patch(r, &returned_frame, my_pc);
+        }
+        if (re_emit(r, INST(SPLIT, 0, 0)))
           return ERR_MEM;
-        patch_add(r, &frame, re_prog_size(r) - 1, 1);
-        frame.child_ref = child_ref = child;
+        patch_add(r, &child_frame, my_pc, 0);
+        patch_add(r, &frame, my_pc, 1);
+        frame.child_ref = child;
       } else if (max == INFTY && frame.idx == min + 1) {
         /* after infinite bound */
         patch(r, &returned_frame, frame.pc);
       } else if (frame.idx < max) {
         /* before maximum bound */
         if (frame.idx == min)
-          patch(r, &returned_frame, re_prog_size(r));
-        if (re_emit(r, INST(SPLIT, re_prog_size(r) + 1, 0)))
+          patch(r, &returned_frame, my_pc);
+        if (re_emit(r, INST(SPLIT, 0, 0)))
           return ERR_MEM;
-        patch_add(r, &frame, re_prog_size(r) - 1, 1);
-        frame.child_ref = child_ref = child;
+        patch_add(r, &child_frame, my_pc, 0);
+        patch_add(r, &frame, my_pc, 1);
+        frame.child_ref = child;
       } else if (frame.idx == max) {
         /* after maximum bound */
         patch_merge(r, &frame, &returned_frame);
@@ -574,37 +586,30 @@ int re_compile(re *r, u32 root) {
       u32 child;
       re_decompast(r, frame.root_ref, 2, args);
       child = args[0] = AST_V(args[0]);
-      if (child && !frame.child_ref) {
+      if (!frame.idx) {
         /* before child */
-        if (re_emit(r, INST(MATCH, re_prog_size(r) + 1, IMATCH(1, 0))))
+        patch(r, &frame, my_pc);
+        if (re_emit(r, INST(MATCH, 0, IMATCH(1, 0))))
           return ERR_MEM;
-        frame.child_ref = child_ref = child;
-      } else if (child && frame.child_ref) {
+        patch_add(r, &child_frame, my_pc, 0);
+        frame.child_ref = child;
+        frame.idx++;
+      } else if (frame.idx) {
         /* after child */
-        patch(r, &returned_frame, re_prog_size(r));
+        patch(r, &returned_frame, my_pc);
         if (re_emit(r, INST(MATCH, 0, IMATCH(1, 1))))
           return ERR_MEM;
-        patch_add(r, &frame, re_prog_size(r) - 1, 0);
-      } else {
-        /* no child */
-        if (re_emit(r, INST(MATCH, re_prog_size(r) + 1, IMATCH(1, 0))))
-          return ERR_MEM;
-        if (re_emit(r, INST(MATCH, 0, IMATCH(1, 1))))
-          return ERR_MEM;
-        patch_add(r, &frame, re_prog_size(r) - 1, 0);
+        patch_add(r, &frame, my_pc, 0);
       }
     }
-    if (child_ref) {
-      compframe up_frame;
+    if (frame.child_ref != frame.root_ref) {
       /* should we push a child? */
       if (compframe_push(r, frame))
         return ERR_MEM;
-      up_frame.root_ref = child_ref;
-      up_frame.child_ref = REF_NONE;
-      up_frame.patch_head = up_frame.patch_tail = REF_NONE;
-      up_frame.idx = 0;
-      up_frame.pc = re_prog_size(r);
-      if (compframe_push(r, up_frame))
+      child_frame.root_ref = frame.child_ref;
+      child_frame.idx = 0;
+      child_frame.pc = re_prog_size(r);
+      if (compframe_push(r, child_frame))
         return ERR_MEM;
     }
     returned_frame = frame;
@@ -620,9 +625,10 @@ void re_prog_dump(re *r) {
   u32 i;
   for (i = 0; i < re_prog_size(r); i++) {
     inst ins = re_prog_get(r, i);
-    const char *ops[] = {"RANGE", "ASSRT", "MATCH", "SPLIT"};
-    printf("%04X %s %04X %04X\n", i, ops[INST_OP(ins)], INST_N(ins),
-           INST_P(ins));
+    static const char *ops[] = {"RANGE", "ASSRT", "MATCH", "SPLIT"};
+    static const int colors[] = {91, 92, 93, 94};
+    printf("%04X \x1b[%im%s\x1b[0m %04X %04X\n", i, colors[INST_OP(ins)],
+           ops[INST_OP(ins)], INST_N(ins), INST_P(ins));
   }
 }
 
