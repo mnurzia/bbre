@@ -13,7 +13,7 @@
 #define ERR_PARSE 2
 
 typedef struct ast {
-  u32 car, cdr;
+  u32 v;
 } ast;
 
 typedef struct stk {
@@ -24,7 +24,13 @@ struct re {
   ast *ast;
   u32 ast_size, ast_alloc, ast_root, ast_sets;
   stk arg_stk, op_stk, comp_stk, prog;
+  u32 entry[4];
 };
+
+#define ENT_ONESHOT 0
+#define ENT_DOTSTAR 2
+#define ENT_FWD 0
+#define ENT_REV 1
 
 void *re_alloc(re *re, size_t prev, size_t next, void *ptr) {
   (void)(re);
@@ -83,6 +89,7 @@ re *re_init(const char *regex) {
   r->ast_size = r->ast_alloc = r->ast_root = r->ast_sets = 0;
   stk_init(r, &r->arg_stk), stk_init(r, &r->op_stk), stk_init(r, &r->comp_stk);
   stk_init(r, &r->prog);
+  memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
     if (re_parse(r, regex, strlen(regex), &r->ast_root)) {
       re_destroy(r);
@@ -111,28 +118,12 @@ u32 re_ast_new(re *re) {
       return REF_NONE;
     re->ast_alloc = next_alloc;
   }
-  re->ast[re->ast_size].car = re->ast[re->ast_size].cdr = REF_NONE;
+  re->ast[re->ast_size].v = REF_NONE;
   if (re->ast_size == REF_NONE) {
     re->ast_size++;
     return re_ast_new(re);
   }
   return re->ast_size++;
-}
-
-u32 re_ast_str(re *re, const char *s, size_t sz) {
-  u32 root = REF_NONE, i, next = root, prev = root;
-  for (i = 0; i < sz; i++) {
-    next = re_ast_new(re);
-    if (next == REF_NONE)
-      return next;
-    if (prev != REF_NONE)
-      re->ast[prev].cdr = next;
-    else
-      root = next;
-    re->ast[next].car = s[i];
-    prev = next;
-  }
-  return root;
 }
 
 typedef enum ast_type { CHR, CAT, ALT, QUANT, GROUP, FORK } ast_type;
@@ -152,52 +143,35 @@ byte_range u2br(u32 u) { return mkbr(u & 0xFF, u >> 8 & 0xFF); }
 
 #define BYTE_RANGE(l, h) mkbr(l, h)
 
-u32 *re_car(re *re, u32 node) { return &re->ast[node].car; }
-
-u32 *re_cdr(re *re, u32 node) { return &re->ast[node].cdr; }
-
-ast_type re_asttype(re *re, u32 node) { return *(re_car(re, node)); }
-
 u32 re_mkast_new(re *re, ast_type type, u32 nargs, u32 *args) {
-  u32 i, root = re_ast_new(re), prev = root, next;
-  if (!root)
-    return root;
-  *(re_car(re, root)) = type;
-  for (i = 0; i < nargs - 1; i++) {
-    if (!(next = re_ast_new(re)))
-      return next;
-    *(re_cdr(re, prev)) = next;
-    *(re_car(re, next)) = args[i];
-    prev = next;
+  u32 root, i, v;
+  for (i = 0; i < nargs + 1; i++) {
+    if (!(v = re_ast_new(re)))
+      return v;
+    if (!i)
+      root = v, re->ast[root].v = type;
+    else
+      re->ast[v].v = args[i - 1];
   }
-  *(re_cdr(re, prev)) = args[i];
   return root;
 }
 
 void re_decompast(re *re, u32 root, u32 nargs, u32 *args) {
-  u32 i, prev = root, next;
-  for (i = 0; i < nargs - 1; i++) {
-    next = *(re_cdr(re, prev));
-    args[i] = *(re_car(re, next));
-    prev = next;
+  u32 i;
+  for (i = 0; i < nargs; i++) {
+    args[i] = re->ast[root + i + 1].v;
   }
-  args[i] = *(re_cdr(re, prev));
 }
 
 u32 *re_astarg(re *re, u32 root, u32 n, u32 nargs) {
-  u32 i, prev = root, next;
-  for (i = 0; i < nargs - 1; i++) {
-    next = *(re_cdr(re, prev));
-    if (i == n)
-      return re_car(re, next);
-    prev = next;
-  }
-  return re_cdr(re, prev);
+  (void)(nargs);
+  return &((re->ast + root + 1 + n)->v);
 }
 
+u32 *re_asttype(re *re, u32 root) { return &((re->ast + root)->v); }
+
 void re_ast_dump(re *r, u32 root, u32 ilvl) {
-  ast *a = r->ast + root;
-  u32 i, first = a->car, rest = a->cdr;
+  u32 i, first = r->ast[root].v, rest = r->ast[root + 1].v;
   printf("%04u ", root);
   for (i = 0; i < ilvl; i++)
     printf(" ");
@@ -269,18 +243,20 @@ int re_fold(re *r) {
 int re_fold_alts(re *r) {
   assert(r->arg_stk.size == 1 || r->arg_stk.size == 0);
   if (r->op_stk.size && r->arg_stk.size &&
-      *re_car(r, stk_peek(r, &r->op_stk, 0)) == ALT)
+      *re_asttype(r, stk_peek(r, &r->op_stk, 0)) == ALT)
     /* finish the last alt */
     *re_astarg(r, stk_peek(r, &r->op_stk, 0), 1, 2) = stk_pop(r, &r->arg_stk);
-  while (r->op_stk.size > 1 && *re_car(r, stk_peek(r, &r->op_stk, 0)) == ALT &&
-         *re_car(r, stk_peek(r, &r->op_stk, 1)) == ALT) {
+  while (r->op_stk.size > 1 &&
+         *re_asttype(r, stk_peek(r, &r->op_stk, 0)) == ALT &&
+         *re_asttype(r, stk_peek(r, &r->op_stk, 1)) == ALT) {
     u32 right = stk_pop(r, &r->op_stk), left = stk_pop(r, &r->op_stk);
     *re_astarg(r, left, 1, 2) = right;
     if (stk_push(r, &r->op_stk, left))
       return ERR_MEM;
   }
   /* op_stk has either 0 or 1 value above the last group, and it's an alt */
-  if (r->op_stk.size && *re_car(r, r->op_stk.ptr[r->op_stk.size - 1]) == ALT) {
+  if (r->op_stk.size &&
+      *re_asttype(r, r->op_stk.ptr[r->op_stk.size - 1]) == ALT) {
     /* push it to arg_stk */
     if (stk_push(r, &r->arg_stk, stk_pop(r, &r->op_stk)))
       return ERR_MEM;
@@ -297,7 +273,7 @@ int re_parse(re *r, const char *s, size_t sz, u32 *root) {
       if (!r->arg_stk.size)
         return ERR_PARSE; /* not enough values on the stk */
       args[0] = stk_pop(r, &r->arg_stk);
-      args[1] = ch == '+', args[2] = ch == '?' ? 1 : INFTY;
+      args[1] = ch == '+', args[2] = (ch == '?' ? 1 : INFTY);
       if (!(res = re_mkast_new(r, QUANT, 3, args)))
         return ERR_MEM;
       if (stk_push(r, &r->arg_stk, res))
@@ -382,6 +358,24 @@ int re_emit(re *r, inst i) {
   return 0;
 }
 
+void re_prog_dump(re *r) {
+  u32 i, j, k;
+  for (i = 0; i < re_prog_size(r); i++) {
+    inst ins = re_prog_get(r, i);
+    static const char *ops[] = {"RANGE", "ASSRT", "MATCH", "SPLIT"};
+    static const int colors[] = {91, 92, 93, 94};
+    static const char *labels[] = {"F", "R", "F.*", "R.*", "", "+"};
+    k = 4;
+    for (j = 0; j < 4; j++) {
+      if (i == r->entry[j]) {
+        k = k == 4 ? j : 5;
+      }
+    }
+    printf("%04X \x1b[%im%s\x1b[0m %04X %04X %s\n", i, colors[INST_OP(ins)],
+           ops[INST_OP(ins)], INST_N(ins), INST_P(ins), labels[k]);
+  }
+}
+
 typedef struct compframe {
   u32 root_ref, child_ref, idx, patch_head, patch_tail, pc;
 } compframe;
@@ -416,6 +410,7 @@ enum op { RANGE, ASSERT, MATCH, SPLIT };
 
 inst patch_set(re *r, u32 pc, u32 val) {
   inst prev = re_prog_get(r, pc >> 1);
+  assert(pc);
   re_prog_set(r, pc >> 1,
               INST(INST_OP(prev), pc & 1 ? INST_N(prev) : val,
                    pc & 1 ? val : INST_P(prev)));
@@ -451,15 +446,14 @@ void patch_xfer(compframe *dst, compframe *src) {
 
 void patch(re *r, compframe *p, u32 dest_pc) {
   u32 i = p->patch_head;
-  while (i != p->patch_tail) {
+  while (i) {
     inst prev = patch_set(r, i, dest_pc);
     i = i & 1 ? INST_P(prev) : INST_N(prev);
   }
-  patch_set(r, i, dest_pc);
   p->patch_head = p->patch_tail = REF_NONE;
 }
 
-int re_compile(re *r, u32 root) {
+int re_compile(re *r, u32 root, u32 reverse) {
   compframe initial_frame, returned_frame, child_frame;
   u32 set_idx = 0, grp_idx = 0;
   if (!r->prog.size && (stk_push(r, &r->prog, 0) || stk_push(r, &r->prog, 0)))
@@ -471,6 +465,7 @@ int re_compile(re *r, u32 root) {
   initial_frame.pc = re_prog_size(r);
   if (compframe_push(r, initial_frame))
     return ERR_MEM;
+  r->entry[ENT_ONESHOT | (reverse ? ENT_REV : ENT_FWD)] = initial_frame.pc;
   while (r->comp_stk.size) {
     compframe frame = compframe_pop(r);
     ast_type type;
@@ -478,29 +473,39 @@ int re_compile(re *r, u32 root) {
     frame.child_ref = frame.root_ref;
     child_frame.child_ref = child_frame.root_ref = child_frame.patch_head =
         child_frame.patch_tail = REF_NONE;
-    type = *re_car(r, frame.root_ref);
+    type = *re_asttype(r, frame.root_ref);
     if (!frame.root_ref) {
       /* epsilon */
+      /*  in/out  */
+      /* -------> */
     } else if (type == CHR) {
+      /*  in     out
+       * ---> C ----> */
       patch(r, &frame, my_pc);
       re_decompast(r, frame.root_ref, 1, args);
       if (re_emit(r, INST(RANGE, 0, br2u(BYTE_RANGE(args[0], args[0])))))
         return ERR_MEM;
       patch_add(r, &frame, my_pc, 0);
     } else if (type == CAT) {
+      /*  in              out
+       * ---> [A] -> [B] ----> */
       re_decompast(r, frame.root_ref, 2, args);
-      if (frame.idx == 0) {        /* before left child */
-        frame.child_ref = args[0]; /* push left child */
+      if (frame.idx == 0) {              /* before left child */
+        frame.child_ref = args[reverse]; /* push left child */
         patch_xfer(&child_frame, &frame);
         frame.idx++;
-      } else if (frame.idx == 1) { /* after left child */
-        frame.child_ref = args[1]; /* push right child */
+      } else if (frame.idx == 1) {        /* after left child */
+        frame.child_ref = args[!reverse]; /* push right child */
         patch_xfer(&child_frame, &returned_frame);
         frame.idx++;
       } else if (frame.idx == 2) { /* after right child */
         patch_xfer(&frame, &returned_frame);
       }
     } else if (type == ALT) {
+      /*  in             out
+       * ---> S --> [A] ---->
+       *       \         out
+       *        --> [B] ----> */
       re_decompast(r, frame.root_ref, 2, args);
       if (frame.idx == 0) { /* before left child */
         patch(r, &frame, frame.pc);
@@ -516,6 +521,12 @@ int re_compile(re *r, u32 root) {
         patch_merge(r, &frame, &returned_frame);
       }
     } else if (type == QUANT) {
+      /*  in
+       *        +-------+
+       *       /         \
+       * ---> S -> [A] --+
+       *      \             out
+       *      +-----------------> */
       u32 child, min, max;
       re_decompast(r, frame.root_ref, 3, args);
       child = args[0], min = args[1], max = args[2];
@@ -526,6 +537,7 @@ int re_compile(re *r, u32 root) {
         patch(r, frame.idx ? &returned_frame : &frame, my_pc);
         if (re_emit(r, INST(SPLIT, 0, 0)))
           return ERR_MEM;
+        frame.pc = my_pc;
         patch_add(r, &child_frame, my_pc, 0);
         patch_add(r, &frame, my_pc, 1);
         frame.child_ref = child;
@@ -544,12 +556,14 @@ int re_compile(re *r, u32 root) {
       }
       frame.idx++;
     } else if (type == GROUP) {
+      /*  in                 out
+       * ---> M -> [A] -> M ----> */
       u32 child;
       re_decompast(r, frame.root_ref, 2, args);
       child = args[0];
       if (!frame.idx) { /* before child */
         patch(r, &frame, my_pc);
-        if (re_emit(r, INST(MATCH, 0, IMATCH(1, 2 * grp_idx++))))
+        if (re_emit(r, INST(MATCH, 0, IMATCH(1, 2 * grp_idx++ + reverse))))
           return ERR_MEM;
         patch_add(r, &child_frame, my_pc, 0);
         frame.child_ref = child, frame.idx++;
@@ -558,11 +572,15 @@ int re_compile(re *r, u32 root) {
         if (re_emit(r,
                     INST(MATCH, 0,
                          IMATCH(1, IMATCH_I(INST_P(re_prog_get(r, frame.pc))) +
-                                       1))))
+                                       (reverse ? -1 : 1)))))
           return ERR_MEM;
         patch_add(r, &frame, my_pc, 0);
       }
     } else if (type == FORK) {
+      /*  in
+       * ---> S --> [A] -> M
+       *       \         out
+       *       +--> [B] ----> */
       re_decompast(r, frame.root_ref, 2, args);
       if (frame.idx == 0) { /* before left child */
         patch(r, &frame, frame.pc);
@@ -596,18 +614,17 @@ int re_compile(re *r, u32 root) {
   patch(r, &returned_frame, re_prog_size(r));
   if (re_emit(r, INST(MATCH, 0, IMATCH(0, 1 + set_idx))))
     return ERR_MEM;
-  return 0;
-}
-
-void re_prog_dump(re *r) {
-  u32 i;
-  for (i = 0; i < re_prog_size(r); i++) {
-    inst ins = re_prog_get(r, i);
-    static const char *ops[] = {"RANGE", "ASSRT", "MATCH", "SPLIT"};
-    static const int colors[] = {91, 92, 93, 94};
-    printf("%04X \x1b[%im%s\x1b[0m %04X %04X\n", i, colors[INST_OP(ins)],
-           ops[INST_OP(ins)], INST_N(ins), INST_P(ins));
+  {
+    u32 dstar = r->entry[ENT_DOTSTAR | (reverse ? ENT_REV : ENT_FWD)] =
+        re_prog_size(r);
+    if (re_emit(r, INST(SPLIT,
+                        r->entry[ENT_ONESHOT | (reverse ? ENT_REV : ENT_FWD)],
+                        dstar + 1)))
+      return ERR_MEM;
+    if (re_emit(r, INST(CHR, dstar, br2u(mkbr(0, 255)))))
+      return ERR_MEM;
   }
+  return 0;
 }
 
 typedef struct thrdspec {
@@ -657,6 +674,7 @@ void sset_destroy(re *r, sset *s) {
 void sset_add(sset *s, thrdspec spec) {
   assert(spec.pc < s->dense_alloc);
   assert(s->dense_size < s->dense_alloc);
+  assert(spec.pc);
   s->dense[s->dense_size] = spec;
   s->sparse[spec.pc] = s->dense_size++;
 }
@@ -764,35 +782,23 @@ typedef struct exec_nfa {
   sset a, b, c;
   stk thrd_stk;
   save_slots slots;
+  stk pri_stk;
 } exec_nfa;
 
 void exec_nfa_init(re *r, exec_nfa *n) {
   sset_init(r, &n->a), sset_init(r, &n->b), sset_init(r, &n->c);
-  stk_init(r, &n->thrd_stk);
+  stk_init(r, &n->thrd_stk), stk_init(r, &n->pri_stk);
   save_slots_init(r, &n->slots);
 }
 
 void exec_nfa_destroy(re *r, exec_nfa *n) {
   sset_destroy(r, &n->a), sset_destroy(r, &n->b), sset_destroy(r, &n->c);
-  stk_destroy(r, &n->thrd_stk);
+  stk_destroy(r, &n->thrd_stk), stk_destroy(r, &n->pri_stk);
   save_slots_destroy(r, &n->slots);
 }
 
-int exec_nfa_start(re *r, exec_nfa *n, u32 pc, u32 ngrp) {
-  thrdspec initial_thrd;
-  if (sset_reset(r, &n->a, r->prog.size) ||
-      sset_reset(r, &n->b, r->prog.size) || sset_reset(r, &n->c, r->prog.size))
-    return ERR_MEM;
-  n->thrd_stk.size = 0;
-  save_slots_clear(&n->slots, ngrp);
-  initial_thrd.pc = pc;
-  if (!(initial_thrd.slot = save_slots_new(r, &n->slots)))
-    return ERR_MEM;
-  sset_add(&n->a, initial_thrd);
-  return 0;
-}
-
 int thrdstk_push(re *r, stk *s, thrdspec t) {
+  assert(t.pc);
   return stk_push(r, s, t.pc) || stk_push(r, s, t.slot);
 }
 
@@ -801,6 +807,25 @@ thrdspec thrdstk_pop(re *r, stk *s) {
   out.slot = stk_pop(r, s);
   out.pc = stk_pop(r, s);
   return out;
+}
+
+int exec_nfa_start(re *r, exec_nfa *n, u32 pc, u32 ngrp, u32 nset) {
+  thrdspec initial_thrd;
+  u32 i;
+  if (sset_reset(r, &n->a, r->prog.size) ||
+      sset_reset(r, &n->b, r->prog.size) || sset_reset(r, &n->c, r->prog.size))
+    return ERR_MEM;
+  n->thrd_stk.size = 0, n->pri_stk.size = 0;
+  save_slots_clear(&n->slots, ngrp);
+  initial_thrd.pc = pc;
+  if (!(initial_thrd.slot = save_slots_new(r, &n->slots)))
+    return ERR_MEM;
+  sset_add(&n->a, initial_thrd);
+  initial_thrd.pc = initial_thrd.slot = 0;
+  for (i = 0; i < nset; i++)
+    if (thrdstk_push(r, &n->pri_stk, initial_thrd))
+      return ERR_MEM;
+  return 0;
 }
 
 int exec_nfa_eps(re *r, exec_nfa *n, size_t pos) {
@@ -922,6 +947,16 @@ int exec_nfa_run(re *r, exec_nfa *n, unsigned int ch, size_t pos) {
   return exec_nfa_chr(r, n, ch);
 }
 
+/* problem: how the fuck do we do unanchored set matches? */
+/* solutions:
+ * - introduce "partition" instructions
+ *   - designate special instructions that never expire in the sparse set
+ *   - we know a set member has died if its partition contains no threads
+ * - introduce match instructions that detect bounds
+ *   - performance penalty for other types of matches
+ * - just don't support it!
+ *   - are we hurting ourselves here? */
+
 /* fully-anchored match: run every character */
 /* start-anchored match: run until priority exhaustion */
 /* end-anchored match:   run reverse until priority exhaustion */
@@ -931,18 +966,20 @@ int re_match(re *r, const char *s, size_t n, u32 max_span, u32 max_set,
              span *out_span, u32 *out_set, anchor_type anchor) {
   exec_nfa nfa;
   int err = 0;
+  u32 entry = entry = anchor == A_END          ? ENT_REV
+                      : anchor == A_UNANCHORED ? ENT_FWD | ENT_DOTSTAR
+                                               : ENT_FWD;
   size_t i;
-  (void)(anchor);
-  if (!re_prog_size(r) && (err = re_compile(r, r->ast_root)))
+  if (!re_prog_size(r) && ((err = re_compile(r, r->ast_root, ENT_FWD)) ||
+                           (err = re_compile(r, r->ast_root, ENT_REV))))
     return err;
-  re_ast_dump(r, r->ast_root, 0);
-  re_prog_dump(r);
   exec_nfa_init(r, &nfa);
-  if ((err = exec_nfa_start(r, &nfa, 1, max_span * 2)))
+  if ((err = exec_nfa_start(r, &nfa, r->entry[entry], max_span * 2, max_set)))
     goto done;
-  for (i = 0; i < n; i++)
+  for (i = 0; i < n; i++) {
     if ((err = exec_nfa_run(r, &nfa, s[i], i)))
       goto done;
+  }
   if ((err = exec_nfa_end(r, n, &nfa, max_span, max_set, out_span, out_set)))
     goto done;
 done:
