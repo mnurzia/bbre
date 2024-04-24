@@ -7,14 +7,24 @@
 
 #define ASSERT_MATCH(regex, str)                                               \
   do {                                                                         \
-    re *r = re_init(regex);                                                    \
+    re *r;                                                                     \
+    int err;                                                                   \
+    if ((err = re_init_full(&r, regex)) == ERR_MEM)                            \
+      PASS();                                                                  \
+    ASSERT(err != ERR_PARSE);                                                  \
+    ASSERT(!err);                                                              \
     ASSERT(re_match(r, str, strlen(str), 0, 0, NULL, NULL, A_BOTH));           \
     re_destroy(r);                                                             \
   } while (0)
 
 #define ASSERT_NMATCH(regex, str)                                              \
   do {                                                                         \
-    re *r = re_init(regex);                                                    \
+    re *r;                                                                     \
+    int err;                                                                   \
+    if ((err = re_init_full(&r, regex)) == ERR_MEM)                            \
+      PASS();                                                                  \
+    ASSERT(err != ERR_PARSE);                                                  \
+    ASSERT(!err);                                                              \
     ASSERT(!re_match(r, str, strlen(str), 0, 0, NULL, NULL, A_BOTH));          \
     re_destroy(r);                                                             \
   } while (0)
@@ -65,6 +75,11 @@ TEST(alt) {
   PASS();
 }
 
+TEST(cls) {
+  ASSERT_MATCH("[a-mo-q]", "a");
+  PASS();
+}
+
 int main(int argc, const char *const *argv) {
   MPTEST_MAIN_BEGIN_ARGS(argc, argv);
   RUN_TEST(init);
@@ -72,5 +87,6 @@ int main(int argc, const char *const *argv) {
   RUN_TEST(cat);
   RUN_TEST(quant);
   RUN_TEST(alt);
+  RUN_TEST(cls);
   MPTEST_MAIN_END();
 }
