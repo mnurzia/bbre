@@ -76,7 +76,10 @@ TEST(alt) {
 }
 
 TEST(cls) {
+  ASSERT_MATCH("[a]", "a");
+  ASSERT_MATCH("[aa]", "a");
   ASSERT_MATCH("[a-mo-q]", "a");
+  ASSERT_MATCH("[]]", "]");
   PASS();
 }
 
