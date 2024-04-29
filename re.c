@@ -136,15 +136,14 @@ u32 re_ast_new(re *re) {
 }
 
 typedef enum ast_type {
-  REG /* entire subexpression */,
-  CHR /* single character */,
-  CAT /* concatenation*/,
-  ALT /* alternation */,
-  QUANT /* quantifier */,
-  GROUP /* group */,
-  FORK /* alt between two REGs */,
-  CLS /* character class */,
-  ICLS /* inverted character class */
+  REG,   /* entire subexpression */
+  CHR,   /* single character */
+  CAT,   /* concatenation*/
+  ALT,   /* alternation */
+  QUANT, /* quantifier */
+  GROUP, /* group */
+  CLS,   /* character class */
+  ICLS   /* inverted character class */
 } ast_type;
 
 typedef struct byte_range {
@@ -224,10 +223,6 @@ void re_ast_dump(re *r, u32 root, u32 ilvl) {
     printf("QNT min=%u max=%u\n", *re_astarg(r, root, 1, 3),
            *re_astarg(r, root, 2, 3));
     re_ast_dump(r, *re_astarg(r, root, 0, 3), ilvl + 1);
-  } else if (first == FORK) {
-    printf("FORK\n");
-    re_ast_dump(r, *re_astarg(r, root, 0, 2), ilvl + 1);
-    re_ast_dump(r, *re_astarg(r, root, 1, 2), ilvl + 1);
   } else if (first == CLS) {
     printf("CLS min=%u max=%u\n", *re_astarg(r, root, 0, 3),
            *re_astarg(r, root, 1, 3));
@@ -248,7 +243,7 @@ int re_union(re *r, const char *regex) { /* add a FORK here */
     if ((err = re_parse(r, regex, strlen(regex), fork_args + 1)))
       return ERR_MEM;
     fork_args[0] = r->ast_root;
-    if (!(next_root = re_mkast_new(r, FORK, 2, fork_args)))
+    if (!(next_root = re_mkast_new(r, ALT, 2, fork_args)))
       return ERR_MEM;
     r->ast_root = next_root;
   }
@@ -902,26 +897,22 @@ void re_compcc_hashtree(re *r, stk *cc_tree_in, stk *cc_ht_out,
       }
     }
     {
-      u32 hash_corpus[3] = {0, 0, 0};
-      memset(hash_corpus, 0, sizeof(hash_corpus));
-      hash_corpus[0] = child_node.range;
+      u32 hash_plain[3] = {0x6D99232E, 0xC281FF0B, 0x54978D96};
+      memset(hash_plain, 0, sizeof(hash_plain));
+      hash_plain[0] ^= child_node.range;
       if (child_node.sibling_ref) {
         compcc_node child_sibling_node;
         cc_treeget(cc_tree_in, child_node.sibling_ref, &child_sibling_node);
-        hash_corpus[1] = child_sibling_node.hash;
-      } else {
-        hash_corpus[1] = 0xF0F0F0F0;
+        hash_plain[1] = child_sibling_node.hash;
       }
       if (child_node.child_ref) {
         compcc_node child_child_node;
         cc_treeget(cc_tree_in, child_node.child_ref, &child_child_node);
-        hash_corpus[2] = child_child_node.hash;
-      } else {
-        hash_corpus[2] = 0xF0F0F0F0;
+        hash_plain[2] = child_child_node.hash;
       }
       child_node.hash =
-          hashington(hashington(hashington(hash_corpus[0]) + hash_corpus[1]) +
-                     hash_corpus[2]);
+          hashington(hashington(hashington(hash_plain[0]) + hash_plain[1]) +
+                     hash_plain[2]);
       cc_treeset(cc_tree_in, child_ref, child_node);
     }
     sibling_ref = child_ref;
@@ -1149,9 +1140,9 @@ int re_compile(re *r, u32 root, u32 reverse) {
       /*  in
        *        +-------+
        *       /         \
-       * ---> S -> [A] --+
-       *      \             out
-       *      +-----------------> */
+       * ---> S -> [A] ---+
+       *       \             out
+       *        +-----------------> */
       u32 child, min, max;
       re_decompast(r, frame.root_ref, 3, args);
       child = args[0], min = args[1], max = args[2];
@@ -1169,8 +1160,8 @@ int re_compile(re *r, u32 root, u32 reverse) {
       } else if (max == INFTY && frame.idx == min + 1) { /* after inf. bound */
         patch(r, &returned_frame, frame.pc);
       } else if (frame.idx < max) { /* before maximum bound */
-        if (frame.idx == min && frame.idx)
-          patch(r, &returned_frame, my_pc);
+        if (frame.idx == min)
+          patch(r, frame.idx ? &returned_frame : &frame, my_pc);
         if (re_emit(r, INST(SPLIT, 0, 0)))
           return ERR_MEM;
         patch_add(r, &child_frame, my_pc, 0);
@@ -1200,28 +1191,6 @@ int re_compile(re *r, u32 root, u32 reverse) {
                                        (reverse ? -1 : 1)))))
           return ERR_MEM;
         patch_add(r, &frame, my_pc, 0);
-      }
-    } else if (type == FORK) {
-      /*  in
-       * ---> S ---> [A] -> M
-       *       \
-       *        \          out
-       *         +--> [B] ----> */
-      re_decompast(r, frame.root_ref, 2, args);
-      if (frame.idx == 0) { /* before left child */
-        patch(r, &frame, frame.pc);
-        if (re_emit(r, INST(SPLIT, frame.pc + 1, 0)))
-          return ERR_MEM;
-        patch_add(r, &child_frame, frame.pc + 1, 0);
-        frame.child_ref = args[0], frame.idx++;
-      } else if (frame.idx == 1) { /* after left child */
-        if (re_emit(r, INST(MATCH, 0, IMATCH(0, 1 + set_idx++))))
-          return ERR_MEM;
-        patch(r, &returned_frame, my_pc);
-        patch_add(r, &child_frame, frame.pc, 1);
-        frame.child_ref = args[1], frame.idx++, grp_idx = 0;
-      } else if (frame.idx == 2) { /* after right child */
-        patch_xfer(&frame, &returned_frame);
       }
     } else if (type == CLS) {
       if (re_compcc(r, frame.root_ref, &frame))
@@ -1600,8 +1569,6 @@ int re_match(re *r, const char *s, size_t n, u32 max_span, u32 max_set,
   if (!re_prog_size(r) && ((err = re_compile(r, r->ast_root, ENT_FWD)) ||
                            (err = re_compile(r, r->ast_root, ENT_REV))))
     return err;
-  re_ast_dump(r, r->ast_root, 0);
-  re_prog_dump(r);
   exec_nfa_init(r, &nfa);
   if ((err = exec_nfa_start(r, &nfa, r->entry[entry], max_span * 2, max_set)))
     goto done;
