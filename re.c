@@ -138,7 +138,7 @@ u32 re_ast_new(re *re) {
 typedef enum ast_type {
   REG,   /* entire subexpression */
   CHR,   /* single character */
-  CAT,   /* concatenation*/
+  CAT,   /* concatenation */
   ALT,   /* alternation */
   QUANT, /* quantifier */
   GROUP, /* group */
@@ -234,7 +234,7 @@ void re_ast_dump(re *r, u32 root, u32 ilvl) {
   }
 }
 
-int re_union(re *r, const char *regex) { /* add a FORK here */
+int re_union(re *r, const char *regex) { /* add an ALT here */
   int err = 0;
   if (!r->ast_sets && (err = re_parse(r, regex, strlen(regex), &r->ast_root))) {
     return err;
@@ -247,6 +247,7 @@ int re_union(re *r, const char *regex) { /* add a FORK here */
       return ERR_MEM;
     r->ast_root = next_root;
   }
+  r->ast_sets++;
   return err;
 }
 
@@ -260,6 +261,8 @@ int re_next(const char **s, size_t *sz, u32 *first) {
 #define MAXREP 100000
 #define INFTY (MAXREP + 1)
 
+/* Given nodes R_1...R_N on the argument stack, fold them into a single CAT
+ * node. If there are no nodes on the stack, create an epsilon node. */
 int re_fold(re *r) {
   if (!r->arg_stk.size) {
     /* arg_stk: | */
@@ -282,6 +285,9 @@ int re_fold(re *r) {
   return 0;
 }
 
+/* Given a node R on the argument stack and an arbitrary number of ALT nodes at
+ * the end of the operator stack, fold and finish each ALT node into a single
+ * resulting ALT node on the argument stack. */
 int re_fold_alts(re *r) {
   assert(r->arg_stk.size);
   /* arg_stk: |  R  | */
@@ -296,7 +302,7 @@ int re_fold_alts(re *r) {
   while (r->op_stk.size > 1 &&
          *re_asttype(r, stk_peek(r, &r->op_stk, 0)) == ALT &&
          *re_asttype(r, stk_peek(r, &r->op_stk, 1)) == ALT) {
-    /* op_stk:  | ... | A_1 | a_2 | */
+    /* op_stk:  | ... | A_1 | A_2 | */
     u32 right = stk_pop(r, &r->op_stk), left = stk_pop(r, &r->op_stk);
     *re_astarg(r, left, 1, 2) = right;
     if (stk_push(r, &r->op_stk, left))
@@ -1379,12 +1385,14 @@ typedef struct exec_nfa {
   stk thrd_stk;
   save_slots slots;
   stk pri_stk;
+  int reversed, track;
 } exec_nfa;
 
 void exec_nfa_init(re *r, exec_nfa *n) {
   sset_init(r, &n->a), sset_init(r, &n->b), sset_init(r, &n->c);
   stk_init(r, &n->thrd_stk), stk_init(r, &n->pri_stk);
   save_slots_init(r, &n->slots);
+  n->reversed = n->track = 0;
 }
 
 void exec_nfa_destroy(re *r, exec_nfa *n) {
@@ -1405,22 +1413,25 @@ thrdspec thrdstk_pop(re *r, stk *s) {
   return out;
 }
 
-int exec_nfa_start(re *r, exec_nfa *n, u32 pc, u32 ngrp, u32 nset) {
+int exec_nfa_start(re *r, exec_nfa *n, u32 pc, u32 noff, int reversed,
+                   int track) {
   thrdspec initial_thrd;
   u32 i;
   if (sset_reset(r, &n->a, r->prog.size) ||
       sset_reset(r, &n->b, r->prog.size) || sset_reset(r, &n->c, r->prog.size))
     return ERR_MEM;
   n->thrd_stk.size = 0, n->pri_stk.size = 0;
-  save_slots_clear(&n->slots, ngrp);
+  save_slots_clear(&n->slots, noff);
   initial_thrd.pc = pc;
   if (!(initial_thrd.slot = save_slots_new(r, &n->slots)))
     return ERR_MEM;
   sset_add(&n->a, initial_thrd);
   initial_thrd.pc = initial_thrd.slot = 0;
-  for (i = 0; i < nset; i++)
-    if (thrdstk_push(r, &n->pri_stk, initial_thrd))
+  for (i = 0; i < r->ast_sets; i++)
+    if (stk_push(r, &n->pri_stk, 0))
       return ERR_MEM;
+  n->reversed = reversed;
+  n->track = track;
   return 0;
 }
 
@@ -1454,7 +1465,7 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos) {
           break;
         } /* else fall-through */
       case RANGE:
-        sset_add(&n->b, top); /* this is a range or match */
+        sset_add(&n->b, top); /* this is a range or final match */
         break;
       case SPLIT: {
         thrdspec pri, sec;
@@ -1474,7 +1485,23 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos) {
   return 0;
 }
 
-int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch) {
+int exec_nfa_matchend(re *r, exec_nfa *n, u32 idx, thrdspec thrd, size_t pos,
+                      unsigned int ch) {
+  u32 *memo = n->pri_stk.ptr + idx - 1;
+  if (!n->track && ch < 256)
+    return 0;
+  if (n->slots.per_thrd) {
+    if (*memo)
+      save_slots_kill(&n->slots, *memo);
+    if (!(*memo = save_slots_set(r, &n->slots, thrd.slot, !n->reversed, pos)))
+      return ERR_MEM;
+  } else {
+    *memo = 1; /* just mark that a set was matched */
+  }
+  return 0;
+}
+
+int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos) {
   size_t i;
   for (i = 0; i < n->b.dense_size; i++) {
     thrdspec thrd = n->b.dense[i];
@@ -1491,7 +1518,8 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch) {
     }
     case MATCH: {
       assert(!IMATCH_S(INST_P(op)));
-      save_slots_kill(&n->slots, thrd.slot);
+      if ((exec_nfa_matchend(r, n, IMATCH_I(INST_P(op)), thrd, pos, ch)))
+        return ERR_MEM;
       break;
     }
     default:
@@ -1505,42 +1533,29 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch) {
 /* 0th span is the full bounds, 1st is first group, etc. */
 int exec_nfa_end(re *r, size_t pos, exec_nfa *n, u32 max_span, u32 max_set,
                  span *out_span, u32 *out_set) {
-  size_t i, j, sets = 0;
-  if (exec_nfa_eps(r, n, pos))
+  size_t j, sets = 0, nset = 0;
+  if (exec_nfa_eps(r, n, pos) || exec_nfa_chr(r, n, 256, pos))
     return ERR_MEM;
-  for (i = 0; i < n->b.dense_size; i++) {
-    thrdspec thrd = n->b.dense[i];
-    inst op = re_prog_get(r, thrd.pc);
-    switch (INST_OP(op)) {
-    case RANGE:
-      break;
-    case MATCH: {
-      assert(!IMATCH_S(INST_P(op)));
-      if (max_span > 1) {
-        assert(save_slots_perthrd(&n->slots) == max_span * 2);
-        for (j = 0; j < max_span; j++) {
-          out_span[sets * max_span + j].begin =
-              save_slots_get(&n->slots, thrd.slot, j);
-          out_span[sets * max_span + j].end =
-              save_slots_get(&n->slots, thrd.slot, j + 1);
-        }
-      }
-      if (max_set > 0)
-        out_set[sets] = IMATCH_I(INST_P(op));
-      sets++;
-      break;
+  for (sets = 0; sets < r->ast_sets; sets++) {
+    u32 slot = n->pri_stk.ptr[sets];
+    if (!slot)
+      continue; /* no match for this set */
+    for (j = 0; j < max_span; j++) {
+      out_span[nset * max_span + j].begin = save_slots_get(&n->slots, slot, j);
+      out_span[nset * max_span + j].end =
+          save_slots_get(&n->slots, slot, j + 1);
     }
-    default:
-      assert(0);
-    }
+    if (nset < max_set)
+      out_set[nset] = sets;
+    nset++;
   }
-  return sets;
+  return nset;
 }
 
 int exec_nfa_run(re *r, exec_nfa *n, unsigned int ch, size_t pos) {
   if (exec_nfa_eps(r, n, pos))
     return ERR_MEM;
-  return exec_nfa_chr(r, n, ch);
+  return exec_nfa_chr(r, n, ch, pos);
 }
 
 /* problem: how the fuck do we do unanchored set matches? */
@@ -1570,7 +1585,8 @@ int re_match(re *r, const char *s, size_t n, u32 max_span, u32 max_set,
                            (err = re_compile(r, r->ast_root, ENT_REV))))
     return err;
   exec_nfa_init(r, &nfa);
-  if ((err = exec_nfa_start(r, &nfa, r->entry[entry], max_span * 2, max_set)))
+  if ((err = exec_nfa_start(r, &nfa, r->entry[entry], max_span * 2,
+                            entry & ENT_REV, entry & ENT_DOTSTAR)))
     goto done;
   for (i = 0; i < n; i++) {
     if ((err = exec_nfa_run(r, &nfa, s[i], i)))

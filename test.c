@@ -29,6 +29,21 @@
     re_destroy(r);                                                             \
   } while (0)
 
+#define ASSERT_MATCH_1(regex, str, b, e)                                       \
+  do {                                                                         \
+    re *r;                                                                     \
+    int err;                                                                   \
+    span s;                                                                    \
+    if ((err = re_init_full(&r, regex)) == ERR_MEM)                            \
+      PASS();                                                                  \
+    ASSERT_NEQ(err, ERR_PARSE);                                                \
+    ASSERT(!err);                                                              \
+    ASSERT(re_match(r, str, strlen(str), 1, 0, &s, NULL, A_BOTH));             \
+    ASSERT_EQ(s.begin, b);                                                     \
+    ASSERT_EQ(s.end, e);                                                       \
+    re_destroy(r);                                                             \
+  } while (0)
+
 TEST(init) {
   re *r;
   r = re_init("");
@@ -83,6 +98,14 @@ TEST(cls) {
   PASS();
 }
 
+TEST(bounds) {
+  ASSERT_MATCH_1("", "", 0, 0);
+  ASSERT_MATCH_1("a", "a", 0, 1);
+  ASSERT_MATCH_1("a|b", "a", 0, 1);
+  ASSERT_MATCH_1("aa", "aa", 0, 2);
+  PASS();
+}
+
 int main(int argc, const char *const *argv) {
   MPTEST_MAIN_BEGIN_ARGS(argc, argv);
   RUN_TEST(init);
@@ -91,5 +114,6 @@ int main(int argc, const char *const *argv) {
   RUN_TEST(quant);
   RUN_TEST(alt);
   RUN_TEST(cls);
+  RUN_TEST(bounds);
   MPTEST_MAIN_END();
 }
