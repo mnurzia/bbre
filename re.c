@@ -77,7 +77,7 @@ u32 stk_peek(re *r, stk *s, u32 idx) {
   return s->ptr[s->size - 1 - idx];
 }
 
-int re_parse(re *r, const char *s, size_t sz, u32 *root);
+int re_parse(re *r, const unsigned char *s, size_t sz, u32 *root);
 
 re *re_init(const char *regex) {
   re *r;
@@ -99,7 +99,8 @@ int re_init_full(re **pr, const char *regex) {
   stk_init(r, &r->prog);
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
-    if ((err = re_parse(r, regex, strlen(regex), &r->ast_root))) {
+    if ((err = re_parse(r, (const unsigned char *)regex, strlen(regex),
+                        &r->ast_root))) {
       re_destroy(r);
       return err;
     } else {
@@ -137,13 +138,14 @@ u32 re_ast_new(re *re) {
 
 typedef enum ast_type {
   REG,   /* entire subexpression */
-  CHR,   /* single character */
+  CHR,   /* single ASCII character */
   CAT,   /* concatenation */
   ALT,   /* alternation */
   QUANT, /* quantifier */
   GROUP, /* group */
   CLS,   /* character class */
-  ICLS   /* inverted character class */
+  ICLS,  /* inverted character class */
+  BYTE   /* any byte (\C) */
 } ast_type;
 
 typedef struct byte_range {
@@ -236,11 +238,13 @@ void re_ast_dump(re *r, u32 root, u32 ilvl) {
 
 int re_union(re *r, const char *regex) { /* add an ALT here */
   int err = 0;
-  if (!r->ast_sets && (err = re_parse(r, regex, strlen(regex), &r->ast_root))) {
+  if (!r->ast_sets && (err = re_parse(r, (const unsigned char *)regex,
+                                      strlen(regex), &r->ast_root))) {
     return err;
   } else {
     u32 fork_args[2] = {0}, next_root;
-    if ((err = re_parse(r, regex, strlen(regex), fork_args + 1)))
+    if ((err = re_parse(r, (const unsigned char *)regex, strlen(regex),
+                        fork_args + 1)))
       return ERR_MEM;
     fork_args[0] = r->ast_root;
     if (!(next_root = re_mkast_new(r, ALT, 2, fork_args)))
@@ -251,11 +255,56 @@ int re_union(re *r, const char *regex) { /* add an ALT here */
   return err;
 }
 
-int re_next(const char **s, size_t *sz, u32 *first) {
-  assert(*sz);
-  (*sz)--;
-  *first = *((*s)++);
-  return 0;
+#define UTF8_ACCEPT 0
+#define UTF8_REJECT 1
+
+static const uint8_t utf8d[] = {
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   1,   1,   1,   1,   1,   1,   1,
+    1,   1,   1,   1,   1,   1,   1,   1,   1,   9,   9,   9,   9,   9,   9,
+    9,   9,   9,   9,   9,   9,   9,   9,   9,   9,   7,   7,   7,   7,   7,
+    7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,
+    7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   8,   8,   2,
+    2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,
+    2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   0xa,
+    0x3, 0x3, 0x3, 0x3, 0x3, 0x3, 0x3, 0x3, 0x3, 0x3, 0x3, 0x3, 0x4, 0x3, 0x3,
+    0xb, 0x6, 0x6, 0x6, 0x5, 0x8, 0x8, 0x8, 0x8, 0x8, 0x8, 0x8, 0x8, 0x8, 0x8,
+    0x8, 0x0, 0x1, 0x2, 0x3, 0x5, 0x8, 0x7, 0x1, 0x1, 0x1, 0x4, 0x6, 0x1, 0x1,
+    0x1, 0x1, 1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,
+    1,   1,   1,   1,   0,   1,   1,   1,   1,   1,   0,   1,   0,   1,   1,
+    1,   1,   1,   1,   1,   2,   1,   1,   1,   1,   1,   2,   1,   2,   1,
+    1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   2,   1,   1,
+    1,   1,   1,   1,   1,   1,   1,   2,   1,   1,   1,   1,   1,   1,   1,
+    2,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   3,
+    1,   3,   1,   1,   1,   1,   1,   1,   1,   3,   1,   1,   1,   1,   1,
+    3,   1,   3,   1,   1,   1,   1,   1,   1,   1,   3,   1,   1,   1,   1,
+    1,   1,   1,   1,   1,   1,   1,   1,   1,   1,
+};
+
+u32 utf8_decode(u32 *state, u32 *codep, u32 byte) {
+  u32 type = utf8d[byte];
+  *codep = (*state != UTF8_ACCEPT) ? (byte & 0x3fu) | (*codep << 6)
+                                   : (0xff >> type) & (byte);
+
+  *state = utf8d[256 + *state * 16 + type];
+  return *state;
+}
+
+int re_next(const unsigned char **s, size_t *sz, u32 *first) {
+  u32 state = UTF8_ACCEPT;
+  assert(*sz && first);
+  *first = 0;
+  while (utf8_decode(&state, first, *((*s)++)), (*sz)--)
+    if (!state)
+      return 0;
+  return state != UTF8_ACCEPT;
 }
 
 #define MAXREP 100000
@@ -320,13 +369,130 @@ int re_fold_alts(re *r) {
   return 0;
 }
 
-int re_mkcc(re *r, u32 rest, u32 min, u32 max) {
+u32 re_mkcc(re *r, u32 rest, u32 min, u32 max) {
   u32 args[3];
   args[0] = min, args[1] = max, args[2] = rest;
   return re_mkast_new(r, CLS, 3, args);
 }
 
-int re_parse(re *r, const char *s, size_t sz, u32 *root) {
+u32 re_uncc(re *r, u32 rest, u32 first) {
+  u32 cur = first, *next;
+  assert(rest && first);
+  while (*(next = re_astarg(r, cur, 2, 3)))
+    cur = *next;
+  *next = rest;
+  return first;
+}
+
+int re_parse_escape_addchr(re *r, u32 ch, u32 allowed_outputs) {
+  u32 res, args[1];
+  assert(allowed_outputs & (1 << CHR));
+  if (ch < 128) {
+    args[0] = ch;
+    if (!(res = re_mkast_new(r, CHR, 1, args)) || stk_push(r, &r->arg_stk, res))
+      return ERR_MEM;
+  } else {
+    if (!(res = re_mkcc(r, REF_NONE, ch, ch)) || stk_push(r, &r->arg_stk, res))
+      return ERR_MEM;
+  }
+  return 0;
+}
+
+int re_hexdig(u32 ch) {
+  if (ch >= '0' && ch <= '9')
+    return ch - '0';
+  else if (ch >= 'a' && ch <= 'f')
+    return ch - 'a' + 10;
+  else if (ch >= 'A' && ch <= 'F')
+    return ch - 'A' + 10;
+  else
+    return -1;
+}
+
+/* after a \ */
+int re_parse_escape(re *r, const unsigned char **s, size_t *sz,
+                    u32 allowed_outputs) {
+  u32 ch;
+  int err = 0;
+  if (!*sz)
+    return ERR_PARSE;
+  if (re_next(s, sz, &ch))
+    return ERR_PARSE;
+  if (                              /* single character escapes */
+      (ch == 'a' && (ch = '\a')) || /* bell */
+      (ch == 'f' && (ch = '\f')) || /* form feed */
+      (ch == 't' && (ch = '\t')) || /* tab */
+      (ch == 'n' && (ch = '\n')) || /* newline */
+      (ch == 'r' && (ch = '\r')) || /* carriage return */
+      (ch == 'v' && (ch = '\v')) || /* vertical tab */
+      (ch == '?') ||                /* question mark */
+      (ch == '*') ||                /* asterisk */
+      (ch == '+') ||                /* plus */
+      (ch == '(') ||                /* open parenthesis */
+      (ch == ')') ||                /* close parenthesis */
+      (ch == '|') /* pipe */) {
+    return re_parse_escape_addchr(r, ch, allowed_outputs);
+  } else if (ch >= '0' && ch <= '7') { /* octal escape */
+    int digs = 1;
+    u32 ord = ch - '0';
+    size_t prev_sz;
+    const unsigned char *prev_s;
+    while (digs++ < 3 && *sz && (prev_sz = *sz) && (prev_s = *s) &&
+           !(err = re_next(s, sz, &ch)) && ch >= '0' && ch <= '7')
+      ord = ord * 8 + ch - '0';
+    if (err)
+      return ERR_PARSE;                 /* encoding */
+    else if (!(ch >= '0' && ch <= '7')) /* over-read */
+      *sz = prev_sz, *s = prev_s;       /* backtrack */
+    return re_parse_escape_addchr(r, ord, allowed_outputs);
+  } else if (ch == 'x') { /* hex escape */
+    u32 ord = 0;
+#define UTFMAX 0x10FFFF
+    if (!*sz || (err = re_next(s, sz, &ch)))
+      return ERR_PARSE; /* expected two hex characters or a bracketed hex lit */
+    if (ch == '{') {    /* bracketed hex lit */
+      u32 i;
+      for (i = 0; i < 8; i++) {
+        if (i == 7 || !*sz || (err = re_next(s, sz, &ch)))
+          return ERR_PARSE; /* expected up to six hex characters */
+        if (ch == '}')
+          break;
+        if ((err = re_hexdig(ch)) == -1)
+          return ERR_PARSE; /* invalid hex digit */
+        ord = ord * 16 + err;
+      }
+      if (!i)
+        return ERR_PARSE; /* expected at least one hex character */
+    } else if ((err = re_hexdig(ch)) == -1) {
+      return ERR_PARSE; /* invalid hex digit */
+    } else {
+      ord = err;
+      if (!*sz || (err = re_next(s, sz, &ch)))
+        return ERR_PARSE; /* expected two hex characters */
+      else if ((err = re_hexdig(ch)) == -1)
+        return ERR_PARSE; /* invalid hex digit */
+      ord = ord * 16 + err;
+    }
+    if (ord > UTFMAX)
+      return ERR_PARSE; /* ordinal out of range [0, 0x10FFFF] */
+    return re_parse_escape_addchr(r, ord, allowed_outputs);
+  } else if (ch == 'C') { /* any byte: \C */
+    u32 res;
+    if (!(allowed_outputs & (1 << BYTE)))
+      return ERR_PARSE; /* cannot use \C here */
+    if (!(res = re_mkast_new(r, BYTE, 0, NULL)) ||
+        !stk_push(r, &r->arg_stk, res))
+      return ERR_MEM;
+  } else if (ch == 'Q') { /* quote string */
+
+  } else {
+    return ERR_PARSE; /* invalid escape */
+  }
+  return 0;
+}
+
+int re_parse(re *r, const unsigned char *s, size_t sz, u32 *root) {
+  int err;
   while (sz) {
     u32 ch;
     u32 args[3] = {REF_NONE}, res = REF_NONE;
@@ -403,6 +569,19 @@ int re_parse(re *r, const char *s, size_t sz, u32 *root) {
               return ERR_MEM;
           } else
             break;
+        } else if (ch == '\\') { /* escape */
+          u32 next;
+          if ((err = re_parse_escape(r, &s, &sz, (1 << CHR) | (1 << CLS))) ||
+              !(next = stk_pop(r, &r->arg_stk)))
+            return err;
+          assert(*re_asttype(r, next) == CHR || *re_asttype(r, next == CLS));
+          if (*re_asttype(r, next) == CHR &&
+              !(res = re_mkcc(r, res, *re_astarg(r, next, 0, 1),
+                              *re_astarg(r, next, 0, 1))))
+            return ERR_MEM;
+          else if (*re_asttype(r, next) == CLS &&
+                   !(res = re_uncc(r, res, next)))
+            return ERR_MEM;
         }
         min = max = ch;
         if (sz > 1 && s[0] == '-') {
@@ -410,7 +589,7 @@ int re_parse(re *r, const char *s, size_t sz, u32 *root) {
           if (re_next(&s, &sz, &ch) /* - */ || re_next(&s, &sz, &max))
             return ERR_PARSE; /* malformed */
           else if (!(res = re_mkcc(r, res, min, max)))
-            return ERR_PARSE;
+            return ERR_MEM;
         } else if (!(res = re_mkcc(r, res, min, max)))
           return ERR_MEM;
       }
@@ -418,12 +597,21 @@ int re_parse(re *r, const char *s, size_t sz, u32 *root) {
         return ERR_PARSE; /* empty charclass */
       if (stk_push(r, &r->arg_stk, res))
         return ERR_MEM;
+    } else if (ch == '\\') { /* escape */
+      if ((err = re_parse_escape(r, &s, &sz, 1 << CHR | 1 << CLS | 1 << BYTE)))
+        return err;
     } else { /* char: push to the arg stk */
       /* arg_stk: | ... | */
-      args[0] = ch;
-      if (!(res = re_mkast_new(r, CHR, 1, args)) ||
-          stk_push(r, &r->arg_stk, res))
-        return ERR_MEM;
+      if (ch < 128) { /* ascii: generate a CHR */
+        args[0] = ch;
+        if (!(res = re_mkast_new(r, CHR, 1, args)) ||
+            stk_push(r, &r->arg_stk, res))
+          return ERR_MEM;
+      } else { /* unicode: generate a CLS */
+        if (!(res = re_mkcc(r, REF_NONE, ch, ch)) ||
+            stk_push(r, &r->arg_stk, res))
+          return ERR_MEM;
+      }
       /* arg_stk: | ... | chr | */
     }
   }
@@ -789,7 +977,7 @@ int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out) {
     static const u32 x_bits[4] = {0, 6, 12, 18};
     ccget(cc_in, i, &min, &max);
     for (j = 0; j < 4; j++) {
-      max_bound = (1 << (x_bits[i] + y_bits[i])) - 1;
+      max_bound = (1 << (x_bits[j] + y_bits[j])) - 1;
       if (min_bound <= min && max <= max_bound) {
         /* [min,max] intersects [min_bound,max_bound] */
         u32 clamped_min = min < min_bound ? min_bound : min, /* clamp range */
@@ -799,9 +987,8 @@ int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out) {
                                            clamped_max, x_bits[j], y_bits[j])))
           return err;
       }
-      min_bound = max_bound;
+      min_bound = max_bound + 1;
     }
-    min_bound = max_bound + 1;
   }
   return err;
 }
@@ -1100,12 +1287,18 @@ int re_compile(re *r, u32 root, u32 reverse) {
         if (re_emit(r, INST(MATCH, 0, IMATCH(0, 1 + set_idx++))))
           return ERR_MEM;
       }
-    } else if (type == CHR) {
+    } else if (type == CHR || type == BYTE) {
       /*  in     out
        * ---> C ----> */
+      byte_range br = BYTE_RANGE(0x00, 0xFF);
       patch(r, &frame, my_pc);
-      re_decompast(r, frame.root_ref, 1, args);
-      if (re_emit(r, INST(RANGE, 0, br2u(BYTE_RANGE(args[0], args[0])))))
+      re_decompast(r, frame.root_ref, type == CHR, args);
+      if (type == CHR) {
+        br = BYTE_RANGE(args[0], args[0]);
+        assert(args[0] <
+               128); /* only ASCII for now, unicode is handled in CLS */
+      }
+      if (re_emit(r, INST(RANGE, 0, br2u(br))))
         return ERR_MEM;
       patch_add(r, &frame, my_pc, 0);
     } else if (type == CAT) {
@@ -1589,7 +1782,7 @@ int re_match(re *r, const char *s, size_t n, u32 max_span, u32 max_set,
                             entry & ENT_REV, entry & ENT_DOTSTAR)))
     goto done;
   for (i = 0; i < n; i++) {
-    if ((err = exec_nfa_run(r, &nfa, s[i], i)))
+    if ((err = exec_nfa_run(r, &nfa, ((const unsigned char *)s)[i], i)))
       goto done;
   }
   if ((err = exec_nfa_end(r, n, &nfa, max_span, max_set, out_span, out_set)))
