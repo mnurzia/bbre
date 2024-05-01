@@ -173,6 +173,7 @@ int br_adjace(byte_range left, byte_range right) {
 
 u32 re_mkast_new(re *re, ast_type type, u32 nargs, u32 *args) {
   u32 root, i, v;
+  assert(nargs || args == NULL);
   for (i = 0; i < nargs + 1; i++) {
     if (!(v = re_ast_new(re)))
       return v;
@@ -577,6 +578,11 @@ int re_parse(re *r, const unsigned char *s, size_t sz, u32 *root) {
         return ERR_MEM;
       /* arg_stk: | (R) | */
       /* op_stk:  | ... | */
+    } else if (ch == '.') { /* any char */
+      /* arg_stk: | ... | */
+      if (!(res = re_mkcc(r, 0, 0, UTFMAX)) || stk_push(r, &r->arg_stk, res))
+        return ERR_MEM;
+      /* arg_stk: | ... |  .  | */
     } else if (ch == '[') { /* charclass */
       size_t start = sz;
       u32 inverted = 0, min, max;
@@ -999,7 +1005,7 @@ int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out) {
     ccget(cc_in, i, &min, &max);
     for (j = 0; j < 4; j++) {
       max_bound = (1 << (x_bits[j] + y_bits[j])) - 1;
-      if (min_bound <= min && max <= max_bound) {
+      if (min_bound <= max && min <= max_bound) {
         /* [min,max] intersects [min_bound,max_bound] */
         u32 clamped_min = min < min_bound ? min_bound : min, /* clamp range */
             clamped_max = max > max_bound ? max_bound : max;
@@ -1202,7 +1208,7 @@ int re_compcc_rendertree(re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref,
       /* terminal: patch out */
       patch_add(r, frame, range_pc, 0);
     }
-    cc_ht->ptr[(probe % cc_ht->size) + 0] = node.hash << 1 | 1;
+    cc_ht->ptr[(probe % cc_ht->size) + 0] = node_ref << 1 | 1;
     cc_ht->ptr[(probe % cc_ht->size) + 1] = my_pc;
     node_ref = node.sibling_ref;
   }
@@ -1266,7 +1272,7 @@ int re_compcc(re *r, u32 root, compframe *frame) {
 
 int re_compile(re *r, u32 root, u32 reverse) {
   compframe initial_frame, returned_frame, child_frame;
-  u32 set_idx = 0, grp_idx = 0, chr_cc_ast = REF_NONE;
+  u32 set_idx = 0, grp_idx = 0, tmp_cc_ast = REF_NONE;
   if (!r->prog.size && (stk_push(r, &r->prog, 0) || stk_push(r, &r->prog, 0)))
     return ERR_MEM;
   initial_frame.root_ref = root;
@@ -1318,11 +1324,11 @@ int re_compile(re *r, u32 root, u32 reverse) {
         patch_add(r, &frame, my_pc, 0);
       } else { /* unicode */
         /* create temp ast */
-        if (!chr_cc_ast && !(chr_cc_ast = re_mkcc(r, REF_NONE, 0, 0)))
+        if (!tmp_cc_ast && !(tmp_cc_ast = re_mkcc(r, REF_NONE, 0, 0)))
           return ERR_MEM;
-        *re_astarg(r, chr_cc_ast, 0, chr_cc_ast) =
-            *re_astarg(r, chr_cc_ast, 1, chr_cc_ast) = args[0];
-        if (re_compcc(r, chr_cc_ast, &frame))
+        *re_astarg(r, tmp_cc_ast, 0, tmp_cc_ast) =
+            *re_astarg(r, tmp_cc_ast, 1, tmp_cc_ast) = args[0];
+        if (re_compcc(r, tmp_cc_ast, &frame))
           return ERR_MEM;
       }
     } else if (type == ANYBYTE) {

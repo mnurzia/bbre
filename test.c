@@ -158,11 +158,50 @@ TEST(unicode_4) {
   PASS();
 }
 
+TEST(unicode_malformed) {
+  ASSERT_NOPARSE("\xff");
+  PASS();
+}
+
 SUITE(unicode) {
   RUN_TEST(unicode_1);
   RUN_TEST(unicode_2);
   RUN_TEST(unicode_3);
   RUN_TEST(unicode_4);
+  RUN_TEST(unicode_malformed);
+}
+
+TEST(anychar_unicode_1) {
+  ASSERT_MATCH(".", "z");
+  PASS();
+}
+
+TEST(anychar_unicode_2) {
+  ASSERT_MATCH(".", "\xce\x88");
+  PASS();
+}
+
+TEST(anychar_unicode_3) {
+  ASSERT_MATCH(".", "\xe0\xa4\x82");
+  PASS();
+}
+
+TEST(anychar_unicode_4) {
+  ASSERT_MATCH(".", "\xf2\x92\x8d\xb2");
+  PASS();
+}
+
+TEST(anychar_unicode_malformed) {
+  ASSERT_NMATCH(".", "\xff");
+  PASS();
+}
+
+SUITE(anychar) {
+  RUN_TEST(anychar_unicode_1);
+  RUN_TEST(anychar_unicode_2);
+  RUN_TEST(anychar_unicode_3);
+  RUN_TEST(anychar_unicode_4);
+  RUN_TEST(anychar_unicode_malformed);
 }
 
 TEST(any_byte_ascii) {
@@ -508,6 +547,7 @@ int main(int argc, const char *const *argv) {
   RUN_SUITE(unicode);
   RUN_SUITE(any_byte);
   RUN_SUITE(cls);
+  RUN_SUITE(anychar);
   RUN_SUITE(escape);
   MPTEST_MAIN_END();
 }
