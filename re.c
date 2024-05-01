@@ -137,15 +137,15 @@ u32 re_ast_new(re *re) {
 }
 
 typedef enum ast_type {
-  REG,   /* entire subexpression */
-  CHR,   /* single ASCII character */
-  CAT,   /* concatenation */
-  ALT,   /* alternation */
-  QUANT, /* quantifier */
-  GROUP, /* group */
-  CLS,   /* character class */
-  ICLS,  /* inverted character class */
-  BYTE   /* any byte (\C) */
+  REG = 1, /* entire subexpression */
+  CHR,     /* single character */
+  CAT,     /* concatenation */
+  ALT,     /* alternation */
+  QUANT,   /* quantifier */
+  GROUP,   /* group */
+  CLS,     /* character class */
+  ICLS,    /* inverted character class */
+  ANYBYTE  /* any byte (\C) */
 } ast_type;
 
 typedef struct byte_range {
@@ -387,14 +387,9 @@ u32 re_uncc(re *r, u32 rest, u32 first) {
 int re_parse_escape_addchr(re *r, u32 ch, u32 allowed_outputs) {
   u32 res, args[1];
   assert(allowed_outputs & (1 << CHR));
-  if (ch < 128) {
-    args[0] = ch;
-    if (!(res = re_mkast_new(r, CHR, 1, args)) || stk_push(r, &r->arg_stk, res))
-      return ERR_MEM;
-  } else {
-    if (!(res = re_mkcc(r, REF_NONE, ch, ch)) || stk_push(r, &r->arg_stk, res))
-      return ERR_MEM;
-  }
+  args[0] = ch;
+  if (!(res = re_mkast_new(r, CHR, 1, args)) || stk_push(r, &r->arg_stk, res))
+    return ERR_MEM;
   return 0;
 }
 
@@ -412,7 +407,9 @@ int re_hexdig(u32 ch) {
 /* after a \ */
 int re_parse_escape(re *r, const unsigned char **s, size_t *sz,
                     u32 allowed_outputs) {
-  u32 ch;
+  u32 ch, args[3] = {0};
+  size_t prev_sz;
+  const unsigned char *prev_s;
   int err = 0;
   if (!*sz)
     return ERR_PARSE;
@@ -435,26 +432,28 @@ int re_parse_escape(re *r, const unsigned char **s, size_t *sz,
   } else if (ch >= '0' && ch <= '7') { /* octal escape */
     int digs = 1;
     u32 ord = ch - '0';
-    size_t prev_sz;
-    const unsigned char *prev_s;
     while (digs++ < 3 && *sz && (prev_sz = *sz) && (prev_s = *s) &&
            !(err = re_next(s, sz, &ch)) && ch >= '0' && ch <= '7')
       ord = ord * 8 + ch - '0';
     if (err)
-      return ERR_PARSE;                 /* encoding */
+      return ERR_PARSE;                 /* malformed */
     else if (!(ch >= '0' && ch <= '7')) /* over-read */
       *sz = prev_sz, *s = prev_s;       /* backtrack */
     return re_parse_escape_addchr(r, ord, allowed_outputs);
   } else if (ch == 'x') { /* hex escape */
     u32 ord = 0;
 #define UTFMAX 0x10FFFF
-    if (!*sz || (err = re_next(s, sz, &ch)))
+    if (!*sz)
       return ERR_PARSE; /* expected two hex characters or a bracketed hex lit */
+    else if ((err = re_next(s, sz, &ch)))
+      return ERR_PARSE; /* malformed */
     if (ch == '{') {    /* bracketed hex lit */
       u32 i;
       for (i = 0; i < 8; i++) {
-        if (i == 7 || !*sz || (err = re_next(s, sz, &ch)))
+        if (i == 7 || !*sz)
           return ERR_PARSE; /* expected up to six hex characters */
+        else if ((err = re_next(s, sz, &ch)))
+          return ERR_PARSE; /* malformed */
         if (ch == '}')
           break;
         if ((err = re_hexdig(ch)) == -1)
@@ -467,8 +466,10 @@ int re_parse_escape(re *r, const unsigned char **s, size_t *sz,
       return ERR_PARSE; /* invalid hex digit */
     } else {
       ord = err;
-      if (!*sz || (err = re_next(s, sz, &ch)))
+      if (!*sz)
         return ERR_PARSE; /* expected two hex characters */
+      else if ((err = re_next(s, sz, &ch)))
+        return ERR_PARSE; /* malformed */
       else if ((err = re_hexdig(ch)) == -1)
         return ERR_PARSE; /* invalid hex digit */
       ord = ord * 16 + err;
@@ -478,13 +479,38 @@ int re_parse_escape(re *r, const unsigned char **s, size_t *sz,
     return re_parse_escape_addchr(r, ord, allowed_outputs);
   } else if (ch == 'C') { /* any byte: \C */
     u32 res;
-    if (!(allowed_outputs & (1 << BYTE)))
+    if (!(allowed_outputs & (1 << ANYBYTE)))
       return ERR_PARSE; /* cannot use \C here */
-    if (!(res = re_mkast_new(r, BYTE, 0, NULL)) ||
+    if (!(res = re_mkast_new(r, ANYBYTE, 0, NULL)) ||
         !stk_push(r, &r->arg_stk, res))
       return ERR_MEM;
   } else if (ch == 'Q') { /* quote string */
-
+    u32 cat = REF_NONE, chr = REF_NONE;
+    if (!(allowed_outputs & (1 << CAT)))
+      return ERR_PARSE; /* cannot use \Q...\E here */
+    if (!cat)
+      return ERR_MEM;
+    while (*sz) {
+      if ((err = re_next(s, sz, &ch)))
+        return err; /* malformed */
+      if (ch == '\\' && *sz) {
+        prev_s = *s, prev_sz = *sz;
+        if ((err = re_next(s, sz, &ch)))
+          return err; /* malformed */
+        if (ch == 'E')
+          return !stk_push(r, &r->arg_stk, cat) ? ERR_MEM : 0;
+        else if (ch != '\\')
+          /* backtrack */
+          *s = prev_s, *sz = prev_sz;
+      }
+      args[0] = ch;
+      if (!(chr = re_mkast_new(r, CHR, 1, args)))
+        return ERR_MEM;
+      args[0] = cat, args[1] = chr;
+      if (!(cat = re_mkast_new(r, CAT, 2, args)))
+        return ERR_MEM;
+    }
+    return !stk_push(r, &r->arg_stk, cat) ? ERR_MEM : 0;
   } else {
     return ERR_PARSE; /* invalid escape */
   }
@@ -598,20 +624,15 @@ int re_parse(re *r, const unsigned char *s, size_t sz, u32 *root) {
       if (stk_push(r, &r->arg_stk, res))
         return ERR_MEM;
     } else if (ch == '\\') { /* escape */
-      if ((err = re_parse_escape(r, &s, &sz, 1 << CHR | 1 << CLS | 1 << BYTE)))
+      if ((err = re_parse_escape(
+               r, &s, &sz, 1 << CHR | 1 << CLS | 1 << ANYBYTE | 1 << CAT)))
         return err;
     } else { /* char: push to the arg stk */
-      /* arg_stk: | ... | */
-      if (ch < 128) { /* ascii: generate a CHR */
-        args[0] = ch;
-        if (!(res = re_mkast_new(r, CHR, 1, args)) ||
-            stk_push(r, &r->arg_stk, res))
-          return ERR_MEM;
-      } else { /* unicode: generate a CLS */
-        if (!(res = re_mkcc(r, REF_NONE, ch, ch)) ||
-            stk_push(r, &r->arg_stk, res))
-          return ERR_MEM;
-      }
+             /* arg_stk: | ... | */
+      args[0] = ch;
+      if (!(res = re_mkast_new(r, CHR, 1, args)) ||
+          stk_push(r, &r->arg_stk, res))
+        return ERR_MEM;
       /* arg_stk: | ... | chr | */
     }
   }
@@ -1237,7 +1258,6 @@ int re_compcc(re *r, u32 root, compframe *frame) {
     return ERR_MEM;
   re_compcc_hashtree(r, &r->cc_stk_a, &r->cc_stk_b, 1);
   /* step 5: prune/render tree */
-  patch(r, frame, re_prog_size(r));
   if ((err = re_compcc_rendertree(r, &r->cc_stk_a, &r->cc_stk_b,
                                   2 /* root's first node */, &start_pc, frame)))
     return err;
@@ -1246,7 +1266,7 @@ int re_compcc(re *r, u32 root, compframe *frame) {
 
 int re_compile(re *r, u32 root, u32 reverse) {
   compframe initial_frame, returned_frame, child_frame;
-  u32 set_idx = 0, grp_idx = 0;
+  u32 set_idx = 0, grp_idx = 0, chr_cc_ast = REF_NONE;
   if (!r->prog.size && (stk_push(r, &r->prog, 0) || stk_push(r, &r->prog, 0)))
     return ERR_MEM;
   initial_frame.root_ref = root;
@@ -1287,18 +1307,29 @@ int re_compile(re *r, u32 root, u32 reverse) {
         if (re_emit(r, INST(MATCH, 0, IMATCH(0, 1 + set_idx++))))
           return ERR_MEM;
       }
-    } else if (type == CHR || type == BYTE) {
-      /*  in     out
-       * ---> C ----> */
-      byte_range br = BYTE_RANGE(0x00, 0xFF);
+    } else if (type == CHR) {
       patch(r, &frame, my_pc);
-      re_decompast(r, frame.root_ref, type == CHR, args);
-      if (type == CHR) {
-        br = BYTE_RANGE(args[0], args[0]);
-        assert(args[0] <
-               128); /* only ASCII for now, unicode is handled in CLS */
+      re_decompast(r, frame.root_ref, 1, args);
+      if (args[0] < 128) { /* ascii */
+        /*  in     out
+         * ---> R ----> */
+        if (re_emit(r, INST(RANGE, 0, br2u(BYTE_RANGE(args[0], args[0])))))
+          return ERR_MEM;
+        patch_add(r, &frame, my_pc, 0);
+      } else { /* unicode */
+        /* create temp ast */
+        if (!chr_cc_ast && !(chr_cc_ast = re_mkcc(r, REF_NONE, 0, 0)))
+          return ERR_MEM;
+        *re_astarg(r, chr_cc_ast, 0, chr_cc_ast) =
+            *re_astarg(r, chr_cc_ast, 1, chr_cc_ast) = args[0];
+        if (re_compcc(r, chr_cc_ast, &frame))
+          return ERR_MEM;
       }
-      if (re_emit(r, INST(RANGE, 0, br2u(br))))
+    } else if (type == ANYBYTE) {
+      /*  in     out
+       * ---> R ----> */
+      patch(r, &frame, my_pc);
+      if (re_emit(r, INST(RANGE, 0, br2u(BYTE_RANGE(0x00, 0xFF)))))
         return ERR_MEM;
       patch_add(r, &frame, my_pc, 0);
     } else if (type == CAT) {
@@ -1392,6 +1423,7 @@ int re_compile(re *r, u32 root, u32 reverse) {
         patch_add(r, &frame, my_pc, 0);
       }
     } else if (type == CLS) {
+      patch(r, &frame, my_pc);
       if (re_compcc(r, frame.root_ref, &frame))
         return ERR_MEM;
     }

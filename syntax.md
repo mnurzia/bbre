@@ -1,6 +1,7 @@
 [X] characters (literals)
   [X] ascii characters
   [X] unicode characters
+[ ] .
 [ ] escapes
   [X] \a
   [X] \f
@@ -19,4 +20,4 @@
     [X] two digits
     [X] up to six digits
   [X] any byte
-  [ ] quote
+  [X] quote

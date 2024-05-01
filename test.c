@@ -198,9 +198,15 @@ TEST(cls_escape_char_start) {
   PASS();
 }
 
+TEST(cls_escape_quote) {
+  ASSERT_NOPARSE("[\\Qabc\\E]");
+  PASS();
+}
+
 SUITE(cls) {
   RUN_TEST(cls_escape_any_byte);
   RUN_TEST(cls_escape_char_start);
+  RUN_TEST(cls_escape_quote);
 }
 
 TEST(escape_bell) {
@@ -419,6 +425,56 @@ TEST(escape_any_byte) {
   PASS();
 }
 
+TEST(escape_quote_empty) {
+  ASSERT_MATCH("\\Q\\E", "");
+  PASS();
+}
+
+TEST(escape_quote_text) {
+  ASSERT_MATCH("\\Qabc\\E", "abc");
+  PASS();
+}
+
+TEST(escape_quote_unfinished) {
+  ASSERT_MATCH("\\Qabc", "abc");
+  PASS();
+}
+
+TEST(escape_quote_unfinished_empty) {
+  ASSERT_MATCH("abc\\Q", "abc");
+  PASS();
+}
+
+TEST(escape_quote_single_slash_unfinished) {
+  /* a *single* slash at the end of a string within a quoted escape is just a
+   * slash */
+  ASSERT_MATCH("\\Q\\", "\\");
+  PASS();
+}
+
+TEST(escape_quote_double_slash) {
+  /* a double slash is escaped as a single slash */
+  ASSERT_MATCH("\\Q\\\\\\E", "\\");
+  PASS();
+}
+
+TEST(escape_quote_single_slash_with_non_E) {
+  /* a slash followed by some non-E character is a single slash followed by that
+   * character */
+  ASSERT_MATCH("\\Q\\AE", "\\A");
+  PASS();
+}
+
+SUITE(escape_quote) {
+  RUN_TEST(escape_quote_empty);
+  RUN_TEST(escape_quote_text);
+  RUN_TEST(escape_quote_unfinished);
+  RUN_TEST(escape_quote_unfinished_empty);
+  RUN_TEST(escape_quote_single_slash_unfinished);
+  RUN_TEST(escape_quote_double_slash);
+  RUN_TEST(escape_quote_single_slash_with_non_E);
+}
+
 SUITE(escape) {
   RUN_TEST(escape_bell);
   RUN_TEST(escape_formfeed);
@@ -436,6 +492,7 @@ SUITE(escape) {
   RUN_SUITE(escape_hex);
   RUN_SUITE(escape_hex_long);
   RUN_TEST(escape_any_byte);
+  RUN_SUITE(escape_quote);
 }
 
 int main(int argc, const char *const *argv) {
