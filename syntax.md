@@ -1,7 +1,7 @@
 [X] characters (literals)
   [X] ascii characters
   [X] unicode characters
-[ ] .
+[X] .
 [ ] escapes
   [X] \a
   [X] \f
@@ -21,3 +21,10 @@
     [X] up to six digits
   [X] any byte
   [X] quote
+  [X] perl classes
+    [X] \d
+    [X] \D
+    [X] \s
+    [X] \S
+    [X] \w
+    [X] \W

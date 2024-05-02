@@ -8,6 +8,7 @@
 #include "re.h"
 
 #define REF_NONE 0
+#define UTFMAX 0x10FFFF
 
 typedef struct ast {
   u32 v;
@@ -77,7 +78,7 @@ u32 stk_peek(re *r, stk *s, u32 idx) {
   return s->ptr[s->size - 1 - idx];
 }
 
-int re_parse(re *r, const unsigned char *s, size_t sz, u32 *root);
+int re_parse(re *r, const u8 *s, size_t sz, u32 *root);
 
 re *re_init(const char *regex) {
   re *r;
@@ -99,8 +100,7 @@ int re_init_full(re **pr, const char *regex) {
   stk_init(r, &r->prog);
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
-    if ((err = re_parse(r, (const unsigned char *)regex, strlen(regex),
-                        &r->ast_root))) {
+    if ((err = re_parse(r, (const u8 *)regex, strlen(regex), &r->ast_root))) {
       re_destroy(r);
       return err;
     } else {
@@ -239,13 +239,12 @@ void re_ast_dump(re *r, u32 root, u32 ilvl) {
 
 int re_union(re *r, const char *regex) { /* add an ALT here */
   int err = 0;
-  if (!r->ast_sets && (err = re_parse(r, (const unsigned char *)regex,
-                                      strlen(regex), &r->ast_root))) {
+  if (!r->ast_sets &&
+      (err = re_parse(r, (const u8 *)regex, strlen(regex), &r->ast_root))) {
     return err;
   } else {
     u32 fork_args[2] = {0}, next_root;
-    if ((err = re_parse(r, (const unsigned char *)regex, strlen(regex),
-                        fork_args + 1)))
+    if ((err = re_parse(r, (const u8 *)regex, strlen(regex), fork_args + 1)))
       return ERR_MEM;
     fork_args[0] = r->ast_root;
     if (!(next_root = re_mkast_new(r, ALT, 2, fork_args)))
@@ -298,7 +297,7 @@ u32 utf8_decode(u32 *state, u32 *codep, u32 byte) {
   return *state;
 }
 
-int re_next(const unsigned char **s, size_t *sz, u32 *first) {
+int re_next(const u8 **s, size_t *sz, u32 *first) {
   u32 state = UTF8_ACCEPT;
   assert(*sz && first);
   *first = 0;
@@ -405,12 +404,68 @@ int re_hexdig(u32 ch) {
     return -1;
 }
 
+typedef struct ccdef {
+  u8 name_len, cc_len;
+  const char *name;
+  const char *chars;
+} ccdef;
+
+const ccdef builtin_cc[] = {{5, 3, "alnum", "\x30\x39\x41\x5A\x61\x7A"},
+                            {5, 2, "alpha", "\x41\x5A\x61\x7A"},
+                            {5, 1, "ascii", "\x00\x7F"},
+                            {5, 2, "blank", "\x09\x09\x20\x20"},
+                            {5, 2, "cntrl", "\x00\x1F\x7F\x7F"},
+                            {5, 1, "digit", "\x30\x39"},
+                            {5, 1, "graph", "\x21\x7E"},
+                            {5, 1, "lower", "\x61\x7A"},
+                            {5, 1, "print", "\x20\x7E"},
+                            {5, 4, "punct", "\x21\x2F\x3A\x40\x5B\x60\x7B\x7E"},
+                            {5, 2, "space", "\x09\x0D\x20\x20"},
+                            {10, 3, "perl_space", "\x09\x0A\x0C\x0D\x20\x20"},
+                            {5, 1, "upper", "\x41\x5A"},
+                            {4, 3, "word", "\x30\x39\x41\x5A\x61\x7A"},
+                            {6, 3, "xdigit", "\x30\x39\x41\x46\x61\x66"},
+                            {0}};
+
+const ccdef *re_parse_namedcc(const u8 *s, size_t sz) {
+  const ccdef *p = builtin_cc;
+  while (p->name_len) {
+    if ((size_t)p->name_len == sz && !memcmp(s, (const u8 *)p->name, sz))
+      return p;
+    p++;
+  }
+  return NULL;
+}
+
+int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert) {
+  const ccdef *named = re_parse_namedcc(s, sz);
+  u32 res = REF_NONE, i, max = 0, cur_min, cur_max;
+  if (!named)
+    return ERR_PARSE;
+  for (i = 0; i < named->cc_len; i++) {
+    cur_min = named->chars[i * 2], cur_max = named->chars[i * 2 + 1];
+    if (!invert && !(res = re_mkcc(r, res, cur_min, cur_max)))
+      return ERR_MEM;
+    else if (invert && cur_min > max) {
+      if (!(res = re_mkcc(r, res, max, cur_min - 1)))
+        return ERR_MEM;
+      else
+        max = cur_max + 1;
+    }
+  }
+  if (invert && i && cur_max < UTFMAX &&
+      !(res = re_mkcc(r, res, cur_max + 1, UTFMAX)))
+    return ERR_MEM;
+  if (!stk_push(r, &r->arg_stk, res))
+    return ERR_MEM;
+  return 0;
+}
+
 /* after a \ */
-int re_parse_escape(re *r, const unsigned char **s, size_t *sz,
-                    u32 allowed_outputs) {
+int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
   u32 ch, args[3] = {0};
   size_t prev_sz;
-  const unsigned char *prev_s;
+  const u8 *prev_s;
   int err = 0;
   if (!*sz)
     return ERR_PARSE;
@@ -443,7 +498,6 @@ int re_parse_escape(re *r, const unsigned char **s, size_t *sz,
     return re_parse_escape_addchr(r, ord, allowed_outputs);
   } else if (ch == 'x') { /* hex escape */
     u32 ord = 0;
-#define UTFMAX 0x10FFFF
     if (!*sz)
       return ERR_PARSE; /* expected two hex characters or a bracketed hex lit */
     else if ((err = re_next(s, sz, &ch)))
@@ -511,14 +565,27 @@ int re_parse_escape(re *r, const unsigned char **s, size_t *sz,
       if (!(cat = re_mkast_new(r, CAT, 2, args)))
         return ERR_MEM;
     }
-    return !stk_push(r, &r->arg_stk, cat) ? ERR_MEM : 0;
+    if (!stk_push(r, &r->arg_stk, cat))
+      return ERR_MEM;
+  } else if (ch == 'D' || ch == 'd' || ch == 'S' || ch == 's' || ch == 'W' ||
+             ch == 'w') {
+    /* Perl builtin character classes */
+    const char *cc_name;
+    int inverted = ch >= 'A' && ch <= 'Z'; /* uppercase are inverted */
+    ch = inverted ? ch - 'A' + 'a' : ch;   /* convert to lowercase */
+    cc_name = ch == 'd' ? "digit" : ch == 's' ? "perl_space" : "word";
+    if (!(allowed_outputs & (1 << CLS)))
+      return ERR_PARSE; /* character classes disallowed here */
+    if (!re_parse_add_namedcc(r, (const u8 *)cc_name, strlen(cc_name),
+                              inverted))
+      return ERR_MEM;
   } else {
     return ERR_PARSE; /* invalid escape */
   }
   return 0;
 }
 
-int re_parse(re *r, const unsigned char *s, size_t sz, u32 *root) {
+int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
   int err;
   while (sz) {
     u32 ch;
@@ -793,11 +860,6 @@ void patch(re *r, compframe *p, u32 dest_pc) {
 size_t i_lc(size_t i) { return 2 * i + 1; }
 
 size_t i_rc(size_t i) { return 2 * i + 2; }
-
-size_t i_par(size_t i) {
-  assert(i);
-  return (i - 1) >> 1;
-}
 
 u32 cckey(stk *cc, size_t idx) { return cc->ptr[idx * 2]; }
 
@@ -1219,9 +1281,6 @@ int re_compcc_rendertree(re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref,
 int re_compcc(re *r, u32 root, compframe *frame) {
   int err = 0;
   u32 start_pc = 0;
-  (void)(frame);
-  (void)(r);
-  (void)(root);
   r->cc_stk_a.size = r->cc_stk_b.size = 0; /* clear stks */
   /* step 0: push ranges */
   while (root) {
@@ -1820,7 +1879,7 @@ int re_match(re *r, const char *s, size_t n, u32 max_span, u32 max_set,
                             entry & ENT_REV, entry & ENT_DOTSTAR)))
     goto done;
   for (i = 0; i < n; i++) {
-    if ((err = exec_nfa_run(r, &nfa, ((const unsigned char *)s)[i], i)))
+    if ((err = exec_nfa_run(r, &nfa, ((const u8 *)s)[i], i)))
       goto done;
   }
   if ((err = exec_nfa_end(r, n, &nfa, max_span, max_set, out_span, out_set)))
