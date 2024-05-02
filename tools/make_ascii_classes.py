@@ -84,22 +84,9 @@ def cmd_impl(args: Namespace) -> int:
 
 def make_test(test_name: str, cc: NRanges, regex: str) -> str:
     regex = '"' + regex.replace("\\", "\\\\") + '"'
-    if_chain = " else ".join(
-        [
-            f"if (i >= 0x{lo:06X} && i <= 0x{hi:06X}) ASSERT_MATCH_N({regex}, c, sz);"
-            for lo, hi in normalize(expand(cc))
-        ]
-    )
     return f"""
     TEST({test_name}) {{
-        char c[16];
-        u32 i, sz;
-        for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {{
-            sz = utf_encode(c, i);
-            {if_chain}
-            else
-                ASSERT_NMATCH_N({regex}, c, sz);
-        }}
+        ASSERT_CC_MATCH({regex}, "{','.join(f"0x{lo:X} 0x{hi:X}" for lo, hi in normalize(expand(cc)))}");
         PASS();
     }}
     """
