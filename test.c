@@ -106,6 +106,72 @@ size_t utf_encode(char *out_buf, u32 codep) {
     ASSERT_EQ(err, ERR_PARSE);                                                 \
   } while (0);
 
+typedef struct rrange {
+  u32 lo, hi;
+} rrange;
+
+u32 matchnum(const char *num) {
+  u32 out = 0;
+  unsigned char chout;
+  if (sscanf(num, "0x%X", &out))
+    return out;
+  else if (sscanf(num, "%u", &out))
+    return out;
+  else if (sscanf(num, "%c", &chout))
+    return chout;
+  else
+    assert(0);
+  return 0;
+}
+
+u32 matchspec(const char *spec, rrange *ranges) {
+  u32 n = 0;
+  while (*spec) {
+    const char *comma = strchr(spec, ','), *nextspec = comma + 1;
+    const char *space = strchr(spec, ' ');
+    char tmp_buf[16];
+    if (!comma)
+      comma = spec + strlen(spec), nextspec = comma;
+    if (!space || space > comma)
+      space = comma;
+    memset(tmp_buf, 0, sizeof tmp_buf);
+    memcpy(tmp_buf, spec, space - spec);
+    ranges->lo = ranges->hi = matchnum(tmp_buf);
+    if (space < comma) {
+      memset(tmp_buf, 0, sizeof tmp_buf);
+      memcpy(tmp_buf, space + 1, comma - space);
+      ranges->hi = matchnum(tmp_buf);
+    }
+    spec = nextspec, ranges++, n++;
+  }
+  return n;
+}
+
+#define ASSERT_CC_MATCH(regex, spec)                                           \
+  do {                                                                         \
+    re *r;                                                                     \
+    int err;                                                                   \
+    u32 codep;                                                                 \
+    char utf8[16];                                                             \
+    rrange ranges[64];                                                         \
+    u32 num_ranges = matchspec(spec, ranges), range_idx;                       \
+    if ((err = re_init_full(&r, regex)) == ERR_MEM)                            \
+      PASS();                                                                  \
+    ASSERT(!err);                                                              \
+    for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {             \
+      size_t sz = utf_encode(utf8, codep);                                     \
+      for (range_idx = 0; range_idx < num_ranges; range_idx++) {               \
+        if (codep >= ranges[range_idx].lo && codep <= ranges[range_idx].hi) {  \
+          ASSERT(re_match(r, utf8, sz, 0, 0, NULL, NULL, A_BOTH));             \
+          break;                                                               \
+        }                                                                      \
+      }                                                                        \
+      if (range_idx == num_ranges)                                             \
+        ASSERT(!re_match(r, utf8, sz, 0, 0, NULL, NULL, A_BOTH));              \
+    }                                                                          \
+    re_destroy(r);                                                             \
+  } while (0)
+
 TEST(init) {
   re *r;
   r = re_init("");
@@ -276,10 +342,55 @@ TEST(cls_escape_quote) {
   PASS();
 }
 
-SUITE(cls) {
+SUITE(cls_escape) {
   RUN_TEST(cls_escape_any_byte);
   RUN_TEST(cls_escape_char_start);
   RUN_TEST(cls_escape_quote);
+}
+
+TEST(cls_empty) {
+  ASSERT_NOPARSE("[]");
+  PASS();
+}
+
+TEST(cls_ending_right_bracket) {
+  ASSERT_CC_MATCH("[]]", "]");
+  PASS();
+}
+
+TEST(cls_single) {
+  ASSERT_CC_MATCH("[a]", "a");
+  PASS();
+}
+
+TEST(cls_range_one) {
+  ASSERT_CC_MATCH("[a-z]", "a z");
+  PASS();
+}
+
+TEST(cls_range_one_inverted) {
+  ASSERT_CC_MATCH("[^a-z]", "0 `,{ 0x10FFFF");
+  PASS();
+}
+
+TEST(cls_ending_dash) {
+  ASSERT_CC_MATCH("[-]", "-");
+  PASS();
+}
+
+SUITE(cls) {
+  RUN_SUITE(cls_escape);
+  RUN_TEST(cls_empty);
+  RUN_TEST(cls_ending_right_bracket);
+  RUN_TEST(cls_single);
+  RUN_TEST(cls_range_one);
+  RUN_TEST(cls_range_one_inverted);
+  RUN_TEST(cls_ending_dash);
+}
+
+TEST(escape_null) {
+  ASSERT_MATCH_N("\\0", "\x00", 1);
+  PASS();
 }
 
 TEST(escape_bell) {
@@ -549,227 +660,77 @@ SUITE(escape_quote) {
 }
 
 TEST(named_charclass_alnum) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000030 && i <= 0x000039)
-      ASSERT_MATCH_N("[:alnum:]", c, sz);
-    else if (i >= 0x000041 && i <= 0x00005A)
-      ASSERT_MATCH_N("[:alnum:]", c, sz);
-    else if (i >= 0x000061 && i <= 0x00007A)
-      ASSERT_MATCH_N("[:alnum:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:alnum:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:alnum:]", "0x30 0x39,0x41 0x5A,0x61 0x7A");
   PASS();
 }
 
 TEST(named_charclass_alpha) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000041 && i <= 0x00005A)
-      ASSERT_MATCH_N("[:alpha:]", c, sz);
-    else if (i >= 0x000061 && i <= 0x00007A)
-      ASSERT_MATCH_N("[:alpha:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:alpha:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:alpha:]", "0x41 0x5A,0x61 0x7A");
   PASS();
 }
 
 TEST(named_charclass_ascii) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000000 && i <= 0x00007F)
-      ASSERT_MATCH_N("[:ascii:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:ascii:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:ascii:]", "0x0 0x7F");
   PASS();
 }
 
 TEST(named_charclass_blank) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000009 && i <= 0x000009)
-      ASSERT_MATCH_N("[:blank:]", c, sz);
-    else if (i >= 0x000020 && i <= 0x000020)
-      ASSERT_MATCH_N("[:blank:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:blank:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:blank:]", "0x9 0x9,0x20 0x20");
   PASS();
 }
 
 TEST(named_charclass_cntrl) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000000 && i <= 0x00001F)
-      ASSERT_MATCH_N("[:cntrl:]", c, sz);
-    else if (i >= 0x00007F && i <= 0x00007F)
-      ASSERT_MATCH_N("[:cntrl:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:cntrl:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:cntrl:]", "0x0 0x1F,0x7F 0x7F");
   PASS();
 }
 
 TEST(named_charclass_digit) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000030 && i <= 0x000039)
-      ASSERT_MATCH_N("[:digit:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:digit:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:digit:]", "0x30 0x39");
   PASS();
 }
 
 TEST(named_charclass_graph) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000021 && i <= 0x00007E)
-      ASSERT_MATCH_N("[:graph:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:graph:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:graph:]", "0x21 0x7E");
   PASS();
 }
 
 TEST(named_charclass_lower) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000061 && i <= 0x00007A)
-      ASSERT_MATCH_N("[:lower:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:lower:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:lower:]", "0x61 0x7A");
   PASS();
 }
 
 TEST(named_charclass_print) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000020 && i <= 0x00007E)
-      ASSERT_MATCH_N("[:print:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:print:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:print:]", "0x20 0x7E");
   PASS();
 }
 
 TEST(named_charclass_punct) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000021 && i <= 0x00002F)
-      ASSERT_MATCH_N("[:punct:]", c, sz);
-    else if (i >= 0x00003A && i <= 0x000040)
-      ASSERT_MATCH_N("[:punct:]", c, sz);
-    else if (i >= 0x00005B && i <= 0x000060)
-      ASSERT_MATCH_N("[:punct:]", c, sz);
-    else if (i >= 0x00007B && i <= 0x00007E)
-      ASSERT_MATCH_N("[:punct:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:punct:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:punct:]", "0x21 0x2F,0x3A 0x40,0x5B 0x60,0x7B 0x7E");
   PASS();
 }
 
 TEST(named_charclass_space) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000009 && i <= 0x00000D)
-      ASSERT_MATCH_N("[:space:]", c, sz);
-    else if (i >= 0x000020 && i <= 0x000020)
-      ASSERT_MATCH_N("[:space:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:space:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:space:]", "0x9 0xD,0x20 0x20");
   PASS();
 }
 
 TEST(named_charclass_perl_space) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000009 && i <= 0x00000A)
-      ASSERT_MATCH_N("[:perl_space:]", c, sz);
-    else if (i >= 0x00000C && i <= 0x00000D)
-      ASSERT_MATCH_N("[:perl_space:]", c, sz);
-    else if (i >= 0x000020 && i <= 0x000020)
-      ASSERT_MATCH_N("[:perl_space:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:perl_space:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:perl_space:]", "0x9 0xA,0xC 0xD,0x20 0x20");
   PASS();
 }
 
 TEST(named_charclass_upper) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000041 && i <= 0x00005A)
-      ASSERT_MATCH_N("[:upper:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:upper:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:upper:]", "0x41 0x5A");
   PASS();
 }
 
 TEST(named_charclass_word) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000030 && i <= 0x000039)
-      ASSERT_MATCH_N("[:word:]", c, sz);
-    else if (i >= 0x000041 && i <= 0x00005A)
-      ASSERT_MATCH_N("[:word:]", c, sz);
-    else if (i >= 0x000061 && i <= 0x00007A)
-      ASSERT_MATCH_N("[:word:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:word:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:word:]", "0x30 0x39,0x41 0x5A,0x61 0x7A");
   PASS();
 }
 
 TEST(named_charclass_xdigit) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000030 && i <= 0x000039)
-      ASSERT_MATCH_N("[:xdigit:]", c, sz);
-    else if (i >= 0x000041 && i <= 0x000046)
-      ASSERT_MATCH_N("[:xdigit:]", c, sz);
-    else if (i >= 0x000061 && i <= 0x000066)
-      ASSERT_MATCH_N("[:xdigit:]", c, sz);
-    else
-      ASSERT_NMATCH_N("[:xdigit:]", c, sz);
-  }
+  ASSERT_CC_MATCH("[:xdigit:]", "0x30 0x39,0x41 0x46,0x61 0x66");
   PASS();
 }
 
@@ -792,102 +753,32 @@ SUITE(named_charclass) {
 }
 
 TEST(escape_perlclass_D) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000000 && i <= 0x00002F)
-      ASSERT_MATCH_N("\\D", c, sz);
-    else if (i >= 0x00003A && i <= 0x10FFFF)
-      ASSERT_MATCH_N("\\D", c, sz);
-    else
-      ASSERT_NMATCH_N("\\D", c, sz);
-  }
+  ASSERT_CC_MATCH("\\D", "0x0 0x2F,0x3A 0x10FFFF");
   PASS();
 }
 
 TEST(escape_perlclass_d) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000030 && i <= 0x000039)
-      ASSERT_MATCH_N("\\d", c, sz);
-    else
-      ASSERT_NMATCH_N("\\d", c, sz);
-  }
+  ASSERT_CC_MATCH("\\d", "0x30 0x39");
   PASS();
 }
 
 TEST(escape_perlclass_S) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000000 && i <= 0x000008)
-      ASSERT_MATCH_N("\\S", c, sz);
-    else if (i >= 0x00000B && i <= 0x00000B)
-      ASSERT_MATCH_N("\\S", c, sz);
-    else if (i >= 0x00000E && i <= 0x00001F)
-      ASSERT_MATCH_N("\\S", c, sz);
-    else if (i >= 0x000021 && i <= 0x10FFFF)
-      ASSERT_MATCH_N("\\S", c, sz);
-    else
-      ASSERT_NMATCH_N("\\S", c, sz);
-  }
+  ASSERT_CC_MATCH("\\S", "0x0 0x8,0xB 0xB,0xE 0x1F,0x21 0x10FFFF");
   PASS();
 }
 
 TEST(escape_perlclass_s) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000009 && i <= 0x00000A)
-      ASSERT_MATCH_N("\\s", c, sz);
-    else if (i >= 0x00000C && i <= 0x00000D)
-      ASSERT_MATCH_N("\\s", c, sz);
-    else if (i >= 0x000020 && i <= 0x000020)
-      ASSERT_MATCH_N("\\s", c, sz);
-    else
-      ASSERT_NMATCH_N("\\s", c, sz);
-  }
+  ASSERT_CC_MATCH("\\s", "0x9 0xA,0xC 0xD,0x20 0x20");
   PASS();
 }
 
 TEST(escape_perlclass_W) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000000 && i <= 0x00002F)
-      ASSERT_MATCH_N("\\W", c, sz);
-    else if (i >= 0x00003A && i <= 0x000040)
-      ASSERT_MATCH_N("\\W", c, sz);
-    else if (i >= 0x00005B && i <= 0x000060)
-      ASSERT_MATCH_N("\\W", c, sz);
-    else if (i >= 0x00007B && i <= 0x10FFFF)
-      ASSERT_MATCH_N("\\W", c, sz);
-    else
-      ASSERT_NMATCH_N("\\W", c, sz);
-  }
+  ASSERT_CC_MATCH("\\W", "0x0 0x2F,0x3A 0x40,0x5B 0x60,0x7B 0x10FFFF");
   PASS();
 }
 
 TEST(escape_perlclass_w) {
-  char c[16];
-  u32 i, sz;
-  for (i = 0; i < TEST_NAMED_CLASS_RANGE_MAX; i++) {
-    sz = utf_encode(c, i);
-    if (i >= 0x000030 && i <= 0x000039)
-      ASSERT_MATCH_N("\\w", c, sz);
-    else if (i >= 0x000041 && i <= 0x00005A)
-      ASSERT_MATCH_N("\\w", c, sz);
-    else if (i >= 0x000061 && i <= 0x00007A)
-      ASSERT_MATCH_N("\\w", c, sz);
-    else
-      ASSERT_NMATCH_N("\\w", c, sz);
-  }
+  ASSERT_CC_MATCH("\\w", "0x30 0x39,0x41 0x5A,0x61 0x7A");
   PASS();
 }
 
@@ -901,6 +792,7 @@ SUITE(escape_perlclass) {
 }
 
 SUITE(escape) {
+  RUN_TEST(escape_null);
   RUN_TEST(escape_bell);
   RUN_TEST(escape_formfeed);
   RUN_TEST(escape_tab);

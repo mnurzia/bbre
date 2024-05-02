@@ -471,18 +471,19 @@ int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
     return ERR_PARSE;
   if (re_next(s, sz, &ch))
     return ERR_PARSE;
-  if (                              /* single character escapes */
-      (ch == 'a' && (ch = '\a')) || /* bell */
-      (ch == 'f' && (ch = '\f')) || /* form feed */
-      (ch == 't' && (ch = '\t')) || /* tab */
-      (ch == 'n' && (ch = '\n')) || /* newline */
-      (ch == 'r' && (ch = '\r')) || /* carriage return */
-      (ch == 'v' && (ch = '\v')) || /* vertical tab */
-      (ch == '?') ||                /* question mark */
-      (ch == '*') ||                /* asterisk */
-      (ch == '+') ||                /* plus */
-      (ch == '(') ||                /* open parenthesis */
-      (ch == ')') ||                /* close parenthesis */
+  if (                               /* single character escapes */
+      (ch == '0' && !(ch = '\0')) || /* null */
+      (ch == 'a' && (ch = '\a')) ||  /* bell */
+      (ch == 'f' && (ch = '\f')) ||  /* form feed */
+      (ch == 't' && (ch = '\t')) ||  /* tab */
+      (ch == 'n' && (ch = '\n')) ||  /* newline */
+      (ch == 'r' && (ch = '\r')) ||  /* carriage return */
+      (ch == 'v' && (ch = '\v')) ||  /* vertical tab */
+      (ch == '?') ||                 /* question mark */
+      (ch == '*') ||                 /* asterisk */
+      (ch == '+') ||                 /* plus */
+      (ch == '(') ||                 /* open parenthesis */
+      (ch == ')') ||                 /* close parenthesis */
       (ch == '|') /* pipe */) {
     return re_parse_escape_addchr(r, ch, allowed_outputs);
   } else if (ch >= '0' && ch <= '7') { /* octal escape */
@@ -659,8 +660,10 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
           return ERR_PARSE; /* unclosed charclass */
         if (re_next(&s, &sz, &ch))
           return ERR_PARSE; /* malformed */
-        if ((start - sz == 1) && ch == '^')
+        if ((start - sz == 1) && ch == '^') {
           inverted = 1; /* caret at start of CC */
+          continue;
+        }
         if (ch == ']') {
           if ((start - sz == 1 || (start - sz == 2 && inverted))) {
             if (!(res =
@@ -692,8 +695,9 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
         } else if (!(res = re_mkcc(r, res, min, max)))
           return ERR_MEM;
       }
-      if (!res)
-        return ERR_PARSE; /* empty charclass */
+      assert(res);  /* charclass cannot be empty */
+      if (inverted) /* inverted character class */
+        *re_asttype(r, res) = ICLS;
       if (stk_push(r, &r->arg_stk, res))
         return ERR_MEM;
     } else if (ch == '\\') { /* escape */
@@ -784,6 +788,8 @@ compframe compframe_pop(re *r) {
 }
 
 enum op { RANGE, ASSERT, MATCH, SPLIT };
+
+enum asserts { A_EVERYTHING = 0xFF };
 
 #define IMATCH(s, i) ((i) << 1 | (s))
 #define IMATCH_S(m) ((m) & 1)
@@ -1279,10 +1285,10 @@ int re_compcc_rendertree(re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref,
 }
 
 int re_compcc(re *r, u32 root, compframe *frame) {
-  int err = 0;
+  int err = 0, inverted = *re_asttype(r, frame->root_ref) == ICLS;
   u32 start_pc = 0;
   r->cc_stk_a.size = r->cc_stk_b.size = 0; /* clear stks */
-  /* step 0: push ranges */
+  /* push ranges */
   while (root) {
     u32 args[3], min, max;
     re_decompast(r, root, 3, args);
@@ -1291,9 +1297,9 @@ int re_compcc(re *r, u32 root, compframe *frame) {
     if (stk_push(r, &r->cc_stk_a, min) || stk_push(r, &r->cc_stk_a, max))
       return ERR_MEM;
   }
-  /* step 1: sort ranges */
+  /* sort ranges */
   re_compcc_hsort(&r->cc_stk_a, ccsize(&r->cc_stk_a));
-  /* step 2: normalize ranges */
+  /* normalize ranges */
   {
     u32 min, max;
     size_t i;
@@ -1314,15 +1320,36 @@ int re_compcc(re *r, u32 root, compframe *frame) {
     if (i && ccpush(r, &r->cc_stk_b, min, max))
       return ERR_MEM;
   }
-  /* step 3: build tree */
+  /* invert ranges */
+  if (inverted) {
+    u32 max = 0, cur_min, cur_max, i, old_size = ccsize(&r->cc_stk_b);
+    r->cc_stk_b.size = 0; /* TODO: this is shitty code */
+    for (i = 0; i < old_size; i++) {
+      ccget(&r->cc_stk_b, i, &cur_min, &cur_max);
+      if (cur_min > max) {
+        if (ccpush(r, &r->cc_stk_b, max, cur_min - 1))
+          return ERR_MEM;
+        else
+          max = cur_max + 1;
+      }
+    }
+    if (cur_max < UTFMAX && ccpush(r, &r->cc_stk_b, cur_max + 1, UTFMAX))
+      return ERR_MEM;
+  }
+  if (!ccsize(&r->cc_stk_b)) {
+    if (re_emit(r, INST(ASSERT, 0, A_EVERYTHING)))
+      return ERR_MEM;
+    patch_add(r, frame, re_prog_size(r) - 1, 0);
+  }
+  /* build tree */
   r->cc_stk_a.size = 0;
   if ((err = re_compcc_buildtree(r, &r->cc_stk_b, &r->cc_stk_a)))
     return err;
-  /* step 4: hash tree */
+  /* hash tree */
   if (cc_htinit(r, &r->cc_stk_a, &r->cc_stk_b))
     return ERR_MEM;
   re_compcc_hashtree(r, &r->cc_stk_a, &r->cc_stk_b, 1);
-  /* step 5: prune/render tree */
+  /* prune/render tree */
   if ((err = re_compcc_rendertree(r, &r->cc_stk_a, &r->cc_stk_b,
                                   2 /* root's first node */, &start_pc, frame)))
     return err;
@@ -1487,10 +1514,12 @@ int re_compile(re *r, u32 root, u32 reverse) {
           return ERR_MEM;
         patch_add(r, &frame, my_pc, 0);
       }
-    } else if (type == CLS) {
+    } else if (type == CLS || type == ICLS) {
       patch(r, &frame, my_pc);
       if (re_compcc(r, frame.root_ref, &frame))
         return ERR_MEM;
+    } else {
+      assert(0);
     }
     if (frame.child_ref != frame.root_ref) {
       /* should we push a child? */

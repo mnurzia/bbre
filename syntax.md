@@ -3,6 +3,7 @@
   [X] unicode characters
 [X] .
 [ ] escapes
+  [X] \0
   [X] \a
   [X] \f
   [X] \t
