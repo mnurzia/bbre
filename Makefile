@@ -17,7 +17,7 @@ build/re-cov: build re.c test.c
 	$(CC) $(CFLAGS) $(COVCFLAGS) re.c test.c -o $@
 
 build/compile_commands.json: build re.c test.c
-	bear -- make -B re
+	bear --output $@ -- make -B build/re
 
 test: build/re
 	./build/re
