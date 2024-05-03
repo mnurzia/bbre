@@ -26,6 +26,8 @@ struct re {
   stk arg_stk, op_stk, comp_stk, prog;
   stk cc_stk_a, cc_stk_b;
   u32 entry[4];
+  const u8 *expr;
+  size_t expr_pos, expr_size;
   const char *error;
   size_t error_pos;
 };
@@ -308,14 +310,32 @@ u32 utf8_decode(u32 *state, u32 *codep, u32 byte) {
   return *state;
 }
 
-int re_next(const u8 **s, size_t *sz, u32 *first) {
+int re_parse_err(re *r, const char *msg) {
+  r->error = msg, r->error_pos = r->expr_pos;
+  return ERR_PARSE;
+}
+
+int re_next_new(re *r, u32 *first, const char *else_msg) {
   u32 state = UTF8_ACCEPT;
-  assert(*sz && first);
-  *first = 0;
-  while (utf8_decode(&state, first, *((*s)++)), (*sz)--)
+  if (r->expr_pos == r->expr_size)
+    return re_parse_err(r, else_msg);
+  while (utf8_decode(&state, first, *(r->expr + r->expr_pos)),
+         (r->expr_pos++ != r->expr_size))
     if (!state)
       return 0;
-  return state != UTF8_ACCEPT;
+  return (state != UTF8_ACCEPT) * ERR_PARSE;
+}
+
+int re_hasnext(re *r) { return r->expr_pos != r->expr_size; }
+
+int re_peeknext(re *r, u32 *first) {
+  size_t prev_pos = r->expr_pos;
+  int err;
+  assert(re_hasnext(r));
+  if ((err = re_next_new(r, first, NULL)))
+    return err;
+  r->expr_pos = prev_pos;
+  return 0;
 }
 
 #define MAXREP 100000
@@ -449,7 +469,7 @@ int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert) {
   const ccdef *named = re_parse_namedcc(s, sz);
   u32 res = REF_NONE, i, max = 0, cur_min, cur_max;
   if (!named)
-    return ERR_PARSE;
+    return re_parse_err(r, "unknown builtin character class name");
   for (i = 0; i < named->cc_len; i++) {
     cur_min = named->chars[i * 2], cur_max = named->chars[i * 2 + 1];
     if (!invert && (err = re_mkast(r, CLS, cur_min, cur_max, res, &res)))
@@ -470,15 +490,11 @@ int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert) {
 }
 
 /* after a \ */
-int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
+int re_parse_escape(re *r, u32 allowed_outputs) {
   u32 ch;
-  size_t prev_sz;
-  const u8 *prev_s;
   int err = 0;
-  if (!*sz)
-    return ERR_PARSE;
-  if (re_next(s, sz, &ch))
-    return ERR_PARSE;
+  if ((err = re_next_new(r, &ch, "expected escape sequence")))
+    return err;
   if (                              /* single character escapes */
       (ch == 'a' && (ch = '\a')) || /* bell */
       (ch == 'f' && (ch = '\f')) || /* form feed */
@@ -501,27 +517,26 @@ int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
   } else if (ch >= '0' && ch <= '7') { /* octal escape */
     int digs = 1;
     u32 ord = ch - '0';
-    while (digs++ < 3 && *sz && (prev_sz = *sz) && (prev_s = *s) &&
-           !(err = re_next(s, sz, &ch)) && ch >= '0' && ch <= '7')
+    while (digs++ < 3 && re_hasnext(r) && !(err = re_peeknext(r, &ch)) &&
+           ch >= '0' && ch <= '7') {
+      err = re_next_new(r, &ch, NULL);
+      assert(!err && ch >= '0' && ch <= '7');
       ord = ord * 8 + ch - '0';
+    }
     if (err)
-      return ERR_PARSE;                 /* malformed */
-    else if (!(ch >= '0' && ch <= '7')) /* over-read */
-      *sz = prev_sz, *s = prev_s;       /* backtrack */
+      return err; /* malformed */
     return re_parse_escape_addchr(r, ord, allowed_outputs);
   } else if (ch == 'x') { /* hex escape */
     u32 ord = 0;
-    if (!*sz)
-      return ERR_PARSE; /* expected two hex characters or a bracketed hex lit */
-    else if ((err = re_next(s, sz, &ch)))
-      return ERR_PARSE; /* malformed */
-    if (ch == '{') {    /* bracketed hex lit */
+    if ((err = re_next_new(
+             r, &ch, "expected two hex characters or a bracketed hex literal")))
+      return err;
+    if (ch == '{') { /* bracketed hex lit */
       u32 i;
       for (i = 0; i < 8; i++) {
-        if (i == 7 || !*sz)
-          return ERR_PARSE; /* expected up to six hex characters */
-        else if ((err = re_next(s, sz, &ch)))
-          return ERR_PARSE; /* malformed */
+        if ((i == 7) ||
+            (err = re_next_new(r, &ch, "expected up to six hex characters")))
+          return re_parse_err(r, "expected up to six hex characters");
         if (ch == '}')
           break;
         if ((err = re_hexdig(ch)) == -1)
@@ -534,12 +549,10 @@ int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
       return ERR_PARSE; /* invalid hex digit */
     } else {
       ord = err;
-      if (!*sz)
-        return ERR_PARSE; /* expected two hex characters */
-      else if ((err = re_next(s, sz, &ch)))
-        return ERR_PARSE; /* malformed */
+      if ((err = re_next_new(r, &ch, "expected two hex characters")))
+        return err;
       else if ((err = re_hexdig(ch)) == -1)
-        return ERR_PARSE; /* invalid hex digit */
+        return re_parse_err(r, "invalid hex digit");
       ord = ord * 16 + err;
     }
     if (ord > UTFMAX)
@@ -556,18 +569,22 @@ int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
     u32 cat = REF_NONE, chr = REF_NONE;
     if (!(allowed_outputs & (1 << CAT)))
       return ERR_PARSE; /* cannot use \Q...\E here */
-    while (*sz) {
-      if ((err = re_next(s, sz, &ch)))
-        return err; /* malformed */
-      if (ch == '\\' && *sz) {
-        prev_s = *s, prev_sz = *sz;
-        if ((err = re_next(s, sz, &ch)))
-          return err; /* malformed */
-        if (ch == 'E')
+    while (re_hasnext(r)) {
+      if ((err = re_next_new(r, &ch, NULL)))
+        return err;
+      if (ch == '\\' && re_hasnext(r)) {
+        if ((err = re_peeknext(r, &ch)))
+          return err;
+        if (ch == 'E') {
+          err = re_next_new(r, &ch, NULL);
+          assert(!err); /* we already read this in the peeknext */
           return stk_push(r, &r->arg_stk, cat);
-        else if (ch != '\\')
-          /* backtrack */
-          *s = prev_s, *sz = prev_sz, ch = '\\';
+        } else if (ch == '\\') {
+          err = re_next_new(r, &ch, NULL);
+          assert(!err && ch == '\\');
+        } else {
+          ch = '\\';
+        }
       }
       if ((err = re_mkast(r, CHR, ch, 0, 0, &chr)))
         return err;
@@ -594,13 +611,15 @@ int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
   return 0;
 }
 
-int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
+int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
   int err;
-  while (sz) {
+  r->expr = ts;
+  r->expr_size = tsz, r->expr_pos = 0;
+  while (re_hasnext(r)) {
     u32 ch;
     u32 args[3] = {REF_NONE}, res = REF_NONE;
-    if (re_next(&s, &sz, &ch))
-      return ERR_PARSE; /* malformed */
+    if ((err = re_next_new(r, &ch, NULL)))
+      return err;
     if (ch == '*' || ch == '+' || ch == '?') {
       /* arg_stk: | ... |  R  | */
       /* pop one from arg stk, create quant, push to arg stk */
@@ -659,27 +678,26 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
         return err;
       /* arg_stk: | ... |  .  | */
     } else if (ch == '[') { /* charclass */
-      size_t start = sz;
+      size_t start = r->expr_pos;
       u32 inverted = 0, min, max;
       res = REF_NONE;
       while (1) {
         u32 next;
-        if (!sz)
-          return ERR_PARSE; /* unclosed charclass */
-        if (re_next(&s, &sz, &ch))
-          return ERR_PARSE; /* malformed */
-        if ((start - sz == 1) && ch == '^') {
+        if ((err = re_next_new(r, &ch, "unclosed character class")))
+          return err;
+        if ((r->expr_pos - start == 1) && ch == '^') {
           inverted = 1; /* caret at start of CC */
           continue;
         }
         min = ch;
         if (ch == ']') {
-          if ((start - sz == 1 || (start - sz == 2 && inverted))) {
+          if ((r->expr_pos - start == 1 ||
+               (r->expr_pos - start == 2 && inverted))) {
             min = ch; /* charclass starts with ] */
           } else
             break;               /* charclass done */
         } else if (ch == '\\') { /* escape */
-          if ((err = re_parse_escape(r, &s, &sz, (1 << CHR) | (1 << CLS))))
+          if ((err = re_parse_escape(r, (1 << CHR) | (1 << CLS))))
             return err;
           if (!(next = stk_pop(r, &r->arg_stk)))
             return ERR_MEM;
@@ -692,36 +710,35 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
             /* we parsed an entire class, so there's no ending character */
             continue;
           }
-        } else if (ch == '[' && sz > 0 && s[0] == ':') { /* named class */
+        } else if (ch == '[' && re_hasnext(r) && !re_peeknext(r, &ch) &&
+                   ch == ':') { /* named class */
           int named_inverted = 0;
           size_t name_start, name_end;
-          if (re_next(&s, &sz, &ch)) /* : */
-            assert(0);
-          if (sz && s[0] == '^') {     /* inverted named class */
-            if (re_next(&s, &sz, &ch)) /* ^ */
-              assert(0);
+          err = re_next_new(r, &ch, NULL); /* : */
+          assert(!err && ch == ':');
+          if (re_hasnext(r) && !re_peeknext(r, &ch) &&
+              ch == '^') {                   /* inverted named class */
+            err = re_next_new(r, &ch, NULL); /* ^ */
+            assert(!err && ch == '^');
             named_inverted = 1;
           }
-          name_start = name_end = sz;
+          name_start = name_end = r->expr_pos;
           while (1) {
-            if (!sz)
-              return ERR_PARSE; /* expected character class name */
-            if (re_next(&s, &sz, &ch))
-              return ERR_PARSE; /* malformed */
+            if ((err = re_next_new(r, &ch, "expected character class name")))
+              return err;
             if (ch == ':')
               break;
-            name_end = sz;
+            name_end = r->expr_pos;
           }
-          if (!sz)
-            return ERR_PARSE; /* expected closing bracket for named character
-                                 class */
-          if (re_next(&s, &sz, &ch))
-            return ERR_PARSE; /* malformed */
+          if ((err = re_next_new(
+                   r, &ch,
+                   "expected closing bracket for named character class")))
+            return err;
           if (ch != ']')
-            return ERR_PARSE; /* expected closing bracket for named character
-                                 class */
-          if ((err = re_parse_add_namedcc(r, s - (name_start - sz),
-                                          (name_start - name_end),
+            return re_parse_err(
+                r, "expected closing bracket for named character class");
+          if ((err = re_parse_add_namedcc(r, r->expr + name_start,
+                                          (name_end - name_start),
                                           named_inverted)))
             return err;
           next = stk_pop(r, &r->arg_stk);
@@ -731,14 +748,15 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
           continue;
         }
         max = min;
-        if (sz > 1 && s[0] == '-') {
+        if (re_hasnext(r) && !re_peeknext(r, &ch) && ch == '-') {
           /* range expression */
-          if (re_next(&s, &sz, &ch))
-            assert(0); /* - */
-          if (re_next(&s, &sz, &ch))
+          err = re_next_new(r, &ch, NULL);
+          assert(!err && ch == '-');
+          if (re_next_new(r, &ch,
+                          "expected ending character for range expression"))
             return ERR_PARSE; /* malformed */
           if (ch == '\\') {   /* start of escape */
-            if ((err = re_parse_escape(r, &s, &sz, (1 << CHR))))
+            if ((err = re_parse_escape(r, (1 << CHR))))
               return err;
             if (!(next = stk_pop(r, &r->arg_stk)))
               return ERR_MEM;
@@ -757,8 +775,8 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
       if ((err = stk_push(r, &r->arg_stk, res)))
         return err;
     } else if (ch == '\\') { /* escape */
-      if ((err = re_parse_escape(
-               r, &s, &sz, 1 << CHR | 1 << CLS | 1 << ANYBYTE | 1 << CAT)))
+      if ((err = re_parse_escape(r, 1 << CHR | 1 << CLS | 1 << ANYBYTE |
+                                        1 << CAT)))
         return err;
     } else { /* char: push to the arg stk */
              /* arg_stk: | ... | */
