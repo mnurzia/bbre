@@ -353,14 +353,6 @@ int re_fold_alts(re *r) {
   return 0;
 }
 
-u32 re_mkcc(re *r, u32 rest, u32 min, u32 max) {
-  u32 out;
-  int err = 0;
-  if ((err = re_mkast(r, CLS, min, max, rest, &out)))
-    return 0;
-  return out;
-}
-
 u32 re_uncc(re *r, u32 rest, u32 first) {
   u32 cur = first, *next;
   assert(first);
@@ -433,18 +425,18 @@ int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert) {
     return ERR_PARSE;
   for (i = 0; i < named->cc_len; i++) {
     cur_min = named->chars[i * 2], cur_max = named->chars[i * 2 + 1];
-    if (!invert && !(res = re_mkcc(r, res, cur_min, cur_max)))
-      return ERR_MEM;
+    if (!invert && (err = re_mkast(r, CLS, cur_min, cur_max, res, &res)))
+      return err;
     else if (invert && cur_min > max) {
-      if (!(res = re_mkcc(r, res, max, cur_min - 1)))
-        return ERR_MEM;
+      if ((err = re_mkast(r, CLS, max, cur_min - 1, res, &res)))
+        return err;
       else
         max = cur_max + 1;
     }
   }
   if (invert && i && cur_max < UTFMAX &&
-      !(res = re_mkcc(r, res, cur_max + 1, UTFMAX)))
-    return ERR_MEM;
+      (err = re_mkast(r, CLS, cur_max + 1, UTFMAX, res, &res)))
+    return err;
   if ((err = stk_push(r, &r->arg_stk, res)))
     return err;
   return 0;
@@ -635,7 +627,7 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
       /* op_stk:  | ... | */
     } else if (ch == '.') { /* any char */
       /* arg_stk: | ... | */
-      if ((!(res = re_mkcc(r, 0, 0, UTFMAX)) && (err = ERR_MEM)) ||
+      if ((err = re_mkast(r, CLS, 0, UTFMAX, REF_NONE, &res)) ||
           (err = stk_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... |  .  | */
@@ -729,8 +721,8 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
             max = ch; /* non-escaped character */
           }
         }
-        if (!(res = re_mkcc(r, res, min, max)))
-          return ERR_MEM;
+        if ((err = re_mkast(r, CLS, min, max, res, &res)))
+          return err;
       }
       assert(res);  /* charclass cannot be empty */
       if (inverted) /* inverted character class */
@@ -1422,8 +1414,9 @@ int re_compile(re *r, u32 root, u32 reverse) {
         patch_add(r, &frame, my_pc, 0);
       } else { /* unicode */
         /* create temp ast */
-        if (!tmp_cc_ast && !(tmp_cc_ast = re_mkcc(r, REF_NONE, 0, 0)))
-          return ERR_MEM;
+        if (!tmp_cc_ast &&
+            (err = re_mkast(r, CLS, 0, 0, REF_NONE, &tmp_cc_ast)))
+          return err;
         *re_astarg(r, tmp_cc_ast, 0, tmp_cc_ast) =
             *re_astarg(r, tmp_cc_ast, 1, tmp_cc_ast) = args[0];
         if (re_compcc(r, tmp_cc_ast, &frame))
