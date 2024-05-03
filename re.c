@@ -323,7 +323,9 @@ int re_next_new(re *r, u32 *first, const char *else_msg) {
          (r->expr_pos++ != r->expr_size))
     if (!state)
       return 0;
-  return (state != UTF8_ACCEPT) * ERR_PARSE;
+  if (state != UTF8_ACCEPT)
+    return re_parse_err(r, "invalid utf-8 sequence");
+  return 0;
 }
 
 int re_hasnext(re *r) { return r->expr_pos != r->expr_size; }
@@ -540,13 +542,13 @@ int re_parse_escape(re *r, u32 allowed_outputs) {
         if (ch == '}')
           break;
         if ((err = re_hexdig(ch)) == -1)
-          return ERR_PARSE; /* invalid hex digit */
+          return re_parse_err(r, "invalid hex digit");
         ord = ord * 16 + err;
       }
       if (!i)
-        return ERR_PARSE; /* expected at least one hex character */
+        return re_parse_err(r, "expected at least one hex character");
     } else if ((err = re_hexdig(ch)) == -1) {
-      return ERR_PARSE; /* invalid hex digit */
+      return re_parse_err(r, "invalid hex digit");
     } else {
       ord = err;
       if ((err = re_next_new(r, &ch, "expected two hex characters")))
@@ -556,19 +558,19 @@ int re_parse_escape(re *r, u32 allowed_outputs) {
       ord = ord * 16 + err;
     }
     if (ord > UTFMAX)
-      return ERR_PARSE; /* ordinal out of range [0, 0x10FFFF] */
+      return re_parse_err(r, "ordinal value out of range [0, 0x10FFFF]");
     return re_parse_escape_addchr(r, ord, allowed_outputs);
   } else if (ch == 'C') { /* any byte: \C */
     u32 res;
     if (!(allowed_outputs & (1 << ANYBYTE)))
-      return ERR_PARSE; /* cannot use \C here */
+      return re_parse_err(r, "cannot use \\C here");
     if ((err = re_mkast(r, ANYBYTE, 0, 0, 0, &res)) ||
         (err = stk_push(r, &r->arg_stk, res)))
       return err;
   } else if (ch == 'Q') { /* quote string */
     u32 cat = REF_NONE, chr = REF_NONE;
     if (!(allowed_outputs & (1 << CAT)))
-      return ERR_PARSE; /* cannot use \Q...\E here */
+      return re_parse_err(r, "cannot use \\Q...\\E here");
     while (re_hasnext(r)) {
       if ((err = re_next_new(r, &ch, NULL)))
         return err;
@@ -601,12 +603,12 @@ int re_parse_escape(re *r, u32 allowed_outputs) {
     ch = inverted ? ch - 'A' + 'a' : ch;   /* convert to lowercase */
     cc_name = ch == 'd' ? "digit" : ch == 's' ? "perl_space" : "word";
     if (!(allowed_outputs & (1 << CLS)))
-      return ERR_PARSE; /* character classes disallowed here */
+      return re_parse_err(r, "cannot use a character classe here");
     if ((err = re_parse_add_namedcc(r, (const u8 *)cc_name, strlen(cc_name),
                                     inverted)))
       return err;
   } else {
-    return ERR_PARSE; /* invalid escape */
+    return re_parse_err(r, "invalid escape sequence");
   }
   return 0;
 }
@@ -624,7 +626,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
       /* arg_stk: | ... |  R  | */
       /* pop one from arg stk, create quant, push to arg stk */
       if (!r->arg_stk.size)
-        return ERR_PARSE; /* not enough values on the stk */
+        return re_parse_err(r, "cannot apply quantifier to empty regex");
       args[0] = stk_pop(r, &r->arg_stk);
       args[1] = ch == '+', args[2] = (ch == '?' ? 1 : INFTY);
       if ((err = re_mkast(r, QUANT, args[0], args[1], args[2], &res)) ||
@@ -660,7 +662,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
         return ERR_MEM;
       /* arg_stk has either 0 or 1 value */
       if (!r->op_stk.size)
-        return ERR_PARSE;
+        return re_parse_err(r, "extra close parenthesis");
       /* arg_stk: |  R  | */
       /* op_stk:  | ... |  () | */
       /* add it to the group */
@@ -752,10 +754,10 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
           /* range expression */
           err = re_next_new(r, &ch, NULL);
           assert(!err && ch == '-');
-          if (re_next_new(r, &ch,
-                          "expected ending character for range expression"))
-            return ERR_PARSE; /* malformed */
-          if (ch == '\\') {   /* start of escape */
+          if ((err = re_next_new(
+                   r, &ch, "expected ending character for range expression")))
+            return err;
+          if (ch == '\\') { /* start of escape */
             if ((err = re_parse_escape(r, (1 << CHR))))
               return err;
             if (!(next = stk_pop(r, &r->arg_stk)))
@@ -790,12 +792,9 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
   if (re_fold(r) || re_fold_alts(r))
     return ERR_MEM;
   if (r->op_stk.size)
-    return ERR_PARSE;
-  {
-    u32 arg = stk_pop(r, &r->arg_stk);
-    if ((err = re_mkast(r, REG, arg, 0, 0, root)))
-      return ERR_MEM;
-  }
+    return re_parse_err(r, "unmatched open parenthesis");
+  if ((err = re_mkast(r, REG, stk_pop(r, &r->arg_stk), 0, 0, root)))
+    return ERR_MEM;
   return 0;
 }
 
