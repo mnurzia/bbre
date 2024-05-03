@@ -67,16 +67,15 @@ void progdump(re *r) {
 
 void cctreedump_i(stk *cc_tree, u32 ref, u32 lvl) {
   u32 i;
-  compcc_node node;
-  cc_treeget(cc_tree, ref, &node);
-  printf("%04X [%08X] ", ref, node.hash);
+  compcc_node *node = cc_treeref(cc_tree, ref);
+  printf("%04X [%08X] ", ref, node->hash);
   for (i = 0; i < lvl; i++)
     printf("  ");
-  printf("%02X-%02X\n", u2br(node.range).l, u2br(node.range).h);
-  if (node.child_ref)
-    cctreedump_i(cc_tree, node.child_ref, lvl + 1);
-  if (node.sibling_ref)
-    cctreedump_i(cc_tree, node.sibling_ref, lvl);
+  printf("%02X-%02X\n", u2br(node->range).l, u2br(node->range).h);
+  if (node->child_ref)
+    cctreedump_i(cc_tree, node->child_ref, lvl + 1);
+  if (node->sibling_ref)
+    cctreedump_i(cc_tree, node->sibling_ref, lvl);
 }
 
 void cctreedump(stk *cc_tree, u32 ref) { cctreedump_i(cc_tree, ref, 0); }

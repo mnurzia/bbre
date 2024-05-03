@@ -1,7 +1,7 @@
 CFLAGS=-Wall -Werror -Wextra -Wshadow -pedantic -fsanitize=address -ferror-limit=0 -Wuninitialized -std=c89 -O0 -g
 COVCFLAGS=--coverage
 
-SRCS=build/re-dbg.c test.c build/test-gen.c
+SRCS=build/re.c test.c build/test-gen.c
 GDB=lldb --
 
 all: test
@@ -15,7 +15,7 @@ build/cov:
 build/re.h: re.h
 	cp re.h $@
 
-build/re-dbg.c: build/re.h re.c dbgutil.c
+build/re.c: build/re.h re.c dbgutil.c
 	cat re.c dbgutil.c > $@
 
 build/re: build $(SRCS)

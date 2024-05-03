@@ -26,6 +26,8 @@ struct re {
   stk arg_stk, op_stk, comp_stk, prog;
   stk cc_stk_a, cc_stk_b;
   u32 entry[4];
+  const char *error;
+  size_t error_pos;
 };
 
 #define ENT_ONESHOT 0
@@ -57,9 +59,12 @@ void stk_destroy(re *r, stk *s) {
   re_ialloc(r, sizeof(*s->ptr) * s->alloc, 0, s->ptr);
 }
 
-int stk_push(re *r, stk *s, u32 v) {
-  if (s->size == s->alloc) {
-    size_t next_alloc = (s->alloc ? (s->alloc * 2) : 16);
+int stk_pushn(re *r, stk *s, void *p, u32 n) {
+  u32 words = (n + (sizeof(u32) - 1)) / sizeof(u32); /* ceil */
+  size_t next_alloc = s->alloc ? s->alloc : 16;
+  while (s->size + words > next_alloc)
+    next_alloc *= 2;
+  if (next_alloc > s->alloc) {
     u32 *out = re_ialloc(r, sizeof(*s->ptr) * s->alloc,
                          sizeof(*s->ptr) * next_alloc, s->ptr);
     if (!out)
@@ -67,20 +72,42 @@ int stk_push(re *r, stk *s, u32 v) {
     s->alloc = next_alloc;
     s->ptr = out;
   }
-  s->ptr[s->size++] = v;
+  memcpy(s->ptr + s->size, p, n);
+  s->size += words;
   return 0;
 }
 
-u32 stk_pop(re *r, stk *s) {
+int stk_push(re *r, stk *s, u32 v) { return stk_pushn(r, s, &v, sizeof(v)); }
+
+void stk_popn(re *r, stk *s, void *p, u32 n) {
+  u32 words = (n + (sizeof(u32) - 1)) / sizeof(u32); /* ceil */
   (void)(r);
-  assert(s->size);
-  return s->ptr[--s->size];
+  assert(s->size >= words);
+  memcpy(p, s->ptr + s->size - words, n);
+  s->size -= words;
+}
+
+u32 stk_pop(re *r, stk *s) {
+  u32 v;
+  stk_popn(r, s, &v, sizeof(v));
+  return v;
+}
+
+void *stk_getn(stk *s, u32 idx) {
+  assert(idx < s->size);
+  return s->ptr + idx;
 }
 
 u32 stk_peek(re *r, stk *s, u32 idx) {
   (void)(r);
   assert(idx < s->size);
   return s->ptr[s->size - 1 - idx];
+}
+
+u32 stk_elemsize(size_t n) { return ((n + sizeof(u32) - 1) / sizeof(u32)); }
+
+u32 stk_size(stk *s, u32 n) {
+  return s->size / ((n + sizeof(u32) - 1) / sizeof(u32));
 }
 
 int re_parse(re *r, const u8 *s, size_t sz, u32 *root);
@@ -573,7 +600,7 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
     u32 ch;
     u32 args[3] = {REF_NONE}, res = REF_NONE;
     if (re_next(&s, &sz, &ch))
-      return ERR_PARSE; /* invalid */
+      return ERR_PARSE; /* malformed */
     if (ch == '*' || ch == '+' || ch == '?') {
       /* arg_stk: | ... |  R  | */
       /* pop one from arg stk, create quant, push to arg stk */
@@ -770,15 +797,11 @@ inst mkinst(u32 l, u32 h) {
 }
 
 void re_prog_set(re *r, u32 pc, inst i) {
-  r->prog.ptr[pc * 2 + 0] = i.l;
-  r->prog.ptr[pc * 2 + 1] = i.h;
+  r->prog.ptr[pc * 2 + 0] = i.l, r->prog.ptr[pc * 2 + 1] = i.h;
 }
 
 inst re_prog_get(re *r, u32 pc) {
-  inst i;
-  i.l = r->prog.ptr[pc * 2 + 0];
-  i.h = r->prog.ptr[pc * 2 + 1];
-  return i;
+  return mkinst(r->prog.ptr[pc * 2 + 0], r->prog.ptr[pc * 2 + 1]);
 }
 
 u32 re_prog_size(re *r) { return r->prog.size >> 1; }
@@ -796,26 +819,13 @@ typedef struct compframe {
 } compframe;
 
 int compframe_push(re *r, compframe c) {
-  int err = 0;
-  if ((err = stk_push(r, &r->comp_stk, c.root_ref)) ||
-      (err = stk_push(r, &r->comp_stk, c.child_ref)) ||
-      (err = stk_push(r, &r->comp_stk, c.idx)) ||
-      (err = stk_push(r, &r->comp_stk, c.patch_head)) ||
-      (err = stk_push(r, &r->comp_stk, c.patch_tail)) ||
-      (err = stk_push(r, &r->comp_stk, c.pc)))
-    return err;
-  return err;
+  return stk_pushn(r, &r->comp_stk, &c, sizeof(c));
 }
 
 compframe compframe_pop(re *r) {
-  compframe out;
-  out.pc = stk_pop(r, &r->comp_stk);
-  out.patch_tail = stk_pop(r, &r->comp_stk);
-  out.patch_head = stk_pop(r, &r->comp_stk);
-  out.idx = stk_pop(r, &r->comp_stk);
-  out.child_ref = stk_pop(r, &r->comp_stk);
-  out.root_ref = stk_pop(r, &r->comp_stk);
-  return out;
+  compframe v;
+  stk_popn(r, &r->comp_stk, &v, sizeof(v));
+  return v;
 }
 
 enum op { RANGE, ASSERT, MATCH, SPLIT };
@@ -918,68 +928,60 @@ void re_compcc_hsort(stk *cc, size_t n) {
     }
   }
 }
+
 typedef struct compcc_node {
   u32 range, child_ref, sibling_ref, hash;
 } compcc_node;
 
-void cc_treeget(stk *cc, u32 ref, compcc_node *out) {
-  assert(ref < cc->size / 4);
-  out->range = cc->ptr[ref * 4], out->child_ref = cc->ptr[ref * 4 + 1],
-  out->sibling_ref = cc->ptr[ref * 4 + 2], out->hash = cc->ptr[ref * 4 + 3];
+compcc_node *cc_treeref(stk *cc, u32 ref) {
+  return (compcc_node *)stk_getn(cc, ref * stk_elemsize(sizeof(compcc_node)));
 }
 
-void cc_treeset(stk *cc, u32 ref, compcc_node in) {
-  assert(ref < cc->size / 4);
-  cc->ptr[ref * 4] = in.range, cc->ptr[ref * 4 + 1] = in.child_ref,
-                cc->ptr[ref * 4 + 2] = in.sibling_ref,
-                cc->ptr[ref * 4 + 3] = in.hash;
-}
+u32 cc_treesize(stk *cc) { return stk_size(cc, sizeof(compcc_node)); }
 
-u32 cc_treesize(stk *cc) { return cc->size / 4; }
-
-u32 cc_treenew(re *r, stk *cc_out, compcc_node node) {
-  u32 out;
+int cc_treenew(re *r, stk *cc_out, compcc_node node, u32 *out) {
   int err = 0;
   if (!cc_out->size) {
+    compcc_node sentinel = {0};
     /* need to create sentinel node */
-    if ((err = stk_push(r, cc_out, 0)) || (err = stk_push(r, cc_out, 0)) ||
-        (err = stk_push(r, cc_out, 0)) || (err = stk_push(r, cc_out, 0)))
-      return 0;
+    if ((err = stk_pushn(r, cc_out, &sentinel, sizeof(compcc_node))))
+      return err;
   }
-  out = cc_out->size / 4;
-  if ((err = stk_push(r, cc_out, node.range)) ||
-      (err = stk_push(r, cc_out, node.child_ref)) ||
-      (err = stk_push(r, cc_out, node.sibling_ref)) ||
-      (err = stk_push(r, cc_out, node.hash)))
-    return 0;
-  return out;
+  *out = stk_size(cc_out, sizeof(compcc_node));
+  if ((err = stk_pushn(r, cc_out, &node, sizeof(compcc_node))))
+    return err;
+  return 0;
 }
 
-u32 cc_treeappend(re *r, stk *cc, u32 range, u32 parent) {
-  compcc_node parent_node, child_node = {0};
-  cc_treeget(cc, parent, &parent_node);
-  child_node.sibling_ref = parent_node.child_ref, child_node.range = range;
-  parent_node.child_ref = cc_treenew(r, cc, child_node);
-  if (!parent_node.child_ref)
-    return 0;
-  assert(parent_node.child_ref != parent);
-  assert(parent_node.sibling_ref != parent);
-  assert(child_node.child_ref != parent_node.child_ref);
-  assert(child_node.sibling_ref != parent_node.child_ref);
-  cc_treeset(cc, parent, parent_node);
-  return parent_node.child_ref;
+int cc_treeappend(re *r, stk *cc, u32 range, u32 parent, u32 *out) {
+  compcc_node *parent_node, child_node = {0};
+  u32 child_ref;
+  int err;
+  parent_node = cc_treeref(cc, parent);
+  child_node.sibling_ref = parent_node->child_ref, child_node.range = range;
+  if ((err = cc_treenew(r, cc, child_node, &child_ref)))
+    return err;
+  parent_node = cc_treeref(cc, parent); /* ref could be stale */
+  parent_node->child_ref = child_ref;
+  assert(parent_node->child_ref != parent);
+  assert(parent_node->sibling_ref != parent);
+  assert(child_node.child_ref != parent_node->child_ref);
+  assert(child_node.sibling_ref != parent_node->child_ref);
+  *out = parent_node->child_ref;
+  return 0;
 }
 
 int re_compcc_buildtree_split(re *r, stk *cc_out, u32 parent, u32 min, u32 max,
                               u32 x_bits, u32 y_bits) {
   u32 x_mask = (1 << x_bits) - 1, y_min = min >> x_bits, y_max = max >> x_bits,
       u_mask = (0xFE << y_bits) & 0xFF, byte_min = (y_min & 0xFF) | u_mask,
-      byte_max = (y_max & 0xFF) | u_mask, i;
+      byte_max = (y_max & 0xFF) | u_mask, i, next;
   int err = 0;
   assert(y_bits <= 7);
   if (x_bits == 0) {
-    if (!cc_treeappend(r, cc_out, br2u(mkbr(byte_min, byte_max)), parent))
-      return ERR_MEM;
+    if ((err = cc_treeappend(r, cc_out, br2u(mkbr(byte_min, byte_max)), parent,
+                             &next)))
+      return err;
   } else {
     /* nonterminal */
     u32 x_min = min & x_mask, x_max = max & x_mask, brs[3], mins[3], maxs[3], n;
@@ -1042,18 +1044,19 @@ int re_compcc_buildtree_split(re *r, stk *cc_out, u32 parent, u32 min, u32 max,
       n = 3;
     }
     for (i = 0; i < n; i++) {
-      compcc_node parent_node, sibling_node;
+      compcc_node *parent_node;
       u32 child_ref;
       /* check if previous child intersects and then compute intersection */
       assert(parent);
-      cc_treeget(cc_out, parent, &parent_node);
-      if (parent_node.sibling_ref &&
-          (cc_treeget(cc_out, parent_node.sibling_ref, &sibling_node),
-           br_isect(u2br(sibling_node.range), u2br(brs[i])))) {
-        child_ref = parent_node.sibling_ref;
+      parent_node = cc_treeref(cc_out, parent);
+      if (parent_node->sibling_ref &&
+
+          br_isect(u2br(cc_treeref(cc_out, parent_node->sibling_ref)->range),
+                   u2br(brs[i]))) {
+        child_ref = parent_node->sibling_ref;
       } else {
-        if (!(child_ref = cc_treeappend(r, cc_out, brs[i], parent)))
-          return ERR_MEM;
+        if ((err = cc_treeappend(r, cc_out, brs[i], parent, &child_ref)))
+          return err;
       }
       if ((err = re_compcc_buildtree_split(r, cc_out, child_ref, mins[i],
                                            maxs[i], x_bits - 6, 6)))
@@ -1077,7 +1080,7 @@ int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out) {
       root_node.range = 0;
   /* clear output charclass */
   cc_out->size = 0;
-  if (!(root_ref = cc_treenew(r, cc_out, root_node)))
+  if ((err = cc_treenew(r, cc_out, root_node, &root_ref)))
     return err;
   for (i = 0; i < ccsize(cc_in); i++) {
     u32 min, max, min_bound = 0, max_bound;
@@ -1104,12 +1107,11 @@ int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out) {
 int re_compcc_treeeq(re *r, stk *cc_tree_in, compcc_node *a, compcc_node *b) {
   u32 a_child_ref = a->child_ref, b_child_ref = b->child_ref;
   while (a_child_ref && b_child_ref) {
-    compcc_node a_child, b_child;
-    cc_treeget(cc_tree_in, a_child_ref, &a_child);
-    cc_treeget(cc_tree_in, b_child_ref, &b_child);
-    if (!re_compcc_treeeq(r, cc_tree_in, &a_child, &b_child))
+    compcc_node *a_child = cc_treeref(cc_tree_in, a_child_ref),
+                *b_child = cc_treeref(cc_tree_in, b_child_ref);
+    if (!re_compcc_treeeq(r, cc_tree_in, a_child, b_child))
       return 0;
-    a_child_ref = a_child.sibling_ref, b_child_ref = b_child.sibling_ref;
+    a_child_ref = a_child->sibling_ref, b_child_ref = b_child->sibling_ref;
   }
   if (a_child_ref != b_child_ref)
     return 0;
@@ -1117,13 +1119,11 @@ int re_compcc_treeeq(re *r, stk *cc_tree_in, compcc_node *a, compcc_node *b) {
 }
 
 void re_compcc_merge_one(stk *cc_tree_in, u32 child_ref, u32 sibling_ref) {
-  compcc_node child, sibling;
-  cc_treeget(cc_tree_in, child_ref, &child);
-  cc_treeget(cc_tree_in, sibling_ref, &sibling);
-  child.sibling_ref = sibling.sibling_ref;
-  assert(br_adjace(u2br(child.range), u2br(sibling.range)));
-  child.range = br2u(mkbr(u2br(child.range).l, u2br(sibling.range).h));
-  cc_treeset(cc_tree_in, child_ref, child);
+  compcc_node *child = cc_treeref(cc_tree_in, child_ref),
+              *sibling = cc_treeref(cc_tree_in, sibling_ref);
+  child->sibling_ref = sibling->sibling_ref;
+  assert(br_adjace(u2br(child->range), u2br(sibling->range)));
+  child->range = br2u(mkbr(u2br(child->range).l, u2br(sibling->range).h));
 }
 
 /*https://nullprogram.com/blog/2018/07/31/*/
@@ -1154,30 +1154,28 @@ int cc_htinit(re *r, stk *cc_tree_in, stk *cc_ht_out) {
 void re_compcc_hashtree(re *r, stk *cc_tree_in, stk *cc_ht_out,
                         u32 parent_ref) {
   /* flip links and hash everything */
-  compcc_node parent_node;
+  compcc_node *parent_node = cc_treeref(cc_tree_in, parent_ref);
   u32 child_ref, next_child_ref, sibling_ref = 0;
-  cc_treeget(cc_tree_in, parent_ref, &parent_node);
-  child_ref = parent_node.child_ref;
+  child_ref = parent_node->child_ref;
   while (child_ref) {
-    compcc_node child_node, sibling_node;
-    cc_treeget(cc_tree_in, child_ref, &child_node);
-    next_child_ref = child_node.sibling_ref;
-    child_node.sibling_ref = sibling_ref;
-    cc_treeset(cc_tree_in, child_ref, child_node);
+    compcc_node *child_node = cc_treeref(cc_tree_in, child_ref), *sibling_node;
+    next_child_ref = child_node->sibling_ref;
+    child_node->sibling_ref = sibling_ref;
     re_compcc_hashtree(r, cc_tree_in, cc_ht_out, child_ref);
     if (sibling_ref) {
-      cc_treeget(cc_tree_in, sibling_ref, &sibling_node);
-      if (br_adjace(u2br(child_node.range), u2br(sibling_node.range))) {
-        if (!sibling_node.child_ref) {
-          if (!child_node.child_ref) {
+      sibling_node = cc_treeref(cc_tree_in, sibling_ref);
+      if (br_adjace(u2br(child_node->range), u2br(sibling_node->range))) {
+        if (!sibling_node->child_ref) {
+          if (!child_node->child_ref) {
             re_compcc_merge_one(cc_tree_in, child_ref, sibling_ref);
           }
         } else {
-          if (child_node.child_ref) {
-            compcc_node child_child, sibling_child;
-            cc_treeget(cc_tree_in, child_node.child_ref, &child_child);
-            cc_treeget(cc_tree_in, sibling_node.child_ref, &sibling_child);
-            if (re_compcc_treeeq(r, cc_tree_in, &child_child, &sibling_child)) {
+          if (child_node->child_ref) {
+            compcc_node *child_child =
+                            cc_treeref(cc_tree_in, child_node->child_ref),
+                        *sibling_child =
+                            cc_treeref(cc_tree_in, sibling_node->child_ref);
+            if (re_compcc_treeeq(r, cc_tree_in, child_child, sibling_child)) {
               re_compcc_merge_one(cc_tree_in, child_ref, sibling_ref);
             }
           }
@@ -1187,28 +1185,26 @@ void re_compcc_hashtree(re *r, stk *cc_tree_in, stk *cc_ht_out,
     {
       u32 hash_plain[3] = {0x6D99232E, 0xC281FF0B, 0x54978D96};
       memset(hash_plain, 0, sizeof(hash_plain));
-      hash_plain[0] ^= child_node.range;
-      if (child_node.sibling_ref) {
-        compcc_node child_sibling_node;
-        cc_treeget(cc_tree_in, child_node.sibling_ref, &child_sibling_node);
-        hash_plain[1] = child_sibling_node.hash;
+      hash_plain[0] ^= child_node->range;
+      if (child_node->sibling_ref) {
+        compcc_node *child_sibling_node =
+            cc_treeref(cc_tree_in, child_node->sibling_ref);
+        hash_plain[1] = child_sibling_node->hash;
       }
-      if (child_node.child_ref) {
-        compcc_node child_child_node;
-        cc_treeget(cc_tree_in, child_node.child_ref, &child_child_node);
-        hash_plain[2] = child_child_node.hash;
+      if (child_node->child_ref) {
+        compcc_node *child_child_node =
+            cc_treeref(cc_tree_in, child_node->child_ref);
+        hash_plain[2] = child_child_node->hash;
       }
-      child_node.hash =
+      child_node->hash =
           hashington(hashington(hashington(hash_plain[0]) + hash_plain[1]) +
                      hash_plain[2]);
-      cc_treeset(cc_tree_in, child_ref, child_node);
     }
     sibling_ref = child_ref;
     sibling_node = child_node;
     child_ref = next_child_ref;
   }
-  parent_node.child_ref = sibling_ref;
-  cc_treeset(cc_tree_in, parent_ref, parent_node);
+  parent_node->child_ref = sibling_ref;
 }
 
 int re_compcc_rendertree(re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref,
@@ -1216,10 +1212,9 @@ int re_compcc_rendertree(re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref,
   int err = 0;
   u32 split_from = 0, my_pc = 0, range_pc = 0;
   while (node_ref) {
-    compcc_node node;
+    compcc_node *node = cc_treeref(cc_tree_in, node_ref);
     u32 probe, found;
-    cc_treeget(cc_tree_in, node_ref, &node);
-    probe = node.hash << 1;
+    probe = node->hash << 1;
     /* check if child is in the hash table */
     while (1) {
       if (!((found = cc_ht->ptr[probe % cc_ht->size]) & 1))
@@ -1227,9 +1222,8 @@ int re_compcc_rendertree(re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref,
         break;
       else {
         /* something is in the cache, but it might not be a child */
-        compcc_node other_node;
-        cc_treeget(cc_tree_in, found >> 1, &other_node);
-        if (re_compcc_treeeq(r, cc_tree_in, &node, &other_node)) {
+        compcc_node *other_node = cc_treeref(cc_tree_in, found >> 1);
+        if (re_compcc_treeeq(r, cc_tree_in, node, other_node)) {
           if (split_from) {
             inst i = re_prog_get(r, split_from);
             /* found our child, patch into it */
@@ -1250,7 +1244,7 @@ int re_compcc_rendertree(re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref,
       i = INST(INST_OP(i), INST_N(i), my_pc);
       re_prog_set(r, split_from, i);
     }
-    if (node.sibling_ref) {
+    if (node->sibling_ref) {
       /* need a split */
       split_from = my_pc;
       if (re_emit(r, INST(SPLIT, my_pc + 1, 0)))
@@ -1259,15 +1253,15 @@ int re_compcc_rendertree(re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref,
     if (!*my_out_pc)
       *my_out_pc = my_pc;
     range_pc = re_prog_size(r);
-    if (re_emit(r,
-                INST(RANGE, 0,
-                     br2u(BYTE_RANGE(u2br(node.range).l, u2br(node.range).h)))))
+    if (re_emit(r, INST(RANGE, 0,
+                        br2u(BYTE_RANGE(u2br(node->range).l,
+                                        u2br(node->range).h)))))
       return ERR_MEM;
-    if (node.child_ref) {
+    if (node->child_ref) {
       /* need to down-compile */
       u32 their_pc = 0;
       inst i = re_prog_get(r, range_pc);
-      if ((err = re_compcc_rendertree(r, cc_tree_in, cc_ht, node.child_ref,
+      if ((err = re_compcc_rendertree(r, cc_tree_in, cc_ht, node->child_ref,
                                       &their_pc, frame)))
         return err;
       i = INST(INST_OP(i), their_pc, INST_P(i));
@@ -1278,7 +1272,7 @@ int re_compcc_rendertree(re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref,
     }
     cc_ht->ptr[(probe % cc_ht->size) + 0] = node_ref << 1 | 1;
     cc_ht->ptr[(probe % cc_ht->size) + 1] = my_pc;
-    node_ref = node.sibling_ref;
+    node_ref = node->sibling_ref;
   }
   assert(*my_out_pc);
   return 0;

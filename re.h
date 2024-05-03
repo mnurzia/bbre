@@ -36,4 +36,6 @@ typedef enum anchor_type {
 int re_match(re *r, const char *s, size_t n, u32 max_span, u32 max_set,
              span *out_span, u32 *out_set, anchor_type anchor);
 
+int re_get_error(re *r, const char **out, size_t *pos);
+
 #endif /* MN_RE_H */
