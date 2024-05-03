@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -156,6 +157,19 @@ typedef enum ast_type {
   ANYBYTE  /* any byte (\C) */
 } ast_type;
 
+const unsigned int ast_type_lens[] = {
+    0, /* eps */
+    1, /* REG */
+    1, /* CHR */
+    2, /* CAT */
+    2, /* ALT */
+    3, /* QUANT */
+    2, /* GROUP */
+    3, /* CLS */
+    3, /* ICLS */
+    0, /* ANYBYTE */
+};
+
 typedef struct byte_range {
   u8 l, h;
 } byte_range;
@@ -179,18 +193,20 @@ int br_adjace(byte_range left, byte_range right) {
 
 #define BYTE_RANGE(l, h) mkbr(l, h)
 
-u32 re_mkast_new(re *re, ast_type type, u32 nargs, u32 *args) {
-  u32 root, i, v;
-  assert(nargs || args == NULL);
-  for (i = 0; i < nargs + 1; i++) {
+int re_mkast(re *re, ast_type type, u32 p0, u32 p1, u32 p2, u32 *out) {
+  u32 args[3], root, i, v;
+  int err = 0;
+  args[0] = p0, args[1] = p1, args[2] = p2;
+  for (i = 0; i < ast_type_lens[type] + 1; i++) {
     if (!(v = re_ast_new(re)))
-      return v;
+      return ERR_MEM;
     if (!i)
       root = v, re->ast[root].v = type;
     else
       re->ast[v].v = args[i - 1];
   }
-  return root;
+  *out = root;
+  return err;
 }
 
 void re_decompast(re *re, u32 root, u32 nargs, u32 *args) {
@@ -207,56 +223,16 @@ u32 *re_astarg(re *re, u32 root, u32 n, u32 nargs) {
 
 u32 *re_asttype(re *re, u32 root) { return &((re->ast + root)->v); }
 
-void re_ast_dump(re *r, u32 root, u32 ilvl) {
-  u32 i, first = r->ast[root].v, rest = r->ast[root + 1].v;
-  printf("%04u ", root);
-  for (i = 0; i < ilvl; i++)
-    printf(" ");
-  if (root == REF_NONE) {
-    printf("<eps>\n");
-  } else if (first == REG) {
-    printf("REG\n");
-    re_ast_dump(r, *re_astarg(r, root, 0, 1), ilvl + 1);
-  } else if (first == CHR) {
-    printf("CHR %02X\n", rest);
-  } else if (first == CAT) {
-    printf("CAT\n");
-    re_ast_dump(r, *re_astarg(r, root, 0, 2), ilvl + 1);
-    re_ast_dump(r, *re_astarg(r, root, 1, 2), ilvl + 1);
-  } else if (first == ALT) {
-    printf("ALT\n");
-    re_ast_dump(r, *re_astarg(r, root, 0, 2), ilvl + 1);
-    re_ast_dump(r, *re_astarg(r, root, 1, 2), ilvl + 1);
-  } else if (first == GROUP) {
-    printf("GRP flag=%u\n", *re_astarg(r, root, 1, 2));
-    re_ast_dump(r, *re_astarg(r, root, 0, 2), ilvl + 1);
-  } else if (first == QUANT) {
-    printf("QNT min=%u max=%u\n", *re_astarg(r, root, 1, 3),
-           *re_astarg(r, root, 2, 3));
-    re_ast_dump(r, *re_astarg(r, root, 0, 3), ilvl + 1);
-  } else if (first == CLS) {
-    printf("CLS min=%02X max=%02X\n", *re_astarg(r, root, 0, 3),
-           *re_astarg(r, root, 1, 3));
-    re_ast_dump(r, *re_astarg(r, root, 2, 3), ilvl + 1);
-  } else if (first == ICLS) {
-    printf("ICLS min=%02X max=%02X\n", *re_astarg(r, root, 0, 3),
-           *re_astarg(r, root, 1, 3));
-    re_ast_dump(r, *re_astarg(r, root, 2, 3), ilvl + 1);
-  }
-}
-
 int re_union(re *r, const char *regex) { /* add an ALT here */
   int err = 0;
   if (!r->ast_sets &&
       (err = re_parse(r, (const u8 *)regex, strlen(regex), &r->ast_root))) {
     return err;
   } else {
-    u32 fork_args[2] = {0}, next_root;
-    if ((err = re_parse(r, (const u8 *)regex, strlen(regex), fork_args + 1)))
-      return ERR_MEM;
-    fork_args[0] = r->ast_root;
-    if (!(next_root = re_mkast_new(r, ALT, 2, fork_args)))
-      return ERR_MEM;
+    u32 next_reg, next_root;
+    if ((err = re_parse(r, (const u8 *)regex, strlen(regex), &next_reg)) ||
+        (err = re_mkast(r, ALT, r->ast_root, next_reg, 0, &next_root)))
+      return err;
     r->ast_root = next_root;
   }
   r->ast_sets++;
@@ -329,14 +305,12 @@ int re_fold(re *r) {
   }
   while (r->arg_stk.size > 1) {
     /* arg_stk: | ... | R_N-1 | R_N | */
-    u32 args[2], rest;
-    args[1] = stk_pop(r, &r->arg_stk);
-    args[0] = stk_pop(r, &r->arg_stk);
-    rest = re_mkast_new(r, CAT, 2, args);
-    if (!rest)
-      return ERR_MEM;
-    if ((err = stk_push(r, &r->arg_stk, rest)))
-      return ERR_MEM;
+    u32 right, left, rest;
+    right = stk_pop(r, &r->arg_stk);
+    left = stk_pop(r, &r->arg_stk);
+    if ((err = re_mkast(r, CAT, left, right, 0, &rest)) ||
+        (err = stk_push(r, &r->arg_stk, rest)))
+      return err;
     /* arg_stk: | ... | R_N-1R_N | */
   }
   /* arg_stk: | R1R2...Rn | */
@@ -380,9 +354,11 @@ int re_fold_alts(re *r) {
 }
 
 u32 re_mkcc(re *r, u32 rest, u32 min, u32 max) {
-  u32 args[3];
-  args[0] = min, args[1] = max, args[2] = rest;
-  return re_mkast_new(r, CLS, 3, args);
+  u32 out;
+  int err = 0;
+  if ((err = re_mkast(r, CLS, min, max, rest, &out)))
+    return 0;
+  return out;
 }
 
 u32 re_uncc(re *r, u32 rest, u32 first) {
@@ -399,7 +375,7 @@ int re_parse_escape_addchr(re *r, u32 ch, u32 allowed_outputs) {
   u32 res, args[1];
   assert(allowed_outputs & (1 << CHR));
   args[0] = ch;
-  if ((!(res = re_mkast_new(r, CHR, 1, args)) && (err = ERR_MEM)) ||
+  if ((err = re_mkast(r, CHR, ch, 0, 0, &res)) ||
       (err = stk_push(r, &r->arg_stk, res)))
     return err;
   return 0;
@@ -476,7 +452,7 @@ int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert) {
 
 /* after a \ */
 int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
-  u32 ch, args[3] = {0};
+  u32 ch;
   size_t prev_sz;
   const u8 *prev_s;
   int err = 0;
@@ -554,7 +530,7 @@ int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
     u32 res;
     if (!(allowed_outputs & (1 << ANYBYTE)))
       return ERR_PARSE; /* cannot use \C here */
-    if (!(res = re_mkast_new(r, ANYBYTE, 0, NULL)) ||
+    if ((err = re_mkast(r, ANYBYTE, 0, 0, 0, &res)) ||
         (err = stk_push(r, &r->arg_stk, res)))
       return err;
   } else if (ch == 'Q') { /* quote string */
@@ -574,12 +550,10 @@ int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
           /* backtrack */
           *s = prev_s, *sz = prev_sz, ch = '\\';
       }
-      args[0] = ch;
-      if (!(chr = re_mkast_new(r, CHR, 1, args)))
-        return ERR_MEM;
-      args[0] = cat, args[1] = chr;
-      if (!(cat = re_mkast_new(r, CAT, 2, args)))
-        return ERR_MEM;
+      if ((err = re_mkast(r, CHR, ch, 0, 0, &chr)))
+        return err;
+      if ((err = re_mkast(r, CAT, cat, chr, 0, &cat)))
+        return err;
     }
     if ((err = stk_push(r, &r->arg_stk, cat)))
       return err;
@@ -615,9 +589,8 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
         return ERR_PARSE; /* not enough values on the stk */
       args[0] = stk_pop(r, &r->arg_stk);
       args[1] = ch == '+', args[2] = (ch == '?' ? 1 : INFTY);
-      if (!(res = re_mkast_new(r, QUANT, 3, args)))
-        return ERR_MEM;
-      if ((err = stk_push(r, &r->arg_stk, res)))
+      if ((err = re_mkast(r, QUANT, args[0], args[1], args[2], &res)) ||
+          (err = stk_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... | *(R) | */
     } else if (ch == '|') {
@@ -629,15 +602,14 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
       /* arg_stk: |  R  | */
       args[0] = stk_pop(r, &r->arg_stk);
       args[1] = REF_NONE;
-      if (!(res = re_mkast_new(r, ALT, 2, args)))
-        return ERR_MEM;
-      if ((err = stk_push(r, &r->op_stk, res)))
+      if ((err = re_mkast(r, ALT, args[0], args[1], 0, &res)) ||
+          (err = stk_push(r, &r->op_stk, res)))
         return err;
       /* arg_stk: | */
       /* op_stk:  | ... | R(|) | */
     } else if (ch == '(') {
       /* op_stk:  | ... | */
-      if ((!(res = re_mkast_new(r, GROUP, 2, args)) && (err = ERR_MEM)) ||
+      if ((err = re_mkast(r, GROUP, 0, 0, 0, &res)) ||
           (err = stk_push(r, &r->op_stk, res)))
         return err;
       /* op_stk:  | ... | () | */
@@ -772,7 +744,7 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
     } else { /* char: push to the arg stk */
              /* arg_stk: | ... | */
       args[0] = ch;
-      if ((!(res = re_mkast_new(r, CHR, 1, args)) && (err = ERR_MEM)) ||
+      if ((err = re_mkast(r, CHR, ch, 0, 0, &res)) ||
           (err = stk_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... | chr | */
@@ -784,7 +756,7 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
     return ERR_PARSE;
   {
     u32 arg = stk_pop(r, &r->arg_stk);
-    if (!(*root = re_mkast_new(r, REG, 1, &arg)))
+    if ((err = re_mkast(r, REG, arg, 0, 0, root)))
       return ERR_MEM;
   }
   return 0;
@@ -861,29 +833,6 @@ enum asserts { A_EVERYTHING = 0xFF };
 #define IMATCH(s, i) ((i) << 1 | (s))
 #define IMATCH_S(m) ((m) & 1)
 #define IMATCH_I(m) ((m) >> 1)
-
-void re_prog_dump(re *r) {
-  u32 i, j, k;
-  for (i = 0; i < re_prog_size(r); i++) {
-    inst ins = re_prog_get(r, i);
-    static const char *ops[] = {"RANGE", "ASSRT", "MATCH", "SPLIT"};
-    static const int colors[] = {91, 92, 93, 94};
-    static const char *labels[] = {"F  ", "R  ", "F.*", "R.*", "   ", "+  "};
-    k = 4;
-    for (j = 0; j < 4; j++) {
-      if (i == r->entry[j]) {
-        k = k == 4 ? j : 5;
-      }
-    }
-    printf("%04X \x1b[%im%s\x1b[0m %04X %04X %s", i, colors[INST_OP(ins)],
-           ops[INST_OP(ins)], INST_N(ins), INST_P(ins), labels[k]);
-    if (INST_OP(ins) == MATCH) {
-      printf(" %c/%u", IMATCH_S(INST_P(ins)) ? 'G' : 'E',
-             IMATCH_I(INST_P(ins)));
-    }
-    printf("\n");
-  }
-}
 
 inst patch_set(re *r, u32 pc, u32 val) {
   inst prev = re_prog_get(r, pc >> 1);
@@ -1158,20 +1107,6 @@ int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out) {
     }
   }
   return err;
-}
-
-void re_compcc_dumptree(stk *cc_tree, u32 ref, u32 lvl) {
-  u32 i;
-  compcc_node node;
-  cc_treeget(cc_tree, ref, &node);
-  printf("%04X [%08X] ", ref, node.hash);
-  for (i = 0; i < lvl; i++)
-    printf("  ");
-  printf("%02X-%02X\n", u2br(node.range).l, u2br(node.range).h);
-  if (node.child_ref)
-    re_compcc_dumptree(cc_tree, node.child_ref, lvl + 1);
-  if (node.sibling_ref)
-    re_compcc_dumptree(cc_tree, node.sibling_ref, lvl);
 }
 
 int re_compcc_treeeq(re *r, stk *cc_tree_in, compcc_node *a, compcc_node *b) {

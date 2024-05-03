@@ -1,12 +1,22 @@
 CFLAGS=-Wall -Werror -Wextra -Wshadow -pedantic -fsanitize=address -ferror-limit=0 -Wuninitialized -std=c89 -O0 -g
 COVCFLAGS=--coverage
 
-SRCS=re.c test.c build/test-gen.c
+SRCS=build/re-dbg.c test.c build/test-gen.c
+GDB=lldb --
 
 all: test
 
 build:
 	mkdir -p build
+
+build/cov:
+	mkdir -p build/cov
+
+build/re.h: re.h
+	cp re.h $@
+
+build/re-dbg.c: build/re.h re.c dbgutil.c
+	cat re.c dbgutil.c > $@
 
 build/re: build $(SRCS)
 	$(CC) $(CFLAGS) $(SRCS) -o $@
@@ -14,38 +24,44 @@ build/re: build $(SRCS)
 build/test-gen.c: build tools/make_ascii_classes.py
 	python tools/make_ascii_classes.py tests | clang-format > $@
 
-re-cov: build $(SRCS)
-	$(CC) $(CFLAGS) $(COVCFLAGS) $(SRCS) -o $@
-
-build/re-cov: build $(SRCS)
-	rm -rf build/*.gcda build/*.gcno 
-	$(CC) $(CFLAGS) $(COVCFLAGS) $(SRCS) -o $@
-
 build/compile_commands.json: build $(SRCS) 
 	bear --output $@ -- make -B build/re
 
 test: build/re
 	./build/re
 
+debug_test: build/re
+	$(GDB) ./build/re
+
 testoom: build/re
 	./build/re --leak-check --fault-check
 
-build/lcov.info: build/re-cov
-	rm -rf build/lcov.info
-	./build/re-cov
-	lcov --directory build --base-directory . --capture -o build/lcov.info
+debug_testoom: build/re
+	$(GDB) ./build/re --leak-check --fault-check
 
 test_%: build/re
 	./build/re -t $(subst test_,,$@)
 
 debug_test_%: build/re
-	lldb -- ./build/re -t $(subst debug_test_,,$@)
+	$(GDB) ./build/re -t $(subst debug_test_,,$@)
 
 testoom_%: build/re
 	./build/re -t $(subst testoom_,,$@) --leak-check --fault-check
 
 debug_testoom_%: build/re
-	lldb -- ./build/re -t $(subst debug_testoom_,,$@) --leak-check --fault-check
+	$(GDB) ./build/re -t $(subst debug_testoom_,,$@) --leak-check --fault-check
+
+build/cov/re-cov: build $(SRCS)
+	rm -rf build/*.gcda build/*.gcno 
+	$(CC) $(CFLAGS) $(COVCFLAGS) $(SRCS) -o $@
+
+build/cov/lcov.info: build/cov build/cov/re-cov
+	rm -rf $@ build/cov/*.gcda
+	cd build/cov; ./re-cov --leak-check --fault-check
+	lcov --directory build/cov --base-directory . --capture --exclude test -o $@
+
+build/cov/index.html: build/cov/lcov.info
+	genhtml build/cov/lcov.info --output-directory build/cov
 
 clean:
 	rm -rf build
