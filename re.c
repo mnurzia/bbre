@@ -19,6 +19,7 @@ typedef struct stk {
 } stk;
 
 struct re {
+  re_alloc alloc;
   ast *ast;
   u32 ast_size, ast_alloc, ast_root, ast_sets;
   stk arg_stk, op_stk, comp_stk, prog;
@@ -31,8 +32,7 @@ struct re {
 #define ENT_FWD 0
 #define ENT_REV 1
 
-void *re_alloc(re *re, size_t prev, size_t next, void *ptr) {
-  (void)(re);
+void *re_default_alloc(size_t prev, size_t next, void *ptr) {
   if (next) {
     assert(prev || !ptr);
     return realloc(ptr, next);
@@ -42,6 +42,10 @@ void *re_alloc(re *re, size_t prev, size_t next, void *ptr) {
   return NULL;
 }
 
+void *re_ialloc(re *re, size_t prev, size_t next, void *ptr) {
+  return re->alloc(prev, next, ptr);
+}
+
 void stk_init(re *r, stk *s) {
   (void)(r);
   s->ptr = NULL;
@@ -49,16 +53,16 @@ void stk_init(re *r, stk *s) {
 }
 
 void stk_destroy(re *r, stk *s) {
-  re_alloc(r, sizeof(*s->ptr) * s->alloc, 0, s->ptr);
+  re_ialloc(r, sizeof(*s->ptr) * s->alloc, 0, s->ptr);
 }
 
 int stk_push(re *r, stk *s, u32 v) {
   if (s->size == s->alloc) {
     size_t next_alloc = (s->alloc ? (s->alloc * 2) : 16);
-    u32 *out = re_alloc(r, sizeof(*s->ptr) * s->alloc,
-                        sizeof(*s->ptr) * next_alloc, s->ptr);
+    u32 *out = re_ialloc(r, sizeof(*s->ptr) * s->alloc,
+                         sizeof(*s->ptr) * next_alloc, s->ptr);
     if (!out)
-      return 1;
+      return ERR_MEM;
     s->alloc = next_alloc;
     s->ptr = out;
   }
@@ -82,17 +86,21 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root);
 
 re *re_init(const char *regex) {
   re *r;
-  if (re_init_full(&r, regex))
+  if (re_init_full(&r, regex, NULL))
     return NULL;
   return r;
 }
 
-int re_init_full(re **pr, const char *regex) {
+int re_init_full(re **pr, const char *regex, re_alloc alloc) {
   int err = 0;
-  re *r = (re *)malloc(sizeof(re));
+  re *r;
+  if (!alloc)
+    alloc = re_default_alloc;
+  r = alloc(0, sizeof(re), NULL);
   *pr = r;
   if (!r)
     return (err = ERR_MEM);
+  r->alloc = alloc;
   r->ast = NULL;
   r->ast_size = r->ast_alloc = r->ast_root = r->ast_sets = 0;
   stk_init(r, &r->arg_stk), stk_init(r, &r->op_stk), stk_init(r, &r->comp_stk);
@@ -111,19 +119,19 @@ int re_init_full(re **pr, const char *regex) {
 }
 
 void re_destroy(re *re) {
-  re_alloc(re, re->ast_alloc * sizeof(*re->ast), 0, re->ast);
+  re_ialloc(re, re->ast_alloc * sizeof(*re->ast), 0, re->ast);
   stk_destroy(re, &re->op_stk), stk_destroy(re, &re->arg_stk),
       stk_destroy(re, &re->comp_stk);
   stk_destroy(re, &re->cc_stk_a), stk_destroy(re, &re->cc_stk_b);
   stk_destroy(re, &re->prog);
-  re_alloc(re, sizeof(*re), 0, re);
+  re->alloc(sizeof(*re), 0, re);
 }
 
 u32 re_ast_new(re *re) {
   if (re->ast_size == re->ast_alloc) {
     u32 next_alloc = (re->ast_alloc ? re->ast_alloc * 2 : 16);
-    re->ast = re_alloc(re, re->ast_alloc * sizeof(ast),
-                       next_alloc * sizeof(ast), re->ast);
+    re->ast = re_ialloc(re, re->ast_alloc * sizeof(ast),
+                        next_alloc * sizeof(ast), re->ast);
     if (!re->ast)
       return REF_NONE;
     re->ast_alloc = next_alloc;
@@ -210,7 +218,7 @@ void re_ast_dump(re *r, u32 root, u32 ilvl) {
     printf("REG\n");
     re_ast_dump(r, *re_astarg(r, root, 0, 1), ilvl + 1);
   } else if (first == CHR) {
-    printf("CHR %04X\n", rest);
+    printf("CHR %02X\n", rest);
   } else if (first == CAT) {
     printf("CAT\n");
     re_ast_dump(r, *re_astarg(r, root, 0, 2), ilvl + 1);
@@ -227,11 +235,11 @@ void re_ast_dump(re *r, u32 root, u32 ilvl) {
            *re_astarg(r, root, 2, 3));
     re_ast_dump(r, *re_astarg(r, root, 0, 3), ilvl + 1);
   } else if (first == CLS) {
-    printf("CLS min=%u max=%u\n", *re_astarg(r, root, 0, 3),
+    printf("CLS min=%02X max=%02X\n", *re_astarg(r, root, 0, 3),
            *re_astarg(r, root, 1, 3));
     re_ast_dump(r, *re_astarg(r, root, 2, 3), ilvl + 1);
   } else if (first == ICLS) {
-    printf("ICLS min=%u max=%u\n", *re_astarg(r, root, 0, 3),
+    printf("ICLS min=%02X max=%02X\n", *re_astarg(r, root, 0, 3),
            *re_astarg(r, root, 1, 3));
     re_ast_dump(r, *re_astarg(r, root, 2, 3), ilvl + 1);
   }
@@ -313,6 +321,7 @@ int re_next(const u8 **s, size_t *sz, u32 *first) {
 /* Given nodes R_1...R_N on the argument stack, fold them into a single CAT
  * node. If there are no nodes on the stack, create an epsilon node. */
 int re_fold(re *r) {
+  int err = 0;
   if (!r->arg_stk.size) {
     /* arg_stk: | */
     return stk_push(r, &r->arg_stk, REF_NONE);
@@ -326,7 +335,7 @@ int re_fold(re *r) {
     rest = re_mkast_new(r, CAT, 2, args);
     if (!rest)
       return ERR_MEM;
-    if (stk_push(r, &r->arg_stk, rest))
+    if ((err = stk_push(r, &r->arg_stk, rest)))
       return ERR_MEM;
     /* arg_stk: | ... | R_N-1R_N | */
   }
@@ -338,6 +347,7 @@ int re_fold(re *r) {
  * the end of the operator stack, fold and finish each ALT node into a single
  * resulting ALT node on the argument stack. */
 int re_fold_alts(re *r) {
+  int err = 0;
   assert(r->arg_stk.size);
   /* arg_stk: |  R  | */
   /* op_stk:  | ... | */
@@ -354,15 +364,15 @@ int re_fold_alts(re *r) {
     /* op_stk:  | ... | A_1 | A_2 | */
     u32 right = stk_pop(r, &r->op_stk), left = stk_pop(r, &r->op_stk);
     *re_astarg(r, left, 1, 2) = right;
-    if (stk_push(r, &r->op_stk, left))
-      return ERR_MEM;
+    if ((err = stk_push(r, &r->op_stk, left)))
+      return err;
     /* op_stk:  | ... | A_1(|A_2) | */
   }
   if (r->op_stk.size &&
       *re_asttype(r, r->op_stk.ptr[r->op_stk.size - 1]) == ALT) {
     /* op_stk:  | ... |  A  | */
-    if (stk_push(r, &r->arg_stk, stk_pop(r, &r->op_stk)))
-      return ERR_MEM;
+    if ((err = stk_push(r, &r->arg_stk, stk_pop(r, &r->op_stk))))
+      return err;
     /* arg_stk: |  A  | */
     /* op_stk:  | ... | */
   }
@@ -377,7 +387,7 @@ u32 re_mkcc(re *r, u32 rest, u32 min, u32 max) {
 
 u32 re_uncc(re *r, u32 rest, u32 first) {
   u32 cur = first, *next;
-  assert(rest && first);
+  assert(first);
   while (*(next = re_astarg(r, cur, 2, 3)))
     cur = *next;
   *next = rest;
@@ -385,11 +395,13 @@ u32 re_uncc(re *r, u32 rest, u32 first) {
 }
 
 int re_parse_escape_addchr(re *r, u32 ch, u32 allowed_outputs) {
+  int err = 0;
   u32 res, args[1];
   assert(allowed_outputs & (1 << CHR));
   args[0] = ch;
-  if (!(res = re_mkast_new(r, CHR, 1, args)) || stk_push(r, &r->arg_stk, res))
-    return ERR_MEM;
+  if ((!(res = re_mkast_new(r, CHR, 1, args)) && (err = ERR_MEM)) ||
+      (err = stk_push(r, &r->arg_stk, res)))
+    return err;
   return 0;
 }
 
@@ -438,6 +450,7 @@ const ccdef *re_parse_namedcc(const u8 *s, size_t sz) {
 }
 
 int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert) {
+  int err = 0;
   const ccdef *named = re_parse_namedcc(s, sz);
   u32 res = REF_NONE, i, max = 0, cur_min, cur_max;
   if (!named)
@@ -456,8 +469,8 @@ int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert) {
   if (invert && i && cur_max < UTFMAX &&
       !(res = re_mkcc(r, res, cur_max + 1, UTFMAX)))
     return ERR_MEM;
-  if (!stk_push(r, &r->arg_stk, res))
-    return ERR_MEM;
+  if ((err = stk_push(r, &r->arg_stk, res)))
+    return err;
   return 0;
 }
 
@@ -471,20 +484,24 @@ int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
     return ERR_PARSE;
   if (re_next(s, sz, &ch))
     return ERR_PARSE;
-  if (                               /* single character escapes */
-      (ch == '0' && !(ch = '\0')) || /* null */
-      (ch == 'a' && (ch = '\a')) ||  /* bell */
-      (ch == 'f' && (ch = '\f')) ||  /* form feed */
-      (ch == 't' && (ch = '\t')) ||  /* tab */
-      (ch == 'n' && (ch = '\n')) ||  /* newline */
-      (ch == 'r' && (ch = '\r')) ||  /* carriage return */
-      (ch == 'v' && (ch = '\v')) ||  /* vertical tab */
-      (ch == '?') ||                 /* question mark */
-      (ch == '*') ||                 /* asterisk */
-      (ch == '+') ||                 /* plus */
-      (ch == '(') ||                 /* open parenthesis */
-      (ch == ')') ||                 /* close parenthesis */
-      (ch == '|') /* pipe */) {
+  if (                              /* single character escapes */
+      (ch == 'a' && (ch = '\a')) || /* bell */
+      (ch == 'f' && (ch = '\f')) || /* form feed */
+      (ch == 't' && (ch = '\t')) || /* tab */
+      (ch == 'n' && (ch = '\n')) || /* newline */
+      (ch == 'r' && (ch = '\r')) || /* carriage return */
+      (ch == 'v' && (ch = '\v')) || /* vertical tab */
+      (ch == '?') ||                /* question mark */
+      (ch == '*') ||                /* asterisk */
+      (ch == '+') ||                /* plus */
+      (ch == '(') ||                /* open parenthesis */
+      (ch == ')') ||                /* close parenthesis */
+      (ch == '[') ||                /* open bracket */
+      (ch == ']') ||                /* close bracket */
+      (ch == '{') ||                /* open curly bracket */
+      (ch == '}') ||                /* close curly bracket */
+      (ch == '|') ||                /* pipe */
+      (ch == '\\') /* escaped slash */) {
     return re_parse_escape_addchr(r, ch, allowed_outputs);
   } else if (ch >= '0' && ch <= '7') { /* octal escape */
     int digs = 1;
@@ -538,14 +555,12 @@ int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
     if (!(allowed_outputs & (1 << ANYBYTE)))
       return ERR_PARSE; /* cannot use \C here */
     if (!(res = re_mkast_new(r, ANYBYTE, 0, NULL)) ||
-        !stk_push(r, &r->arg_stk, res))
-      return ERR_MEM;
+        (err = stk_push(r, &r->arg_stk, res)))
+      return err;
   } else if (ch == 'Q') { /* quote string */
     u32 cat = REF_NONE, chr = REF_NONE;
     if (!(allowed_outputs & (1 << CAT)))
       return ERR_PARSE; /* cannot use \Q...\E here */
-    if (!cat)
-      return ERR_MEM;
     while (*sz) {
       if ((err = re_next(s, sz, &ch)))
         return err; /* malformed */
@@ -554,10 +569,10 @@ int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
         if ((err = re_next(s, sz, &ch)))
           return err; /* malformed */
         if (ch == 'E')
-          return !stk_push(r, &r->arg_stk, cat) ? ERR_MEM : 0;
+          return stk_push(r, &r->arg_stk, cat);
         else if (ch != '\\')
           /* backtrack */
-          *s = prev_s, *sz = prev_sz;
+          *s = prev_s, *sz = prev_sz, ch = '\\';
       }
       args[0] = ch;
       if (!(chr = re_mkast_new(r, CHR, 1, args)))
@@ -566,8 +581,8 @@ int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
       if (!(cat = re_mkast_new(r, CAT, 2, args)))
         return ERR_MEM;
     }
-    if (!stk_push(r, &r->arg_stk, cat))
-      return ERR_MEM;
+    if ((err = stk_push(r, &r->arg_stk, cat)))
+      return err;
   } else if (ch == 'D' || ch == 'd' || ch == 'S' || ch == 's' || ch == 'W' ||
              ch == 'w') {
     /* Perl builtin character classes */
@@ -577,9 +592,9 @@ int re_parse_escape(re *r, const u8 **s, size_t *sz, u32 allowed_outputs) {
     cc_name = ch == 'd' ? "digit" : ch == 's' ? "perl_space" : "word";
     if (!(allowed_outputs & (1 << CLS)))
       return ERR_PARSE; /* character classes disallowed here */
-    if (!re_parse_add_namedcc(r, (const u8 *)cc_name, strlen(cc_name),
-                              inverted))
-      return ERR_MEM;
+    if ((err = re_parse_add_namedcc(r, (const u8 *)cc_name, strlen(cc_name),
+                                    inverted)))
+      return err;
   } else {
     return ERR_PARSE; /* invalid escape */
   }
@@ -602,8 +617,8 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
       args[1] = ch == '+', args[2] = (ch == '?' ? 1 : INFTY);
       if (!(res = re_mkast_new(r, QUANT, 3, args)))
         return ERR_MEM;
-      if (stk_push(r, &r->arg_stk, res))
-        return ERR_MEM;
+      if ((err = stk_push(r, &r->arg_stk, res)))
+        return err;
       /* arg_stk: | ... | *(R) | */
     } else if (ch == '|') {
       /* fold the arg stk into a concat, create alt, push it to the arg stk */
@@ -616,15 +631,15 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
       args[1] = REF_NONE;
       if (!(res = re_mkast_new(r, ALT, 2, args)))
         return ERR_MEM;
-      if (stk_push(r, &r->op_stk, res))
-        return ERR_MEM;
+      if ((err = stk_push(r, &r->op_stk, res)))
+        return err;
       /* arg_stk: | */
       /* op_stk:  | ... | R(|) | */
     } else if (ch == '(') {
       /* op_stk:  | ... | */
-      if (!(res = re_mkast_new(r, GROUP, 2, args)) ||
-          stk_push(r, &r->op_stk, res))
-        return ERR_MEM;
+      if ((!(res = re_mkast_new(r, GROUP, 2, args)) && (err = ERR_MEM)) ||
+          (err = stk_push(r, &r->op_stk, res)))
+        return err;
       /* op_stk:  | ... | () | */
     } else if (ch == ')') {
       /* arg_stk: | R_1 | R_2 | ... | R_N | */
@@ -642,20 +657,22 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
       *(re_astarg(r, stk_peek(r, &r->op_stk, 0), 0, 2)) =
           stk_pop(r, &r->arg_stk);
       /* pop the group frame into arg_stk */
-      if (stk_push(r, &r->arg_stk, stk_pop(r, &r->op_stk)))
-        return ERR_MEM;
+      if ((err = stk_push(r, &r->arg_stk, stk_pop(r, &r->op_stk))))
+        return err;
       /* arg_stk: | (R) | */
       /* op_stk:  | ... | */
     } else if (ch == '.') { /* any char */
       /* arg_stk: | ... | */
-      if (!(res = re_mkcc(r, 0, 0, UTFMAX)) || stk_push(r, &r->arg_stk, res))
-        return ERR_MEM;
+      if ((!(res = re_mkcc(r, 0, 0, UTFMAX)) && (err = ERR_MEM)) ||
+          (err = stk_push(r, &r->arg_stk, res)))
+        return err;
       /* arg_stk: | ... |  .  | */
     } else if (ch == '[') { /* charclass */
       size_t start = sz;
       u32 inverted = 0, min, max;
       res = REF_NONE;
       while (1) {
+        u32 next;
         if (!sz)
           return ERR_PARSE; /* unclosed charclass */
         if (re_next(&s, &sz, &ch))
@@ -664,42 +681,90 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
           inverted = 1; /* caret at start of CC */
           continue;
         }
+        min = ch;
         if (ch == ']') {
           if ((start - sz == 1 || (start - sz == 2 && inverted))) {
-            if (!(res =
-                      re_mkcc(r, res, ']', ']'))) /* charclass starts with ] */
-              return ERR_MEM;
+            min = ch; /* charclass starts with ] */
           } else
-            break;
+            break;               /* charclass done */
         } else if (ch == '\\') { /* escape */
-          u32 next;
-          if ((err = re_parse_escape(r, &s, &sz, (1 << CHR) | (1 << CLS))) ||
-              !(next = stk_pop(r, &r->arg_stk)))
+          if ((err = re_parse_escape(r, &s, &sz, (1 << CHR) | (1 << CLS))))
             return err;
+          if (!(next = stk_pop(r, &r->arg_stk)))
+            return ERR_MEM;
           assert(*re_asttype(r, next) == CHR || *re_asttype(r, next == CLS));
-          if (*re_asttype(r, next) == CHR &&
-              !(res = re_mkcc(r, res, *re_astarg(r, next, 0, 1),
-                              *re_astarg(r, next, 0, 1))))
+          if (*re_asttype(r, next) == CHR)
+            min = *re_astarg(r, next, 0, 1); /* single-character escape */
+          else if (*re_asttype(r, next) == CLS) {
+            if (!(res = re_uncc(r, res, next)))
+              return ERR_MEM;
+            /* we parsed an entire class, so there's no ending character */
+            continue;
+          }
+        } else if (ch == '[' && sz > 0 && s[0] == ':') { /* named class */
+          int named_inverted = 0;
+          size_t name_start, name_end;
+          if (re_next(&s, &sz, &ch)) /* : */
+            assert(0);
+          if (sz && s[0] == '^') {     /* inverted named class */
+            if (re_next(&s, &sz, &ch)) /* ^ */
+              assert(0);
+            named_inverted = 1;
+          }
+          name_start = name_end = sz;
+          while (1) {
+            if (!sz)
+              return ERR_PARSE; /* expected character class name */
+            if (re_next(&s, &sz, &ch))
+              return ERR_PARSE; /* malformed */
+            if (ch == ':')
+              break;
+            name_end = sz;
+          }
+          if (!sz)
+            return ERR_PARSE; /* expected closing bracket for named character
+                                 class */
+          if (re_next(&s, &sz, &ch))
+            return ERR_PARSE; /* malformed */
+          if (ch != ']')
+            return ERR_PARSE; /* expected closing bracket for named character
+                                 class */
+          if ((err = re_parse_add_namedcc(r, s - (name_start - sz),
+                                          (name_start - name_end),
+                                          named_inverted)))
+            return err;
+          next = stk_pop(r, &r->arg_stk);
+          assert(next && *re_asttype(r, next) == CLS);
+          if (!(res = re_uncc(r, res, next)))
             return ERR_MEM;
-          else if (*re_asttype(r, next) == CLS &&
-                   !(res = re_uncc(r, res, next)))
-            return ERR_MEM;
+          continue;
         }
-        min = max = ch;
+        max = min;
         if (sz > 1 && s[0] == '-') {
           /* range expression */
-          if (re_next(&s, &sz, &ch) /* - */ || re_next(&s, &sz, &max))
+          if (re_next(&s, &sz, &ch))
+            assert(0); /* - */
+          if (re_next(&s, &sz, &ch))
             return ERR_PARSE; /* malformed */
-          else if (!(res = re_mkcc(r, res, min, max)))
-            return ERR_MEM;
-        } else if (!(res = re_mkcc(r, res, min, max)))
+          if (ch == '\\') {   /* start of escape */
+            if ((err = re_parse_escape(r, &s, &sz, (1 << CHR))))
+              return err;
+            if (!(next = stk_pop(r, &r->arg_stk)))
+              return ERR_MEM;
+            assert(*re_asttype(r, next) == CHR);
+            max = *re_astarg(r, next, 0, 1);
+          } else {
+            max = ch; /* non-escaped character */
+          }
+        }
+        if (!(res = re_mkcc(r, res, min, max)))
           return ERR_MEM;
       }
       assert(res);  /* charclass cannot be empty */
       if (inverted) /* inverted character class */
         *re_asttype(r, res) = ICLS;
-      if (stk_push(r, &r->arg_stk, res))
-        return ERR_MEM;
+      if ((err = stk_push(r, &r->arg_stk, res)))
+        return err;
     } else if (ch == '\\') { /* escape */
       if ((err = re_parse_escape(
                r, &s, &sz, 1 << CHR | 1 << CLS | 1 << ANYBYTE | 1 << CAT)))
@@ -707,9 +772,9 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root) {
     } else { /* char: push to the arg stk */
              /* arg_stk: | ... | */
       args[0] = ch;
-      if (!(res = re_mkast_new(r, CHR, 1, args)) ||
-          stk_push(r, &r->arg_stk, res))
-        return ERR_MEM;
+      if ((!(res = re_mkast_new(r, CHR, 1, args)) && (err = ERR_MEM)) ||
+          (err = stk_push(r, &r->arg_stk, res)))
+        return err;
       /* arg_stk: | ... | chr | */
     }
   }
@@ -755,8 +820,9 @@ inst re_prog_get(re *r, u32 pc) {
 u32 re_prog_size(re *r) { return r->prog.size >> 1; }
 
 int re_emit(re *r, inst i) {
-  if (stk_push(r, &r->prog, 0) || stk_push(r, &r->prog, 0))
-    return 1;
+  int err = 0;
+  if ((err = stk_push(r, &r->prog, 0)) || (err = stk_push(r, &r->prog, 0)))
+    return err;
   re_prog_set(r, re_prog_size(r) - 1, i);
   return 0;
 }
@@ -766,14 +832,15 @@ typedef struct compframe {
 } compframe;
 
 int compframe_push(re *r, compframe c) {
-  if (stk_push(r, &r->comp_stk, c.root_ref) ||
-      stk_push(r, &r->comp_stk, c.child_ref) ||
-      stk_push(r, &r->comp_stk, c.idx) ||
-      stk_push(r, &r->comp_stk, c.patch_head) ||
-      stk_push(r, &r->comp_stk, c.patch_tail) ||
-      stk_push(r, &r->comp_stk, c.pc))
-    return ERR_MEM;
-  return 0;
+  int err = 0;
+  if ((err = stk_push(r, &r->comp_stk, c.root_ref)) ||
+      (err = stk_push(r, &r->comp_stk, c.child_ref)) ||
+      (err = stk_push(r, &r->comp_stk, c.idx)) ||
+      (err = stk_push(r, &r->comp_stk, c.patch_head)) ||
+      (err = stk_push(r, &r->comp_stk, c.patch_tail)) ||
+      (err = stk_push(r, &r->comp_stk, c.pc)))
+    return err;
+  return err;
 }
 
 compframe compframe_pop(re *r) {
@@ -870,7 +937,9 @@ size_t i_rc(size_t i) { return 2 * i + 2; }
 u32 cckey(stk *cc, size_t idx) { return cc->ptr[idx * 2]; }
 
 int ccpush(re *r, stk *cc, u32 min, u32 max) {
-  return stk_push(r, cc, min) || stk_push(r, cc, max);
+  int err = 0;
+  (err = stk_push(r, cc, min)) || (err = stk_push(r, cc, max));
+  return err;
 }
 
 void ccget(stk *cc, size_t idx, u32 *min, u32 *max) {
@@ -929,15 +998,18 @@ u32 cc_treesize(stk *cc) { return cc->size / 4; }
 
 u32 cc_treenew(re *r, stk *cc_out, compcc_node node) {
   u32 out;
+  int err = 0;
   if (!cc_out->size) {
     /* need to create sentinel node */
-    if (stk_push(r, cc_out, 0) || stk_push(r, cc_out, 0) ||
-        stk_push(r, cc_out, 0) || stk_push(r, cc_out, 0))
+    if ((err = stk_push(r, cc_out, 0)) || (err = stk_push(r, cc_out, 0)) ||
+        (err = stk_push(r, cc_out, 0)) || (err = stk_push(r, cc_out, 0)))
       return 0;
   }
   out = cc_out->size / 4;
-  if (stk_push(r, cc_out, node.range) || stk_push(r, cc_out, node.child_ref) ||
-      stk_push(r, cc_out, node.sibling_ref) || stk_push(r, cc_out, node.hash))
+  if ((err = stk_push(r, cc_out, node.range)) ||
+      (err = stk_push(r, cc_out, node.child_ref)) ||
+      (err = stk_push(r, cc_out, node.sibling_ref)) ||
+      (err = stk_push(r, cc_out, node.hash)))
     return 0;
   return out;
 }
@@ -1143,10 +1215,11 @@ u32 hashington(u32 x) {
 u32 cc_htsize(stk *cc_ht) { return cc_ht->size / 2; }
 
 int cc_htinit(re *r, stk *cc_tree_in, stk *cc_ht_out) {
+  int err = 0;
   while (cc_htsize(cc_ht_out) <
          (cc_treesize(cc_tree_in) + (cc_treesize(cc_tree_in) >> 1)))
-    if (stk_push(r, cc_ht_out, 0) || stk_push(r, cc_ht_out, 0))
-      return 1;
+    if ((err = stk_push(r, cc_ht_out, 0)) || (err = stk_push(r, cc_ht_out, 0)))
+      return err;
   memset(cc_ht_out->ptr, 0, cc_ht_out->size * sizeof(u32));
   return 0;
 }
@@ -1292,9 +1365,10 @@ int re_compcc(re *r, u32 root, compframe *frame) {
   while (root) {
     u32 args[3], min, max;
     re_decompast(r, root, 3, args);
-    min = args[0], max = args[1];
-    root = args[2];
-    if (stk_push(r, &r->cc_stk_a, min) || stk_push(r, &r->cc_stk_a, max))
+    min = args[0], max = args[1], root = args[2];
+    /* handle out-of-order ranges (min > max) */
+    if ((err = stk_push(r, &r->cc_stk_a, min > max ? max : min)) ||
+        (err = stk_push(r, &r->cc_stk_a, min > max ? min : max)))
       return ERR_MEM;
   }
   /* sort ranges */
@@ -1306,6 +1380,7 @@ int re_compcc(re *r, u32 root, compframe *frame) {
     for (i = 0; i < ccsize(&r->cc_stk_a); i++) {
       u32 cur_min, cur_max;
       ccget(&r->cc_stk_a, i, &cur_min, &cur_max);
+      assert(cur_min <= cur_max);
       if (!i)
         min = cur_min, max = cur_max; /* first range */
       else if (cur_min <= max + 1) {
@@ -1357,18 +1432,20 @@ int re_compcc(re *r, u32 root, compframe *frame) {
 }
 
 int re_compile(re *r, u32 root, u32 reverse) {
+  int err = 0;
   compframe initial_frame, returned_frame, child_frame;
   u32 set_idx = 0, grp_idx = 0, tmp_cc_ast = REF_NONE;
-  if (!r->prog.size && (stk_push(r, &r->prog, 0) || stk_push(r, &r->prog, 0)))
-    return ERR_MEM;
+  if (!r->prog.size &&
+      ((err = stk_push(r, &r->prog, 0)) || (err = stk_push(r, &r->prog, 0))))
+    return err;
   initial_frame.root_ref = root;
   initial_frame.child_ref = initial_frame.patch_head =
       initial_frame.patch_tail = REF_NONE;
   initial_frame.idx = 0;
   initial_frame.pc = re_prog_size(r);
   r->entry[ENT_ONESHOT | (reverse ? ENT_REV : ENT_FWD)] = initial_frame.pc;
-  if (compframe_push(r, initial_frame))
-    return ERR_MEM;
+  if ((err = compframe_push(r, initial_frame)))
+    return err;
   while (r->comp_stk.size) {
     compframe frame = compframe_pop(r);
     ast_type type;
@@ -1564,12 +1641,12 @@ int sset_reset(re *r, sset *s, size_t sz) {
   thrdspec *next_dense;
   if (!next_alloc)
     return 0;
-  if (!(next_sparse = re_alloc(r, sizeof(u32) * s->sparse_alloc,
-                               sizeof(u32) * next_alloc, s->sparse)))
+  if (!(next_sparse = re_ialloc(r, sizeof(u32) * s->sparse_alloc,
+                                sizeof(u32) * next_alloc, s->sparse)))
     return 1;
   s->sparse = next_sparse;
-  if (!(next_dense = re_alloc(r, sizeof(thrdspec) * s->dense_alloc,
-                              sizeof(thrdspec) * next_alloc, s->dense)))
+  if (!(next_dense = re_ialloc(r, sizeof(thrdspec) * s->dense_alloc,
+                               sizeof(thrdspec) * next_alloc, s->dense)))
     return 1;
   s->dense = next_dense;
   s->dense_size = 0;
@@ -1588,8 +1665,8 @@ void sset_init(re *r, sset *s) {
 }
 
 void sset_destroy(re *r, sset *s) {
-  re_alloc(r, sizeof(u32) * s->sparse_alloc, 0, s->sparse);
-  re_alloc(r, sizeof(thrdspec) * s->dense_alloc, 0, s->dense);
+  re_ialloc(r, sizeof(u32) * s->sparse_alloc, 0, s->sparse);
+  re_ialloc(r, sizeof(thrdspec) * s->dense_alloc, 0, s->dense);
 }
 
 void sset_add(sset *s, thrdspec spec) {
@@ -1616,7 +1693,7 @@ void save_slots_init(re *r, save_slots *s) {
 }
 
 void save_slots_destroy(re *r, save_slots *s) {
-  re_alloc(r, sizeof(size_t) * s->slots_alloc, 0, s->slots);
+  re_ialloc(r, sizeof(size_t) * s->slots_alloc, 0, s->slots);
 }
 
 void save_slots_clear(save_slots *s, size_t per_thrd) {
@@ -1638,8 +1715,8 @@ u32 save_slots_new(re *r, save_slots *s) {
         /* initial alloc / realloc */
         size_t new_alloc =
             (s->slots_alloc ? s->slots_alloc * 2 : 16) * s->per_thrd;
-        size_t *new_slots = re_alloc(r, s->slots_alloc * sizeof(size_t),
-                                     new_alloc * sizeof(size_t), s->slots);
+        size_t *new_slots = re_ialloc(r, s->slots_alloc * sizeof(size_t),
+                                      new_alloc * sizeof(size_t), s->slots);
         if (!new_slots)
           return 0;
         s->slots = new_slots, s->slots_alloc = new_alloc;
@@ -1721,8 +1798,10 @@ void exec_nfa_destroy(re *r, exec_nfa *n) {
 }
 
 int thrdstk_push(re *r, stk *s, thrdspec t) {
+  int err = 0;
   assert(t.pc);
-  return stk_push(r, s, t.pc) || stk_push(r, s, t.slot);
+  (err = stk_push(r, s, t.pc)) || (err = stk_push(r, s, t.slot));
+  return err;
 }
 
 thrdspec thrdstk_pop(re *r, stk *s) {
@@ -1736,6 +1815,7 @@ int exec_nfa_start(re *r, exec_nfa *n, u32 pc, u32 noff, int reversed,
                    int track) {
   thrdspec initial_thrd;
   u32 i;
+  int err = 0;
   if (sset_reset(r, &n->a, r->prog.size) ||
       sset_reset(r, &n->b, r->prog.size) || sset_reset(r, &n->c, r->prog.size))
     return ERR_MEM;
@@ -1747,8 +1827,8 @@ int exec_nfa_start(re *r, exec_nfa *n, u32 pc, u32 noff, int reversed,
   sset_add(&n->a, initial_thrd);
   initial_thrd.pc = initial_thrd.slot = 0;
   for (i = 0; i < r->ast_sets; i++)
-    if (stk_push(r, &n->pri_stk, 0))
-      return ERR_MEM;
+    if ((err = stk_push(r, &n->pri_stk, 0)))
+      return err;
   n->reversed = reversed;
   n->track = track;
   return 0;

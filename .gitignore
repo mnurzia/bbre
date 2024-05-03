@@ -2,3 +2,4 @@ TODO.txt
 build/
 .cache/
 .DS_Store
+.vscode/

@@ -8,13 +8,15 @@ typedef struct re re;
 typedef unsigned int u32;
 typedef unsigned char u8;
 
+#define ERR_MEM (-1)
+#define ERR_PARSE (-2)
+
+typedef void *(*re_alloc)(size_t, size_t, void *);
+
 /* return NULL on parse error or mem error */
 re *re_init(const char *regex);
 
-#define ERR_MEM 1
-#define ERR_PARSE 2
-
-int re_init_full(re **r, const char *s);
+int re_init_full(re **r, const char *s, re_alloc alloc);
 
 int re_union(re *r, const char *s);
 void re_destroy(re *r);

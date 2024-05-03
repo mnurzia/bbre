@@ -86,8 +86,7 @@ def make_test(test_name: str, cc: NRanges, regex: str) -> str:
     regex = '"' + regex.replace("\\", "\\\\") + '"'
     return f"""
     TEST({test_name}) {{
-        ASSERT_CC_MATCH({regex}, "{','.join(f"0x{lo:X} 0x{hi:X}" for lo, hi in normalize(expand(cc)))}");
-        PASS();
+        return assert_cc_match({regex}, "{','.join(f"0x{lo:X} 0x{hi:X}" for lo, hi in normalize(expand(cc)))}");
     }}
     """
 
@@ -102,13 +101,15 @@ def make_suite(suite_name: str, tests: dict[str, str]) -> str:
 
 def cmd_tests(args: Namespace) -> int:
     tests = {}
+    print('#include "../mptest/_cpack/mptest.h"')
+    print("mptest__result assert_cc_match(const char *regex, const char *spec);")
     # named charclasses
     for name, cc in ASCII_CHARCLASSES.items():
-        test_name = f"named_charclass_{name}"
-        regex = f"[:{name}:]"
+        test_name = f"cls_named_{name}"
+        regex = f"[[:{name}:]]"
         tests[test_name] = make_test(test_name, cc, regex)
     print("\n".join(tests.values()))
-    print(make_suite("named_charclass", tests))
+    print(make_suite("cls_named", tests))
     tests = {}
     # Perl charclasses
     for ch, (name, inverted) in PERL_CHARCLASSES.items():

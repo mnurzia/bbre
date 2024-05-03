@@ -15,7 +15,12 @@
   [X] +
   [X] (
   [X] )
+  [X] [
+  [X] ]
+  [X] {
+  [X] }
   [X] |
+  [X] \
   [X] octals (up to three digits)
   [X] hex literals
     [X] two digits
@@ -29,3 +34,7 @@
     [X] \S
     [X] \w
     [X] \W
+[ ] character classes
+  [ ] end of ranges as escapes
+  [ ] cases for union-making
+  [ ] swapped min/max
