@@ -95,7 +95,7 @@ size_t utf_encode(char *out_buf, u32 codep) {
       OOM();                                                                   \
     ASSERT_NEQ(err, ERR_PARSE);                                                \
     ASSERT(!err);                                                              \
-    if ((err = re_match(r, str, strlen(str), 1, 0, &s, NULL, anchor)) ==       \
+    if ((err = re_match(r, str, strlen(str), 1, 1, &s, NULL, anchor)) ==       \
         ERR_MEM)                                                               \
       OOM();                                                                   \
     ASSERT_EQ(s.begin, b);                                                     \
@@ -111,6 +111,45 @@ size_t utf_encode(char *out_buf, u32 codep) {
       OOM();                                                                   \
     ASSERT_EQ(err, ERR_PARSE);                                                 \
   } while (0);
+
+int check_match(const char *regex, const char *s, size_t n, u32 max_span,
+                u32 max_set, anchor_type anchor, span *check_span,
+                u32 *check_set, u32 check_nsets) {
+  re *r;
+  int err;
+  span *found_span;
+  u32 *found_set, i, j;
+  found_span = test_alloc(0, sizeof(span) * max_span * max_set, NULL);
+  if (max_span * max_set && !found_span)
+    OOM();
+  found_set = test_alloc(0, sizeof(u32) * max_set, NULL);
+  if (max_set && !found_set)
+    OOM();
+  if ((err = re_init_full(&r, regex, test_alloc)) == ERR_MEM)
+    OOM();
+  ASSERT_EQ(err, 0);
+  if ((err = re_match(r, s, n, max_span, max_set, found_span, found_set,
+                      anchor)) == ERR_MEM)
+    OOM();
+  ASSERT_EQ((u32)err, check_nsets);
+  for (i = 0; i < (check_nsets > max_set ? max_set : check_nsets); i++) {
+    ASSERT_EQ(check_set[i], found_set[i]);
+    for (j = 0; j < max_span; j++) {
+      ASSERT_EQ(check_span[i * max_span + j].begin,
+                found_span[i * max_span + j].begin);
+      ASSERT_EQ(check_span[i * max_span + j].end,
+                found_span[i * max_span + j].end);
+    }
+  }
+  re_destroy(r);
+  test_alloc(sizeof(span) * max_span * max_set, 0, found_span);
+  test_alloc(sizeof(u32) * max_set, 0, found_set);
+  PASS();
+}
+
+int check_fullmatch(const char *regex, const char *s) {
+  return check_match(regex, s, strlen(s), 0, 0, A_BOTH, NULL, NULL, 1);
+}
 
 typedef struct rrange {
   u32 lo, hi;
@@ -203,7 +242,7 @@ TEST(chr_1) {
 SUITE(chr) { RUN_TEST(chr_1); }
 
 TEST(cat) {
-  ASSERT_MATCH("ab", "ab");
+  PROPAGATE(check_fullmatch("ab", "ab"));
   ASSERT_MATCH("abc", "abc");
   ASSERT_NMATCH("max", "mxx");
   ASSERT_NMATCH("max", "ma");

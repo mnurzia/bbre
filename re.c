@@ -11,18 +11,14 @@
 #define REF_NONE 0
 #define UTFMAX 0x10FFFF
 
-typedef struct ast {
-  u32 v;
-} ast;
-
 typedef struct stk {
   u32 *ptr, size, alloc;
 } stk;
 
 struct re {
   re_alloc alloc;
-  ast *ast;
-  u32 ast_size, ast_alloc, ast_root, ast_sets;
+  stk ast;
+  u32 ast_root, ast_sets;
   stk arg_stk, op_stk, comp_stk, prog;
   stk cc_stk_a, cc_stk_b;
   u32 entry[4];
@@ -131,8 +127,8 @@ int re_init_full(re **pr, const char *regex, re_alloc alloc) {
   if (!r)
     return (err = ERR_MEM);
   r->alloc = alloc;
-  r->ast = NULL;
-  r->ast_size = r->ast_alloc = r->ast_root = r->ast_sets = 0;
+  stk_init(r, &r->ast);
+  r->ast_root = r->ast_sets = 0;
   stk_init(r, &r->arg_stk), stk_init(r, &r->op_stk), stk_init(r, &r->comp_stk);
   stk_init(r, &r->cc_stk_a), stk_init(r, &r->cc_stk_b);
   stk_init(r, &r->prog);
@@ -149,30 +145,12 @@ int re_init_full(re **pr, const char *regex, re_alloc alloc) {
 }
 
 void re_destroy(re *re) {
-  re_ialloc(re, re->ast_alloc * sizeof(*re->ast), 0, re->ast);
+  stk_destroy(re, &re->ast);
   stk_destroy(re, &re->op_stk), stk_destroy(re, &re->arg_stk),
       stk_destroy(re, &re->comp_stk);
   stk_destroy(re, &re->cc_stk_a), stk_destroy(re, &re->cc_stk_b);
   stk_destroy(re, &re->prog);
   re->alloc(sizeof(*re), 0, re);
-}
-
-int re_ast_new(re *re, u32 *out) {
-  if (re->ast_size == re->ast_alloc) {
-    u32 next_alloc = (re->ast_alloc ? re->ast_alloc * 2 : 16);
-    re->ast = re_ialloc(re, re->ast_alloc * sizeof(ast),
-                        next_alloc * sizeof(ast), re->ast);
-    if (!re->ast)
-      return ERR_MEM;
-    re->ast_alloc = next_alloc;
-  }
-  re->ast[re->ast_size].v = REF_NONE;
-  if (re->ast_size == REF_NONE) {
-    re->ast_size++;
-    return re_ast_new(re, out);
-  }
-  *out = re->ast_size++;
-  return 0;
 }
 
 typedef enum ast_type {
@@ -224,34 +202,28 @@ int br_adjace(byte_range left, byte_range right) {
 #define BYTE_RANGE(l, h) mkbr(l, h)
 
 int re_mkast(re *re, ast_type type, u32 p0, u32 p1, u32 p2, u32 *out) {
-  u32 args[3], root, i, v;
-  int err = 0;
-  args[0] = p0, args[1] = p1, args[2] = p2;
-  for (i = 0; i < ast_type_lens[type] + 1; i++) {
-    if ((err = re_ast_new(re, &v)))
-      return err;
-    if (!i)
-      root = v, re->ast[root].v = type;
-    else
-      re->ast[v].v = args[i - 1];
-  }
-  *out = root;
-  return err;
+  u32 args[4];
+  int err;
+  args[0] = type, args[1] = p0, args[2] = p1, args[3] = p2;
+  if (type && !re->ast.size &&
+      (err = re_mkast(re, 0, 0, 0, 0, out))) /* sentinel node */
+    return err;
+  *out = re->ast.size;
+  return stk_pushn(re, &re->ast, args, (1 + ast_type_lens[type]) * sizeof(u32));
 }
 
-void re_decompast(re *re, u32 root, u32 nargs, u32 *args) {
-  u32 i;
-  for (i = 0; i < nargs; i++) {
-    args[i] = re->ast[root + i + 1].v;
-  }
+void re_decompast(re *re, u32 root, u32 nargs, u32 *out_args) {
+  u32 *in_args = stk_getn(&re->ast, root);
+  (void)nargs;
+  memcpy(out_args, in_args + 1, ast_type_lens[*in_args] * sizeof(u32));
 }
 
 u32 *re_astarg(re *re, u32 root, u32 n, u32 nargs) {
-  (void)(nargs);
-  return &((re->ast + root + 1 + n)->v);
+  (void)nargs;
+  return re->ast.ptr + root + 1 + n;
 }
 
-u32 *re_asttype(re *re, u32 root) { return &((re->ast + root)->v); }
+u32 *re_asttype(re *re, u32 root) { return re->ast.ptr + root; }
 
 int re_union(re *r, const char *regex) { /* add an ALT here */
   int err = 0;
@@ -316,7 +288,7 @@ int re_parse_err(re *r, const char *msg) {
   return ERR_PARSE;
 }
 
-int re_next_new(re *r, u32 *first, const char *else_msg) {
+int re_next(re *r, u32 *first, const char *else_msg) {
   u32 state = UTF8_ACCEPT;
   if (r->expr_pos == r->expr_size)
     return re_parse_err(r, else_msg);
@@ -329,13 +301,13 @@ int re_next_new(re *r, u32 *first, const char *else_msg) {
   return 0;
 }
 
-int re_hasnext(re *r) { return r->expr_pos != r->expr_size; }
+int re_eof(re *r) { return r->expr_pos != r->expr_size; }
 
-int re_peeknext(re *r, u32 *first) {
+int re_peek_next(re *r, u32 *first) {
   size_t prev_pos = r->expr_pos;
   int err;
-  assert(re_hasnext(r));
-  if ((err = re_next_new(r, first, NULL)))
+  assert(re_eof(r));
+  if ((err = re_next(r, first, NULL)))
     return err;
   r->expr_pos = prev_pos;
   return 0;
@@ -344,7 +316,7 @@ int re_peeknext(re *r, u32 *first) {
 #define MAXREP 100000
 #define INFTY (MAXREP + 1)
 
-/* Given nodes R_1...R_N on the argument stack, fold them into a single CAT
+/* Given nodes R_1i..R_N on the argument stack, fold them into a single CAT
  * node. If there are no nodes on the stack, create an epsilon node. */
 int re_fold(re *r) {
   int err = 0;
@@ -496,7 +468,7 @@ int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert) {
 int re_parse_escape(re *r, u32 allowed_outputs) {
   u32 ch;
   int err = 0;
-  if ((err = re_next_new(r, &ch, "expected escape sequence")))
+  if ((err = re_next(r, &ch, "expected escape sequence")))
     return err;
   if (                              /* single character escapes */
       (ch == 'a' && (ch = '\a')) || /* bell */
@@ -520,9 +492,9 @@ int re_parse_escape(re *r, u32 allowed_outputs) {
   } else if (ch >= '0' && ch <= '7') { /* octal escape */
     int digs = 1;
     u32 ord = ch - '0';
-    while (digs++ < 3 && re_hasnext(r) && !(err = re_peeknext(r, &ch)) &&
+    while (digs++ < 3 && re_eof(r) && !(err = re_peek_next(r, &ch)) &&
            ch >= '0' && ch <= '7') {
-      err = re_next_new(r, &ch, NULL);
+      err = re_next(r, &ch, NULL);
       assert(!err && ch >= '0' && ch <= '7');
       ord = ord * 8 + ch - '0';
     }
@@ -531,14 +503,14 @@ int re_parse_escape(re *r, u32 allowed_outputs) {
     return re_parse_escape_addchr(r, ord, allowed_outputs);
   } else if (ch == 'x') { /* hex escape */
     u32 ord = 0;
-    if ((err = re_next_new(
+    if ((err = re_next(
              r, &ch, "expected two hex characters or a bracketed hex literal")))
       return err;
     if (ch == '{') { /* bracketed hex lit */
       u32 i;
       for (i = 0; i < 8; i++) {
         if ((i == 7) ||
-            (err = re_next_new(r, &ch, "expected up to six hex characters")))
+            (err = re_next(r, &ch, "expected up to six hex characters")))
           return re_parse_err(r, "expected up to six hex characters");
         if (ch == '}')
           break;
@@ -552,7 +524,7 @@ int re_parse_escape(re *r, u32 allowed_outputs) {
       return re_parse_err(r, "invalid hex digit");
     } else {
       ord = err;
-      if ((err = re_next_new(r, &ch, "expected two hex characters")))
+      if ((err = re_next(r, &ch, "expected two hex characters")))
         return err;
       else if ((err = re_hexdig(ch)) == -1)
         return re_parse_err(r, "invalid hex digit");
@@ -572,18 +544,18 @@ int re_parse_escape(re *r, u32 allowed_outputs) {
     u32 cat = REF_NONE, chr = REF_NONE;
     if (!(allowed_outputs & (1 << CAT)))
       return re_parse_err(r, "cannot use \\Q...\\E here");
-    while (re_hasnext(r)) {
-      if ((err = re_next_new(r, &ch, NULL)))
+    while (re_eof(r)) {
+      if ((err = re_next(r, &ch, NULL)))
         return err;
-      if (ch == '\\' && re_hasnext(r)) {
-        if ((err = re_peeknext(r, &ch)))
+      if (ch == '\\' && re_eof(r)) {
+        if ((err = re_peek_next(r, &ch)))
           return err;
         if (ch == 'E') {
-          err = re_next_new(r, &ch, NULL);
+          err = re_next(r, &ch, NULL);
           assert(!err); /* we already read this in the peeknext */
           return stk_push(r, &r->arg_stk, cat);
         } else if (ch == '\\') {
-          err = re_next_new(r, &ch, NULL);
+          err = re_next(r, &ch, NULL);
           assert(!err && ch == '\\');
         } else {
           ch = '\\';
@@ -618,10 +590,10 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
   int err;
   r->expr = ts;
   r->expr_size = tsz, r->expr_pos = 0;
-  while (re_hasnext(r)) {
+  while (re_eof(r)) {
     u32 ch;
     u32 args[3] = {REF_NONE}, res = REF_NONE;
-    if ((err = re_next_new(r, &ch, NULL)))
+    if ((err = re_next(r, &ch, NULL)))
       return err;
     if (ch == '*' || ch == '+' || ch == '?') {
       /* arg_stk: | ... |  R  | */
@@ -686,7 +658,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
       res = REF_NONE;
       while (1) {
         u32 next;
-        if ((err = re_next_new(r, &ch, "unclosed character class")))
+        if ((err = re_next(r, &ch, "unclosed character class")))
           return err;
         if ((r->expr_pos - start == 1) && ch == '^') {
           inverted = 1; /* caret at start of CC */
@@ -711,27 +683,27 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
             /* we parsed an entire class, so there's no ending character */
             continue;
           }
-        } else if (ch == '[' && re_hasnext(r) && !re_peeknext(r, &ch) &&
+        } else if (ch == '[' && re_eof(r) && !re_peek_next(r, &ch) &&
                    ch == ':') { /* named class */
           int named_inverted = 0;
           size_t name_start, name_end;
-          err = re_next_new(r, &ch, NULL); /* : */
+          err = re_next(r, &ch, NULL); /* : */
           assert(!err && ch == ':');
-          if (re_hasnext(r) && !re_peeknext(r, &ch) &&
-              ch == '^') {                   /* inverted named class */
-            err = re_next_new(r, &ch, NULL); /* ^ */
+          if (re_eof(r) && !re_peek_next(r, &ch) &&
+              ch == '^') {               /* inverted named class */
+            err = re_next(r, &ch, NULL); /* ^ */
             assert(!err && ch == '^');
             named_inverted = 1;
           }
           name_start = name_end = r->expr_pos;
           while (1) {
-            if ((err = re_next_new(r, &ch, "expected character class name")))
+            if ((err = re_next(r, &ch, "expected character class name")))
               return err;
             if (ch == ':')
               break;
             name_end = r->expr_pos;
           }
-          if ((err = re_next_new(
+          if ((err = re_next(
                    r, &ch,
                    "expected closing bracket for named character class")))
             return err;
@@ -748,12 +720,12 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
           continue;
         }
         max = min;
-        if (re_hasnext(r) && !re_peeknext(r, &ch) && ch == '-') {
+        if (re_eof(r) && !re_peek_next(r, &ch) && ch == '-') {
           /* range expression */
-          err = re_next_new(r, &ch, NULL);
+          err = re_next(r, &ch, NULL);
           assert(!err && ch == '-');
-          if ((err = re_next_new(
-                   r, &ch, "expected ending character for range expression")))
+          if ((err = re_next(r, &ch,
+                             "expected ending character for range expression")))
             return err;
           if (ch == '\\') { /* start of escape */
             if ((err = re_parse_escape(r, (1 << CHR))))
@@ -1874,22 +1846,27 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos) {
 
 /* return number of sets matched, -n otherwise */
 /* 0th span is the full bounds, 1st is first group, etc. */
+/* if max_set == 0 and max_span == 0 */
+/* if max_set != 0 and max_span == 0 */
+/* if max_set == 0 and max_span != 0 */
+/* if max_set != 0 and max_span != 0 */
 int exec_nfa_end(re *r, size_t pos, exec_nfa *n, u32 max_span, u32 max_set,
                  span *out_span, u32 *out_set) {
   int err;
   size_t j, sets = 0, nset = 0;
   if ((err = exec_nfa_eps(r, n, pos)) || (err = exec_nfa_chr(r, n, 256, pos)))
     return err;
-  for (sets = 0; sets < r->ast_sets; sets++) {
+  for (sets = 0; sets < r->ast_sets && (max_set ? nset < max_set : nset < 1);
+       sets++) {
     u32 slot = n->pri_stk.ptr[sets];
     if (!slot)
       continue; /* no match for this set */
-    for (j = 0; j < max_span; j++) {
+    for (j = 0; (j < max_span) && out_span; j++) {
       out_span[nset * max_span + j].begin = save_slots_get(&n->slots, slot, j);
       out_span[nset * max_span + j].end =
           save_slots_get(&n->slots, slot, j + 1);
     }
-    if (nset < max_set)
+    if (out_set)
       out_set[nset] = sets;
     nset++;
   }
@@ -1942,3 +1919,81 @@ done:
   exec_nfa_destroy(r, &nfa);
   return err;
 }
+
+void astdump_i(re *r, u32 root, u32 ilvl) {
+  u32 i, first = r->ast.ptr[root], rest = r->ast.ptr[root + 1];
+  printf("%04u ", root);
+  for (i = 0; i < ilvl; i++)
+    printf(" ");
+  if (root == REF_NONE) {
+    printf("<eps>\n");
+  } else if (first == REG) {
+    printf("REG\n");
+    astdump_i(r, *re_astarg(r, root, 0, 1), ilvl + 1);
+  } else if (first == CHR) {
+    printf("CHR %02X\n", rest);
+  } else if (first == CAT) {
+    printf("CAT\n");
+    astdump_i(r, *re_astarg(r, root, 0, 2), ilvl + 1);
+    astdump_i(r, *re_astarg(r, root, 1, 2), ilvl + 1);
+  } else if (first == ALT) {
+    printf("ALT\n");
+    astdump_i(r, *re_astarg(r, root, 0, 2), ilvl + 1);
+    astdump_i(r, *re_astarg(r, root, 1, 2), ilvl + 1);
+  } else if (first == GROUP) {
+    printf("GRP flag=%u\n", *re_astarg(r, root, 1, 2));
+    astdump_i(r, *re_astarg(r, root, 0, 2), ilvl + 1);
+  } else if (first == QUANT) {
+    printf("QNT min=%u max=%u\n", *re_astarg(r, root, 1, 3),
+           *re_astarg(r, root, 2, 3));
+    astdump_i(r, *re_astarg(r, root, 0, 3), ilvl + 1);
+  } else if (first == CLS) {
+    printf("CLS min=%02X max=%02X\n", *re_astarg(r, root, 0, 3),
+           *re_astarg(r, root, 1, 3));
+    astdump_i(r, *re_astarg(r, root, 2, 3), ilvl + 1);
+  } else if (first == ICLS) {
+    printf("ICLS min=%02X max=%02X\n", *re_astarg(r, root, 0, 3),
+           *re_astarg(r, root, 1, 3));
+    astdump_i(r, *re_astarg(r, root, 2, 3), ilvl + 1);
+  }
+}
+
+void astdump(re *r, u32 root) { astdump_i(r, root, 0); }
+
+void progdump(re *r) {
+  u32 i, j, k;
+  for (i = 0; i < re_prog_size(r); i++) {
+    inst ins = re_prog_get(r, i);
+    static const char *ops[] = {"RANGE", "ASSRT", "MATCH", "SPLIT"};
+    static const int colors[] = {91, 92, 93, 94};
+    static const char *labels[] = {"F  ", "R  ", "F.*", "R.*", "   ", "+  "};
+    k = 4;
+    for (j = 0; j < 4; j++) {
+      if (i == r->entry[j]) {
+        k = k == 4 ? j : 5;
+      }
+    }
+    printf("%04X \x1b[%im%s\x1b[0m %04X %04X %s", i, colors[INST_OP(ins)],
+           ops[INST_OP(ins)], INST_N(ins), INST_P(ins), labels[k]);
+    if (INST_OP(ins) == MATCH) {
+      printf(" %c/%u", IMATCH_S(INST_P(ins)) ? 'G' : 'E',
+             IMATCH_I(INST_P(ins)));
+    }
+    printf("\n");
+  }
+}
+
+void cctreedump_i(stk *cc_tree, u32 ref, u32 lvl) {
+  u32 i;
+  compcc_node *node = cc_treeref(cc_tree, ref);
+  printf("%04X [%08X] ", ref, node->hash);
+  for (i = 0; i < lvl; i++)
+    printf("  ");
+  printf("%02X-%02X\n", u2br(node->range).l, u2br(node->range).h);
+  if (node->child_ref)
+    cctreedump_i(cc_tree, node->child_ref, lvl + 1);
+  if (node->sibling_ref)
+    cctreedump_i(cc_tree, node->sibling_ref, lvl);
+}
+
+void cctreedump(stk *cc_tree, u32 ref) { cctreedump_i(cc_tree, ref, 0); }
