@@ -47,7 +47,7 @@ debug_testoom_%: build/re
 
 build/cov/re-cov: build $(SRCS)
 	rm -rf build/*.gcda build/*.gcno 
-	$(CC) $(CFLAGS) $(COVCFLAGS) $(SRCS) -o $@
+	$(CC) $(CFLAGS) -DRE_COV $(COVCFLAGS) $(SRCS) -o $@
 
 build/cov/lcov.info: build/cov build/cov/re-cov
 	rm -rf $@ build/cov/*.gcda

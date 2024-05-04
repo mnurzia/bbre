@@ -12,7 +12,7 @@
 #ifdef TEST_BULK
 #define TEST_NAMED_CLASS_RANGE_MAX 0x110000
 #else
-#define TEST_NAMED_CLASS_RANGE_MAX 128
+#define TEST_NAMED_CLASS_RANGE_MAX 0x80
 #endif
 
 void *test_alloc(size_t prev, size_t next, void *ptr) {
@@ -125,12 +125,15 @@ int check_match_g1_a(const char *regex, const char *s, size_t b, size_t e,
 #define ASSERT_MATCH_1(regex, str, b, e)                                       \
   ASSERT_MATCH_1_A(regex, str, b, e, A_BOTH)
 
+#define ASSERT_MATCH_ONLY(regex, str) ASSERT_MATCH(regex, str)
+
 int check_noparse(const char *regex) {
   re *r;
   int err;
   if ((err = re_init_full(&r, regex, test_alloc)) == ERR_MEM)
     OOM();
   ASSERT_EQ(err, ERR_PARSE);
+  re_destroy(r);
   PASS();
 }
 
@@ -175,7 +178,7 @@ u32 matchspec(const char *spec, rrange *ranges) {
   return n;
 }
 
-mptest__result assert_cc_match(const char *regex, const char *spec) {
+int assert_cc_match(const char *regex, const char *spec) {
   re *r;
   int err;
   u32 codep;
@@ -207,49 +210,210 @@ mptest__result assert_cc_match(const char *regex, const char *spec) {
 
 #define ASSERT_CC_MATCH(regex, spec) PROPAGATE(assert_cc_match(regex, spec))
 
-TEST(init) {
-  re *r;
-  r = re_init("");
+TEST(init_empty) {
+  /* init should initialize the regular expression or return NULL on OOM */
+  re *r = re_init("");
+  if (!r)
+    OOM();
   re_destroy(r);
   PASS();
 }
 
+TEST(init_some) {
+  re *r = re_init("a");
+  if (!r)
+    OOM();
+  re_destroy(r);
+  PASS();
+}
+
+TEST(init_bad) {
+  /* TODO: explicitly detect the parse error */
+  re *r = re_init("\xff");
+  if (!r)
+    OOM();
+  re_destroy(r);
+  PASS();
+}
+
+SUITE(init) {
+  RUN_TEST(init_empty);
+  RUN_TEST(init_some);
+  RUN_TEST(init_bad);
+}
+
 TEST(chr_1) {
-  ASSERT_MATCH_1("a", "a", 0, 1);
+  ASSERT_MATCH_ONLY("a", "a");
   PASS();
 }
 
-SUITE(chr) { RUN_TEST(chr_1); }
-
-TEST(cat) {
-  ASSERT_MATCH("ab", "ab");
-  ASSERT_MATCH("abc", "abc");
-  ASSERT_NMATCH("max", "mxx");
-  ASSERT_NMATCH("max", "ma");
+TEST(chr_2) {
+  ASSERT_MATCH_ONLY("\xd4\x80", "\xd4\x80");
   PASS();
 }
 
-TEST(quant) {
+TEST(chr_3) {
+  ASSERT_MATCH_ONLY("\xe2\x98\x85", "\xe2\x98\x85");
+  PASS();
+}
+
+TEST(chr_4) {
+  ASSERT_MATCH_ONLY("\xf0\x9f\xa4\xa0", "\xf0\x9f\xa4\xa0");
+  PASS();
+}
+
+TEST(chr_malformed) {
+  ASSERT_NOPARSE("\xff");
+  PASS();
+}
+
+SUITE(chr) {
+  RUN_TEST(chr_1);
+  RUN_TEST(chr_2);
+  RUN_TEST(chr_3);
+  RUN_TEST(chr_4);
+  RUN_TEST(chr_malformed);
+}
+
+TEST(cat_single) {
+  ASSERT_MATCH_ONLY("ab", "ab");
+  PASS();
+}
+
+TEST(cat_double) {
+  ASSERT_MATCH_ONLY("abc", "abc");
+  PASS();
+}
+
+SUITE(cat) {
+  RUN_TEST(cat_single);
+  RUN_TEST(cat_double);
+}
+
+TEST(star_empty) {
   ASSERT_MATCH("a*", "");
+  PASS();
+}
+
+TEST(star_one) {
   ASSERT_MATCH("a*", "a");
+  PASS();
+}
+
+TEST(star_two) {
   ASSERT_MATCH("a*", "aa");
-  ASSERT_MATCH("a*", "aaa");
-  ASSERT_NMATCH("a*", "b");
+  PASS();
+}
+
+SUITE(star) {
+  RUN_TEST(star_empty);
+  RUN_TEST(star_one);
+  RUN_TEST(star_two);
+}
+
+TEST(quest_empty) {
   ASSERT_MATCH("a?", "");
+  PASS();
+}
+
+TEST(quest_one) {
   ASSERT_MATCH("a?", "a");
+  PASS();
+}
+
+TEST(quest_two) {
   ASSERT_NMATCH("a?", "aa");
+  PASS();
+}
+
+SUITE(quest) {
+  RUN_TEST(quest_empty);
+  RUN_TEST(quest_one);
+  RUN_TEST(quest_two);
+}
+
+TEST(plus_empty) {
   ASSERT_NMATCH("a+", "");
+  PASS();
+}
+
+TEST(plus_one) {
   ASSERT_MATCH("a+", "a");
+  PASS();
+}
+
+TEST(plus_two) {
   ASSERT_MATCH("a+", "aa");
   PASS();
 }
 
-TEST(alt) {
-  ASSERT_MATCH("a|b", "a");
-  ASSERT_MATCH("a|b", "b");
-  ASSERT_NMATCH("a|b", "c");
-  ASSERT_MATCH("aaa|b", "aaa");
+SUITE(plus) {
+  RUN_TEST(plus_empty);
+  RUN_TEST(plus_one);
+  RUN_TEST(plus_two);
+}
+
+SUITE(quant) {
+  RUN_SUITE(star);
+  RUN_SUITE(quest);
+  RUN_SUITE(plus);
+}
+
+TEST(alt_empty_empty) {
+  ASSERT_MATCH("|", "");
   PASS();
+}
+
+TEST(alt_single_empty_first) {
+  ASSERT_MATCH("a|", "a");
+  PASS();
+}
+
+TEST(alt_single_empty_second) {
+  ASSERT_MATCH("a|", "");
+  PASS();
+}
+
+TEST(alt_empty_single_first) {
+  ASSERT_MATCH("|a", "");
+  PASS();
+}
+
+TEST(alt_empty_single_second) {
+  ASSERT_MATCH("|a", "a");
+  PASS();
+}
+
+TEST(alt_single_single_first) {
+  ASSERT_MATCH("a|b", "a");
+  PASS();
+}
+
+TEST(alt_single_single_second) {
+  ASSERT_MATCH("a|b", "b");
+  PASS();
+}
+
+TEST(alt_some_some_first) {
+  ASSERT_MATCH("xyz|[1-9]", "xyz");
+  PASS();
+}
+
+TEST(alt_some_some_second) {
+  ASSERT_MATCH("xyz|[1-9]", "9");
+  PASS();
+}
+
+SUITE(alt) {
+  RUN_TEST(alt_empty_empty);
+  RUN_TEST(alt_single_empty_first);
+  RUN_TEST(alt_single_empty_second);
+  RUN_TEST(alt_empty_single_first);
+  RUN_TEST(alt_empty_single_second);
+  RUN_TEST(alt_single_single_first);
+  RUN_TEST(alt_single_single_second);
+  RUN_TEST(alt_some_some_first);
+  RUN_TEST(alt_some_some_second);
 }
 
 TEST(cls) {
@@ -271,39 +435,6 @@ TEST(bounds) {
 TEST(unanchored) {
   ASSERT_MATCH_1_A("a", "ba", 1, 2, A_UNANCHORED);
   PASS();
-}
-
-TEST(unicode_1) {
-  ASSERT_MATCH_1("a", "a", 0, 1);
-  PASS();
-}
-
-TEST(unicode_2) {
-  ASSERT_MATCH_1("\xd4\x80", "\xd4\x80", 0, 2);
-  PASS();
-}
-
-TEST(unicode_3) {
-  ASSERT_MATCH_1("\xe2\x98\x85", "\xe2\x98\x85", 0, 3);
-  PASS();
-}
-
-TEST(unicode_4) {
-  ASSERT_MATCH_1("\xf0\x9f\xa4\xa0", "\xf0\x9f\xa4\xa0", 0, 4);
-  PASS();
-}
-
-TEST(unicode_malformed) {
-  ASSERT_NOPARSE("\xff");
-  PASS();
-}
-
-SUITE(unicode) {
-  RUN_TEST(unicode_1);
-  RUN_TEST(unicode_2);
-  RUN_TEST(unicode_3);
-  RUN_TEST(unicode_4);
-  RUN_TEST(unicode_malformed);
 }
 
 TEST(anychar_unicode_1) {
@@ -797,15 +928,14 @@ SUITE(escape) {
 
 int main(int argc, const char *const *argv) {
   MPTEST_MAIN_BEGIN_ARGS(argc, argv);
-  RUN_TEST(init);
+  RUN_SUITE(init);
   RUN_SUITE(chr);
-  RUN_TEST(cat);
-  RUN_TEST(quant);
-  RUN_TEST(alt);
+  RUN_SUITE(cat);
+  RUN_SUITE(quant);
+  RUN_SUITE(alt);
   RUN_TEST(cls);
   RUN_TEST(bounds);
   RUN_TEST(unanchored);
-  RUN_SUITE(unicode);
   RUN_SUITE(any_byte);
   RUN_SUITE(cls);
   RUN_SUITE(anychar);

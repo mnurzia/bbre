@@ -112,7 +112,7 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root);
 
 re *re_init(const char *regex) {
   re *r;
-  if (re_init_full(&r, regex, NULL))
+  if (re_init_full(&r, regex, NULL) == ERR_MEM)
     return NULL;
   return r;
 }
@@ -135,7 +135,6 @@ int re_init_full(re **pr, const char *regex, re_alloc alloc) {
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
     if ((err = re_parse(r, (const u8 *)regex, strlen(regex), &r->ast_root))) {
-      re_destroy(r);
       return err;
     } else {
       r->ast_sets = 1;
@@ -1920,6 +1919,7 @@ done:
   return err;
 }
 
+#ifndef RE_COV
 void astdump_i(re *r, u32 root, u32 ilvl) {
   u32 i, first = r->ast.ptr[root], rest = r->ast.ptr[root + 1];
   printf("%04u ", root);
@@ -1997,3 +1997,4 @@ void cctreedump_i(stk *cc_tree, u32 ref, u32 lvl) {
 }
 
 void cctreedump(stk *cc_tree, u32 ref) { cctreedump_i(cc_tree, ref, 0); }
+#endif
