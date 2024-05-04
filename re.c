@@ -77,6 +77,8 @@ int stk_pushn(re *r, stk *s, void *p, u32 n) {
 
 int stk_push(re *r, stk *s, u32 v) { return stk_pushn(r, s, &v, sizeof(v)); }
 
+u32 stk_elemsize(size_t n) { return ((n + sizeof(u32) - 1) / sizeof(u32)); }
+
 void stk_popn(re *r, stk *s, void *p, u32 n) {
   u32 words = (n + (sizeof(u32) - 1)) / sizeof(u32); /* ceil */
   (void)(r);
@@ -101,8 +103,6 @@ u32 stk_peek(re *r, stk *s, u32 idx) {
   assert(idx < s->size);
   return s->ptr[s->size - 1 - idx];
 }
-
-u32 stk_elemsize(size_t n) { return ((n + sizeof(u32) - 1) / sizeof(u32)); }
 
 u32 stk_size(stk *s, u32 n) {
   return s->size / ((n + sizeof(u32) - 1) / sizeof(u32));
@@ -143,13 +143,13 @@ int re_init_full(re **pr, const char *regex, re_alloc alloc) {
   return err;
 }
 
-void re_destroy(re *re) {
-  stk_destroy(re, &re->ast);
-  stk_destroy(re, &re->op_stk), stk_destroy(re, &re->arg_stk),
-      stk_destroy(re, &re->comp_stk);
-  stk_destroy(re, &re->cc_stk_a), stk_destroy(re, &re->cc_stk_b);
-  stk_destroy(re, &re->prog);
-  re->alloc(sizeof(*re), 0, re);
+void re_destroy(re *r) {
+  stk_destroy(r, &r->ast);
+  stk_destroy(r, &r->op_stk), stk_destroy(r, &r->arg_stk),
+      stk_destroy(r, &r->comp_stk);
+  stk_destroy(r, &r->cc_stk_a), stk_destroy(r, &r->cc_stk_b);
+  stk_destroy(r, &r->prog);
+  r->alloc(sizeof(*r), 0, r);
 }
 
 typedef enum ast_type {
@@ -287,9 +287,12 @@ int re_parse_err(re *r, const char *msg) {
   return ERR_PARSE;
 }
 
+int re_hasmore(re *r) { return r->expr_pos != r->expr_size; }
+
 int re_next(re *r, u32 *first, const char *else_msg) {
   u32 state = UTF8_ACCEPT;
-  if (r->expr_pos == r->expr_size)
+  assert(else_msg || re_hasmore(r));
+  if (!re_hasmore(r))
     return re_parse_err(r, else_msg);
   while (utf8_decode(&state, first, *(r->expr + r->expr_pos)),
          (r->expr_pos++ != r->expr_size))
@@ -300,12 +303,10 @@ int re_next(re *r, u32 *first, const char *else_msg) {
   return 0;
 }
 
-int re_eof(re *r) { return r->expr_pos != r->expr_size; }
-
 int re_peek_next(re *r, u32 *first) {
   size_t prev_pos = r->expr_pos;
   int err;
-  assert(re_eof(r));
+  assert(re_hasmore(r));
   if ((err = re_next(r, first, NULL)))
     return err;
   r->expr_pos = prev_pos;
@@ -491,7 +492,7 @@ int re_parse_escape(re *r, u32 allowed_outputs) {
   } else if (ch >= '0' && ch <= '7') { /* octal escape */
     int digs = 1;
     u32 ord = ch - '0';
-    while (digs++ < 3 && re_eof(r) && !(err = re_peek_next(r, &ch)) &&
+    while (digs++ < 3 && re_hasmore(r) && !(err = re_peek_next(r, &ch)) &&
            ch >= '0' && ch <= '7') {
       err = re_next(r, &ch, NULL);
       assert(!err && ch >= '0' && ch <= '7');
@@ -543,10 +544,10 @@ int re_parse_escape(re *r, u32 allowed_outputs) {
     u32 cat = REF_NONE, chr = REF_NONE;
     if (!(allowed_outputs & (1 << CAT)))
       return re_parse_err(r, "cannot use \\Q...\\E here");
-    while (re_eof(r)) {
+    while (re_hasmore(r)) {
       if ((err = re_next(r, &ch, NULL)))
         return err;
-      if (ch == '\\' && re_eof(r)) {
+      if (ch == '\\' && re_hasmore(r)) {
         if ((err = re_peek_next(r, &ch)))
           return err;
         if (ch == 'E') {
@@ -585,11 +586,27 @@ int re_parse_escape(re *r, u32 allowed_outputs) {
   return 0;
 }
 
+int re_parse_number(re *r, u32 *out, u32 max_digits) {
+  int err = 0;
+  u32 ch, acc = 0, ndigs = 0;
+  if (!re_hasmore(r))
+    return re_parse_err(r, "expected at least one decimal digit");
+  while (!(err = re_peek_next(r, &ch)) && ch >= '0' && ch <= '9' &&
+         (re_next(r, &ch, NULL), ++ndigs < max_digits))
+    acc = acc * 10 + (ch - '0');
+  if (err)
+    return err;
+  if (!ndigs && !(ch >= '0' && ch <= '9'))
+    return re_parse_err(r, "expected at least one decimal digit");
+  *out = acc;
+  return err;
+}
+
 int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
   int err;
   r->expr = ts;
   r->expr_size = tsz, r->expr_pos = 0;
-  while (re_eof(r)) {
+  while (re_hasmore(r)) {
     u32 ch;
     u32 args[3] = {REF_NONE}, res = REF_NONE;
     if ((err = re_next(r, &ch, NULL)))
@@ -682,13 +699,13 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
             /* we parsed an entire class, so there's no ending character */
             continue;
           }
-        } else if (ch == '[' && re_eof(r) && !re_peek_next(r, &ch) &&
+        } else if (ch == '[' && re_hasmore(r) && !re_peek_next(r, &ch) &&
                    ch == ':') { /* named class */
           int named_inverted = 0;
           size_t name_start, name_end;
           err = re_next(r, &ch, NULL); /* : */
           assert(!err && ch == ':');
-          if (re_eof(r) && !re_peek_next(r, &ch) &&
+          if (re_hasmore(r) && !re_peek_next(r, &ch) &&
               ch == '^') {               /* inverted named class */
             err = re_next(r, &ch, NULL); /* ^ */
             assert(!err && ch == '^');
@@ -719,7 +736,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
           continue;
         }
         max = min;
-        if (re_eof(r) && !re_peek_next(r, &ch) && ch == '-') {
+        if (re_hasmore(r) && !re_peek_next(r, &ch) && ch == '-') {
           /* range expression */
           err = re_next(r, &ch, NULL);
           assert(!err && ch == '-');
@@ -747,6 +764,35 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
     } else if (ch == '\\') { /* escape */
       if ((err = re_parse_escape(r, 1 << CHR | 1 << CLS | 1 << ANYBYTE |
                                         1 << CAT)))
+        return err;
+    } else if (ch == '{') { /* repetition */
+      u32 min = 0, max = 0;
+      if ((err = re_parse_number(r, &min, 6)))
+        return err;
+      if ((err = re_next(r, &ch, "expected } to end repetition expression")))
+        return err;
+      if (ch == '}')
+        max = min;
+      else if (ch == ',') {
+        if ((err = re_peek_next(r, &ch)))
+          return err;
+        if (ch == '}')
+          re_next(r, &ch, NULL), max = INFTY;
+        else {
+          if ((err = re_parse_number(r, &max, 6)))
+            return err;
+          if ((err =
+                   re_next(r, &ch, "expected } to end repetition expression")))
+            return err;
+          if (ch != '}')
+            return re_parse_err(r, "expected } to end repetition expression");
+        }
+      } else
+        return re_parse_err(r, "expected } or , for repetition expression");
+      if (!r->arg_stk.size)
+        return re_parse_err(r, "cannot apply quantifier to empty regex");
+      if ((err = re_mkast(r, QUANT, stk_pop(r, &r->arg_stk), min, max, &res)) ||
+          (err = stk_push(r, &r->arg_stk, res)))
         return err;
     } else { /* char: push to the arg stk */
              /* arg_stk: | ... | */
@@ -897,10 +943,8 @@ void re_compcc_hsort(stk *cc, size_t n) {
   while (end > 1) {
     if (start)
       start--;
-    else {
-      end--;
-      ccswap(cc, end, 0);
-    }
+    else
+      ccswap(cc, --end, 0);
     root = start;
     while ((child = i_lc(root)) < end) {
       if (child + 1 < end && cckey(cc, child) < cckey(cc, child + 1))
@@ -1469,8 +1513,7 @@ int re_compile(re *r, u32 root, u32 reverse) {
       } else if (max == INFTY && frame.idx == min + 1) { /* after inf. bound */
         patch(r, &returned_frame, frame.pc);
       } else if (frame.idx < max) { /* before maximum bound */
-        if (frame.idx == min)
-          patch(r, frame.idx ? &returned_frame : &frame, my_pc);
+        patch(r, frame.idx ? &returned_frame : &frame, my_pc);
         if ((err = re_emit(r, INST(SPLIT, 0, 0))))
           return err;
         patch_add(r, &child_frame, my_pc, 0);

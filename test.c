@@ -926,6 +926,201 @@ SUITE(escape) {
   RUN_SUITE(escape_perlclass);
 }
 
+TEST(repetition_zero_empty) {
+  ASSERT_MATCH("a{0}", "");
+  PASS();
+}
+
+TEST(repetition_zero_one) {
+  ASSERT_NMATCH("a{0}", "a");
+  PASS();
+}
+
+TEST(repetition_zero_two) {
+  ASSERT_NMATCH("a{0}", "aa");
+  PASS();
+}
+
+TEST(repetition_zero_nonmatch) {
+  ASSERT_NMATCH("a{0}", "b");
+  PASS();
+}
+
+TEST(repetition_one_empty) {
+  ASSERT_NMATCH("a{1}", "");
+  PASS();
+}
+
+TEST(repetition_one_one) {
+  ASSERT_MATCH("a{1}", "a");
+  PASS();
+}
+
+TEST(repetition_one_two) {
+  ASSERT_NMATCH("a{1}", "aa");
+  PASS();
+}
+
+TEST(repetition_one_nonmatch) {
+  ASSERT_NMATCH("a{1}", "b");
+  PASS();
+}
+
+TEST(repetition_two_empty) {
+  ASSERT_NMATCH("a{2}", "");
+  PASS();
+}
+
+TEST(repetition_two_one) {
+  ASSERT_NMATCH("a{2}", "a");
+  PASS();
+}
+
+TEST(repetition_two_two) {
+  ASSERT_MATCH("a{2}", "aa");
+  PASS();
+}
+
+TEST(repetition_two_three) {
+  ASSERT_NMATCH("a{2}", "aaa");
+  PASS();
+}
+
+TEST(repetition_two_nonmatch) {
+  ASSERT_NMATCH("a{2}", "b");
+  PASS();
+}
+
+TEST(repetition_zero_infty_empty) {
+  ASSERT_MATCH("a{0,}", "");
+  PASS();
+}
+
+TEST(repetition_zero_infty_one) {
+  ASSERT_MATCH("a{0,}", "a");
+  PASS();
+}
+
+TEST(repetition_zero_infty_two) {
+  ASSERT_MATCH("a{0,}", "aa");
+  PASS();
+}
+
+TEST(repetition_zero_infty_nonmatch) {
+  ASSERT_NMATCH("a{0,}", "b");
+  PASS();
+}
+
+TEST(repetition_one_infty_empty) {
+  ASSERT_NMATCH("a{1,}", "");
+  PASS();
+}
+
+TEST(repetition_one_infty_one) {
+  ASSERT_MATCH("a{1,}", "a");
+  PASS();
+}
+
+TEST(repetition_one_infty_two) {
+  ASSERT_MATCH("a{1,}", "aa");
+  PASS();
+}
+
+TEST(repetition_one_infty_nonmatch) {
+  ASSERT_NMATCH("a{1,}", "b");
+  PASS();
+}
+
+TEST(repetition_two_infty_empty) {
+  ASSERT_NMATCH("a{2,}", "");
+  PASS();
+}
+
+TEST(repetition_two_infty_one) {
+  ASSERT_NMATCH("a{2,}", "a");
+  PASS();
+}
+
+TEST(repetition_two_infty_two) {
+  ASSERT_MATCH("a{2,}", "aa");
+  PASS();
+}
+
+TEST(repetition_two_infty_three) {
+  ASSERT_MATCH("a{2,}", "aaa");
+  PASS();
+}
+
+TEST(repetition_two_infty_nonmatch) {
+  ASSERT_NMATCH("a{2,}", "b");
+  PASS();
+}
+
+TEST(repetition_one_three_empty) {
+  ASSERT_NMATCH("a{1,3}", "");
+  PASS();
+}
+
+TEST(repetition_one_three_one) {
+  ASSERT_MATCH("a{1,3}", "a");
+  PASS();
+}
+
+TEST(repetition_one_three_two) {
+  ASSERT_MATCH("a{1,3}", "aa");
+  PASS();
+}
+
+TEST(repetition_one_three_three) {
+  ASSERT_MATCH("a{1,3}", "aaa");
+  PASS();
+}
+
+TEST(repetition_one_three_four) {
+  ASSERT_NMATCH("a{1,3}", "aaaa");
+  PASS();
+}
+
+TEST(repetition_one_three_nonmatch) {
+  ASSERT_NMATCH("a{1,3}", "b");
+  PASS();
+}
+
+SUITE(repetition) {
+  RUN_TEST(repetition_zero_empty);
+  RUN_TEST(repetition_zero_one);
+  RUN_TEST(repetition_zero_two);
+  RUN_TEST(repetition_zero_nonmatch);
+  RUN_TEST(repetition_one_empty);
+  RUN_TEST(repetition_one_one);
+  RUN_TEST(repetition_one_two);
+  RUN_TEST(repetition_one_nonmatch);
+  RUN_TEST(repetition_two_empty);
+  RUN_TEST(repetition_two_one);
+  RUN_TEST(repetition_two_two);
+  RUN_TEST(repetition_two_three);
+  RUN_TEST(repetition_two_nonmatch);
+  RUN_TEST(repetition_zero_infty_empty);
+  RUN_TEST(repetition_zero_infty_one);
+  RUN_TEST(repetition_zero_infty_two);
+  RUN_TEST(repetition_zero_infty_nonmatch);
+  RUN_TEST(repetition_one_infty_empty);
+  RUN_TEST(repetition_one_infty_one);
+  RUN_TEST(repetition_one_infty_two);
+  RUN_TEST(repetition_one_infty_nonmatch);
+  RUN_TEST(repetition_two_infty_empty);
+  RUN_TEST(repetition_two_infty_one);
+  RUN_TEST(repetition_two_infty_two);
+  RUN_TEST(repetition_two_infty_three);
+  RUN_TEST(repetition_two_infty_nonmatch);
+  RUN_TEST(repetition_one_three_empty);
+  RUN_TEST(repetition_one_three_one);
+  RUN_TEST(repetition_one_three_two);
+  RUN_TEST(repetition_one_three_three);
+  RUN_TEST(repetition_one_three_four);
+  RUN_TEST(repetition_one_three_nonmatch);
+}
+
 int main(int argc, const char *const *argv) {
   MPTEST_MAIN_BEGIN_ARGS(argc, argv);
   RUN_SUITE(init);
@@ -940,5 +1135,6 @@ int main(int argc, const char *const *argv) {
   RUN_SUITE(cls);
   RUN_SUITE(anychar);
   RUN_SUITE(escape);
+  RUN_SUITE(repetition);
   MPTEST_MAIN_END();
 }

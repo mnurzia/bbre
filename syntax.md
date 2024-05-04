@@ -35,6 +35,13 @@
     [X] \w
     [X] \W
 [ ] character classes
-  [ ] end of ranges as escapes
+  [X] end of ranges as escapes
   [ ] cases for union-making
   [ ] swapped min/max
+[ ] repetitions
+  [ ] {n}
+  [ ] {n,}
+  [ ] {m,n}
+[ ] empty asserts
+[ ] group flags
+[ ] ungreedy ?
