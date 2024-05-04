@@ -52,65 +52,7 @@ size_t utf_encode(char *out_buf, u32 codep) {
   }
 }
 
-#define ASSERT_MATCH_N(regex, str, sz)                                         \
-  do {                                                                         \
-    re *r;                                                                     \
-    int err;                                                                   \
-    if ((err = re_init_full(&r, regex, test_alloc)) == ERR_MEM)                \
-      OOM();                                                                   \
-    ASSERT(err != ERR_PARSE);                                                  \
-    ASSERT(!err);                                                              \
-    if ((err = re_match(r, str, sz, 0, 0, NULL, NULL, A_BOTH)) == ERR_MEM)     \
-      OOM();                                                                   \
-    ASSERT(err == 1);                                                          \
-    re_destroy(r);                                                             \
-  } while (0)
-
-#define ASSERT_NMATCH_N(regex, str, sz)                                        \
-  do {                                                                         \
-    re *r;                                                                     \
-    int err;                                                                   \
-    if ((err = re_init_full(&r, regex, test_alloc)) == ERR_MEM)                \
-      OOM();                                                                   \
-    ASSERT(err != ERR_PARSE);                                                  \
-    ASSERT(!err);                                                              \
-    if ((err = re_match(r, str, sz, 0, 0, NULL, NULL, A_BOTH)) == ERR_MEM)     \
-      OOM();                                                                   \
-    ASSERT(err == 0);                                                          \
-    re_destroy(r);                                                             \
-  } while (0)
-
-#define ASSERT_MATCH(regex, str) ASSERT_MATCH_N(regex, str, strlen(str))
-#define ASSERT_NMATCH(regex, str) ASSERT_NMATCH_N(regex, str, strlen(str))
-
-#define ASSERT_MATCH_1(regex, str, b, e)                                       \
-  ASSERT_MATCH_1_A(regex, str, b, e, A_BOTH)
-
-#define ASSERT_MATCH_1_A(regex, str, b, e, anchor)                             \
-  do {                                                                         \
-    re *r;                                                                     \
-    int err;                                                                   \
-    span s;                                                                    \
-    if ((err = re_init_full(&r, regex, test_alloc)) == ERR_MEM)                \
-      OOM();                                                                   \
-    ASSERT_NEQ(err, ERR_PARSE);                                                \
-    ASSERT(!err);                                                              \
-    if ((err = re_match(r, str, strlen(str), 1, 1, &s, NULL, anchor)) ==       \
-        ERR_MEM)                                                               \
-      OOM();                                                                   \
-    ASSERT_EQ(s.begin, b);                                                     \
-    ASSERT_EQ(s.end, e);                                                       \
-    re_destroy(r);                                                             \
-  } while (0)
-
-#define ASSERT_NOPARSE(regex)                                                  \
-  do {                                                                         \
-    re *r;                                                                     \
-    int err;                                                                   \
-    if ((err = re_init_full(&r, regex, test_alloc)) == ERR_MEM)                \
-      OOM();                                                                   \
-    ASSERT_EQ(err, ERR_PARSE);                                                 \
-  } while (0);
+#define IMPLIES(c, pred) (!(c) || (pred))
 
 int check_match(const char *regex, const char *s, size_t n, u32 max_span,
                 u32 max_set, anchor_type anchor, span *check_span,
@@ -133,7 +75,8 @@ int check_match(const char *regex, const char *s, size_t n, u32 max_span,
     OOM();
   ASSERT_EQ((u32)err, check_nsets);
   for (i = 0; i < (check_nsets > max_set ? max_set : check_nsets); i++) {
-    ASSERT_EQ(check_set[i], found_set[i]);
+    if (check_set)
+      ASSERT_EQ(check_set[i], found_set[i]);
     for (j = 0; j < max_span; j++) {
       ASSERT_EQ(check_span[i * max_span + j].begin,
                 found_span[i * max_span + j].begin);
@@ -147,9 +90,51 @@ int check_match(const char *regex, const char *s, size_t n, u32 max_span,
   PASS();
 }
 
-int check_fullmatch(const char *regex, const char *s) {
-  return check_match(regex, s, strlen(s), 0, 0, A_BOTH, NULL, NULL, 1);
+int check_fullmatch_n(const char *regex, const char *s, size_t n) {
+  return check_match(regex, s, n, 0, 0, A_BOTH, NULL, NULL, 1);
 }
+
+int check_not_fullmatch_n(const char *regex, const char *s, size_t n) {
+  return check_match(regex, s, n, 0, 0, A_BOTH, NULL, NULL, 0);
+}
+
+int check_fullmatch(const char *regex, const char *s) {
+  return check_fullmatch_n(regex, s, strlen(s));
+}
+
+int check_not_fullmatch(const char *regex, const char *s) {
+  return check_not_fullmatch_n(regex, s, strlen(s));
+}
+
+int check_match_g1_a(const char *regex, const char *s, size_t b, size_t e,
+                     anchor_type anchor) {
+  span g;
+  g.begin = b, g.end = e;
+
+  return check_match(regex, s, strlen(s), 1, 1, anchor, &g, NULL, 1);
+}
+
+#define ASSERT_MATCH(regex, str) PROPAGATE(check_fullmatch(regex, str))
+#define ASSERT_NMATCH(regex, str) PROPAGATE(check_not_fullmatch(regex, str))
+#define ASSERT_MATCH_N(regex, str, sz)                                         \
+  PROPAGATE(check_fullmatch_n(regex, str, sz));
+#define ASSERT_NMATCH_N(regex, str, sz)                                        \
+  PROPAGATE(check_not_fullmatch_n(regex, str, sz));
+#define ASSERT_MATCH_1_A(regex, str, b, e, anchor)                             \
+  PROPAGATE(check_match_g1_a(regex, str, b, e, anchor))
+#define ASSERT_MATCH_1(regex, str, b, e)                                       \
+  ASSERT_MATCH_1_A(regex, str, b, e, A_BOTH)
+
+int check_noparse(const char *regex) {
+  re *r;
+  int err;
+  if ((err = re_init_full(&r, regex, test_alloc)) == ERR_MEM)
+    OOM();
+  ASSERT_EQ(err, ERR_PARSE);
+  PASS();
+}
+
+#define ASSERT_NOPARSE(regex) PROPAGATE(check_noparse(regex))
 
 typedef struct rrange {
   u32 lo, hi;
@@ -190,42 +175,37 @@ u32 matchspec(const char *spec, rrange *ranges) {
   return n;
 }
 
-#define ASSERT_CC_MATCH(regex, spec)                                           \
-  do {                                                                         \
-    re *r;                                                                     \
-    int err;                                                                   \
-    u32 codep;                                                                 \
-    char utf8[16];                                                             \
-    rrange ranges[64];                                                         \
-    u32 num_ranges = matchspec(spec, ranges), range_idx;                       \
-    if ((err = re_init_full(&r, regex, test_alloc)) == ERR_MEM)                \
-      OOM();                                                                   \
-    ASSERT(!err);                                                              \
-    for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {             \
-      size_t sz = utf_encode(utf8, codep);                                     \
-      for (range_idx = 0; range_idx < num_ranges; range_idx++) {               \
-        if (codep >= ranges[range_idx].lo && codep <= ranges[range_idx].hi) {  \
-          if ((err = re_match(r, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) ==       \
-              ERR_MEM)                                                         \
-            OOM();                                                             \
-          ASSERT_EQ(err, 1);                                                   \
-          break;                                                               \
-        }                                                                      \
-      }                                                                        \
-      if (range_idx == num_ranges) {                                           \
-        if ((err = re_match(r, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) ==         \
-            ERR_MEM)                                                           \
-          OOM();                                                               \
-        ASSERT_EQ(err, 0);                                                     \
-      }                                                                        \
-    }                                                                          \
-    re_destroy(r);                                                             \
-  } while (0)
-
 mptest__result assert_cc_match(const char *regex, const char *spec) {
-  ASSERT_CC_MATCH(regex, spec);
+  re *r;
+  int err;
+  u32 codep;
+  char utf8[16];
+  rrange ranges[64];
+  u32 num_ranges = matchspec(spec, ranges), range_idx;
+  if ((err = re_init_full(&r, regex, test_alloc)) == ERR_MEM)
+    OOM();
+  ASSERT(!err);
+  for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
+    size_t sz = utf_encode(utf8, codep);
+    for (range_idx = 0; range_idx < num_ranges; range_idx++) {
+      if (codep >= ranges[range_idx].lo && codep <= ranges[range_idx].hi) {
+        if ((err = re_match(r, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) == ERR_MEM)
+          OOM();
+        ASSERT_EQ(err, 1);
+        break;
+      }
+    }
+    if (range_idx == num_ranges) {
+      if ((err = re_match(r, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) == ERR_MEM)
+        OOM();
+      ASSERT_EQ(err, 0);
+    }
+  }
+  re_destroy(r);
   PASS();
 }
+
+#define ASSERT_CC_MATCH(regex, spec) PROPAGATE(assert_cc_match(regex, spec))
 
 TEST(init) {
   re *r;
@@ -242,7 +222,7 @@ TEST(chr_1) {
 SUITE(chr) { RUN_TEST(chr_1); }
 
 TEST(cat) {
-  PROPAGATE(check_fullmatch("ab", "ab"));
+  ASSERT_MATCH("ab", "ab");
   ASSERT_MATCH("abc", "abc");
   ASSERT_NMATCH("max", "mxx");
   ASSERT_NMATCH("max", "ma");
