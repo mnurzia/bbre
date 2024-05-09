@@ -15,8 +15,10 @@ build/cov:
 build/re: build $(SRCS)
 	$(CC) $(CFLAGS) $(SRCS) -o $@
 
-build/test-gen.c: build tools/make_ascii_classes.py
-	python tools/make_ascii_classes.py tests | clang-format > $@
+build/test-gen.c: build test-gen.c tools/unicode_data.py
+	cp test-gen.c $@
+	python tools/unicode_data.py gen_ascii_charclasses test build/test-gen.c
+	clang-format -i $@
 
 build/compile_commands.json: build $(SRCS) 
 	bear --output $@ -- make -B build/re

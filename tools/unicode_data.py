@@ -1,28 +1,27 @@
 """Unicode data manager for generating tables"""
 
 import argparse
-from functools import cache
 import io
-from itertools import accumulate, pairwise
 from pathlib import Path
 from sys import stderr
-from typing import Callable, Iterator, NamedTuple
-import math
+from typing import IO, Callable, Iterator
 import shutil
 import zipfile
 import urllib3
 
+from squish_casefold import (
+    calculate_masks,
+    calculate_shifts,
+    check_arrays,
+    find_best_arrays,
+    build_arrays,
+)
+from util import DataType
+
 UCD_URL = "https://www.unicode.org/Public/zipped"
 CLEAR_TERM = "\x1b[0K"
 
-
-def cmd_fetch(args):
-    """Fetch the UCD."""
-    http = urllib3.PoolManager()
-    with http.request(
-        "GET", UCD_URL + "/" + args.version + "/UCD.zip", preload_content=False
-    ) as req, open(args.db, "wb") as out_file:
-        shutil.copyfileobj(req, out_file)
+UTF_MAX = 0x10FFFF
 
 
 class UnicodeData:
@@ -57,327 +56,22 @@ class UnicodeData:
                 yield result
 
 
-UTF_MAX = 0x10FFFF
+def cmd_fetch(args):
+    """Fetch the UCD."""
+    http = urllib3.PoolManager()
+    with http.request(
+        "GET", UCD_URL + "/" + args.version + "/UCD.zip", preload_content=False
+    ) as req, open(args.db, "wb") as out_file:
+        shutil.copyfileobj(req, out_file)
+    return 0
 
 
-class DataType(NamedTuple):
-    """Represents a C datatype."""
-
-    size_bytes: int
-    signed: bool
-
-
-def data_type(arr) -> DataType:
-    """Given an array of integers, determine the minimum-sized data type required."""
-    max_val = max([abs(x) for x in arr])
-    signed = any(x < 0 for x in arr)
-    for width in [1, 2, 4]:
-        if max_val < (2 ** (8 * width) - (1 if signed else 0)):
-            return DataType(width, signed)
-    raise ValueError(f"invalid maximum value {max_val}")
-
-
-Sizes = tuple[int, ...]
-
-
-def cached_make_arrays(deltas: list[int]) -> Callable[[Sizes], list[list[int]]]:
-    """Return a make_arrays function that uses a cache."""
-
-    @cache
-    def make_arrays_recursive(sizes: Sizes) -> list[list[int]]:
-        *prev_sizes, my_size = sizes
-        arrays = (
-            [deltas] if len(sizes) == 1 else make_arrays_recursive(tuple(prev_sizes))
-        )
-        blocks: list[Block] = list(
-            list(arrays[-1][i * my_size : (i + 1) * my_size])
-            for i in range(len(arrays[-1]) // my_size)
-        )
-        unique_blocks: dict[tuple[int, ...], int] = {}
-        block_refs = []
-        for block in map(tuple, blocks):
-            unique_blocks[block] = (
-                index := unique_blocks.get(block, len(unique_blocks))
-            )
-            block_refs.append(index)
-        my_array, my_locs = _heuristic_squish(list(map(list, unique_blocks.keys())))
-        prev_refs = list([my_locs[x] for x in block_refs])
-        result = arrays[:-1] + [my_array, prev_refs]
-        return result
-
-    return make_arrays_recursive
-
-
-def _combo_iterator(pow2: list[int], max_val: int, start_val=1, *, repeat: int = 0):
-    # Yield permutations with repetition of `pow2` such that their product is
-    # never greater than `max_val`.
-    if repeat == 0:
-        yield tuple()
-        return
-    for ipow in pow2:
-        if (next_start_val := start_val * ipow) > max_val:
-            continue
-        for combo in _combo_iterator(pow2, max_val, next_start_val, repeat=repeat - 1):
-            yield (ipow, *combo)
-
-
-def _calculate_num_bytes(arrays: list[list[int]]) -> int:
-    # Compute the number of bytes needed to store the resulting arrays.
-    return sum(len(a) * data_type(a).size_bytes for a in arrays)
-
-
-def _try_all_sizes(
-    deltas: list[int], num_tables: int
-) -> Iterator[tuple[int, Sizes, list[list[int]]]]:
-    max_rune = UTF_MAX + 1
-    pow2: list[int] = [2**x for x in range(1, max_rune.bit_length())]
-    make_arrays = cached_make_arrays(deltas)
-    best: int | float = math.inf
-    for array_sizes in _combo_iterator(pow2, max_rune, repeat=num_tables):
-        yield (
-            (size := _calculate_num_bytes(arrays := make_arrays(array_sizes))),
-            array_sizes,
-            arrays,
-        )
-        best = min(best, size)
-        print(
-            CLEAR_TERM + f"best: {best}, sizes:",
-            *array_sizes,
-            sep="\t",
-            end="\r",
-            file=stderr,
-        )
-    print(file=stderr)
-
-
-def _find_best_size(deltas: list[int], num_tables: int):
-    # Exhaustively try bit lengths for each array.
-    lowest: tuple[int, Sizes, list[list[int]]] = min(_try_all_sizes(deltas, num_tables))
-    return lowest[1], lowest[2]
-
-
-class Repeat(NamedTuple):
-    """Represents a run of repeated leading or trailing numbers."""
-
-    start_value: int
-    repeat_count: int
-
-
-Arrangement = tuple[int, ...]
-
-
-class SquishSpec(NamedTuple):
-    """Represents an arrangement and its squish factor."""
-
-    squish_factor: int
-    arrangement: Arrangement
-
-
-class FixSpec(NamedTuple):
-    """Holds lead and trail repeats."""
-
-    leads: tuple[Repeat, ...]
-    trails: tuple[Repeat, ...]
-
-    def spec(self, arrangement: Arrangement) -> SquishSpec:
-        """
-        Given an arrangement of block indices, calculate the total number of
-        elements saved by squishing them.
-        """
-        # assert all(arrangement.count(a) == 1 for a in set(arrangement))
-        total_factor = 0
-        for i in range(1, len(arrangement)):
-            if (
-                self.trails[arrangement[i]].start_value
-                == self.leads[arrangement[i]].start_value
-            ):
-                total_factor += min(
-                    self.trails[arrangement[i - 1]].repeat_count,
-                    self.leads[arrangement[i]].repeat_count,
-                )
-        return SquishSpec(total_factor, arrangement)
-
-    def squish(
-        self, arrangement: Arrangement, blocks: list[list[int]]
-    ) -> tuple[list[int], list[int]]:
-        """
-        Given an arrangement of block indices, and the blocks, return an array
-        containing the squished blocks, and an array containing the locations
-        of each block inside the squished array.
-        """
-        out, locations = [], []
-        for i, idx in enumerate(arrangement):
-            move_up = 0
-            if i > 0:
-                trail, lead = self.trails[arrangement[i - 1]], self.leads[idx]
-                move_up = (
-                    min(trail.repeat_count, lead.repeat_count)
-                    if trail.start_value == lead.start_value
-                    else 0
-                )
-            locations.append(len(out) - move_up)
-            out.extend(blocks[idx][move_up:])
-        return out, locations
-
-
-def _find_start_indices(fix: FixSpec) -> SquishSpec:
-    # Find the pair of indexes that have the best squished size.
-    return max(
-        fix.spec((i, j))
-        for i in range(len(fix.leads))
-        for j in range(len(fix.trails))
-        if i != j
-    )
-
-
-def _find_best_prepend(fix: FixSpec, spec: SquishSpec) -> SquishSpec:
-    # Find the index that, when prepended to the arrangement, has the best
-    # squished size.
-    return max(
-        fix.spec((i, *spec.arrangement))
-        for i in range(len(fix.trails))
-        if i not in spec.arrangement
-    )
-
-
-def _find_best_append(fix: FixSpec, spec: SquishSpec) -> SquishSpec:
-    # Find the index that, when appended to the arrangement, has the best
-    # squished size.
-    return max(
-        fix.spec((*spec.arrangement, i))
-        for i in range(len(fix.trails))
-        if i not in spec.arrangement
-    )
-
-
-def _heuristic_squish_loop(fix: FixSpec, spec: SquishSpec) -> SquishSpec:
-    if len(spec.arrangement) == len(fix.leads):
-        # we are done if we've added every block to the working list
-        return fix.spec(spec.arrangement)
-    if len(fix.leads) == 1:
-        return fix.spec((0,))
-    if len(spec.arrangement) == 0:
-        # initial block, find the two blocks that fit best
-        return _find_start_indices(fix)
-    else:
-        # check whether to prepend or append
-        return max(
-            _find_best_prepend(fix, spec),
-            _find_best_append(fix, spec),
-        )
-
-
-def _heuristic_squish_slice(fix: FixSpec, spec: SquishSpec) -> SquishSpec:
-    # Find an index in the arrangement that results in a better squish after
-    # transposing both resulting partitions of the arrangement aroudnd the index
-    return max(
-        fix.spec(
-            spec.arrangement[slice_index:] + spec.arrangement[:slice_index],
-        )
-        for slice_index in range(len(fix.leads))
-    )
-
-
-def _heuristic_squish_swap(fix: FixSpec, spec: SquishSpec) -> SquishSpec:
-    # Find two indices that, when their values are swapped, results in a better
-    # squish.
-    if len(fix.leads) == 1:
-        return spec
-    return max(
-        fix.spec(
-            (
-                *spec.arrangement[:i],
-                spec.arrangement[i],
-                *spec.arrangement[i + 1 : j],
-                spec.arrangement[j],
-                *spec.arrangement[j + 1 :],
-            ),
-        )
-        for i in range(len(fix.leads))
-        for j in range(i + 1, len(fix.leads))
-    )
-
-
-Block = list[int]
-
-
-def _calculate_leading(l: Block) -> Repeat:
-    # Given an array, calculate the number of times its first member is
-    # subsequently repeated.
-    for i, x in enumerate(l):
-        if x != l[0]:
-            return Repeat(l[0], i)
-    return Repeat(l[0], len(l))
-
-
-def _calculate_trailing(l: Block) -> Repeat:
-    # Given an array, calculate the number of times its last member is
-    # repeated precedingly.
-    for i, x in enumerate(reversed(l)):
-        if x != l[-1]:
-            return Repeat(l[-1], i)
-    return Repeat(l[0], len(l))
-
-
-def _improve_squish(
-    fix: FixSpec,
-    best_spec: SquishSpec,
-    map_func: Callable[[FixSpec, SquishSpec], SquishSpec],
-) -> SquishSpec:
-    while True:
-        next_spec = map_func(fix, best_spec)
-        if next_spec.squish_factor > best_spec.squish_factor or len(
-            next_spec.arrangement
-        ) > len(best_spec.arrangement):
-            best_spec = next_spec
-        else:
-            break
-    return best_spec
-
-
-def _heuristic_squish(blocks: list[Block]) -> tuple[list[int], list[int]]:
-    fix = FixSpec(
-        tuple(map(_calculate_leading, blocks)), tuple(map(_calculate_trailing, blocks))
-    )
-    best_spec = SquishSpec(0, ())
-    for func in (
-        _heuristic_squish_loop,
-        _heuristic_squish_slice,
-        _heuristic_squish_swap,
-    ):
-        best_spec = _improve_squish(fix, best_spec, func)
-    array, locs = fix.squish(best_spec.arrangement, blocks)
-    locs = list(map(lambda a: a[1], sorted(zip(best_spec.arrangement, locs))))
-    return (array, locs)
-
-
-def _check_arrays(
-    deltas: list[int],
-    array_sizes: Sizes,
-    arrays: list[list[int]],
-    max_rune=UTF_MAX,
-):
-    field_widths = map(int, map(math.log2, array_sizes))
-    shifts = [0] + list(accumulate(field_widths))
-    masks = [
-        (2 ** (h - l) - 1) for l, h in pairwise(shifts + [(max_rune + 1).bit_length()])
-    ]
-
-    def lookup(start_index, rune, level=len(arrays) - 1):
-        index = (rune >> shifts[level]) & masks[level]
-        next_index = arrays[level][start_index + index]
-        return lookup(next_index, rune, level - 1) if level != 0 else next_index
-
-    for rune in range(max_rune + 1):
-        print(CLEAR_TERM + "checking: ", rune, file=stderr, sep="\t", end="\r")
-        assert lookup(0, rune) == deltas[rune]
-    print(file=stderr)
-
-
-def cmd_make_casefold_data(args):
-    """Generate casefold data."""
+def _casefold_load(args) -> list[int]:
+    # Load casefold data into a deltas array.
     udata = UnicodeData(args.db)
     equivalence_classes: dict[int, set[int]] = {}
+    if args.debug:
+        print("loading casefold data...", file=stderr)
     for code_str, status, mapped_codepoints_str, *_ in udata.load_file(
         Path("CaseFolding.txt")
     ):
@@ -402,16 +96,217 @@ def cmd_make_casefold_data(args):
             (sort := sorted(equivalence_class)), sort[1:] + sort[:1]
         ):
             loops[member] = next_member
-    deltas = [l - i for i, l in enumerate(loops)]
-    if args.sizes is None:
-        array_sizes, arrays = _find_best_size(deltas, args.explore_amt)
-    else:
-        array_sizes = (
-            tuple(int(x) for x in args.sizes.split(",")) if args.sizes != "" else ()
+    return [l - i for i, l in enumerate(loops)]
+
+
+def _cmd_casefold_search(args):
+    # Search for optimal casefold compression schemes.
+    deltas = _casefold_load(args)
+    array_sizes, arrays = find_best_arrays(
+        deltas,
+        num_tables=args.max_arrays,
+        max_rune=UTF_MAX,
+        show_progress=args.debug,
+    )
+    check_arrays(
+        deltas, array_sizes, arrays, max_rune=UTF_MAX, show_progress=args.debug
+    )
+    # output the array sizes
+    print(",".join(map(str, array_sizes)))
+    return 0
+
+
+def _insert_c_file(file: IO, insert_lines: list[str], tag: str):
+    lines = file.readlines()
+    start_tag, end_tag = (
+        f"/*{t} Generated by `unicode_data.py {tag}` */\n" for t in "Tt"
+    )
+    start_index, end_index = map(lines.index, (start_tag, end_tag))
+    assert end_index > start_index  # if this fails, end tag was after start tag
+    file.seek(0)
+    file.truncate(0)
+    file.writelines(lines[: start_index + 1] + insert_lines + lines[end_index:])
+
+
+def _cmd_gen_casefold(args) -> int:
+    # Generate C code for casefolding.
+    deltas = _casefold_load(args)
+    array_sizes = tuple(map(int, args.sizes.split(",")))
+    arrays = build_arrays(deltas, array_sizes)
+    shifts = calculate_shifts(array_sizes)
+    masks = calculate_masks(array_sizes, UTF_MAX)
+    output: list[str] = []
+
+    def out(s: str):
+        output.append(s + "\n")
+
+    for i, array in enumerate(arrays):
+        num_digits = (max(map(abs, array)).bit_length() + 3) // 4
+        data_type = DataType.from_list(array)
+        out(f"static const {data_type.to_ctype()} casefold_array_{i}[] = {{")
+        out(
+            ",".join(
+                [
+                    f"{'-' if n < 0 else '+' if data_type.signed else ''}0x{abs(n):0{num_digits}X}"
+                    for n in array
+                ]
+            )
         )
-        arrays = cached_make_arrays(deltas)(array_sizes)
-    print("using array sizes", ",".join(map(str, array_sizes)), file=stderr)
-    _check_arrays(deltas, array_sizes, arrays)
+        out("};")
+
+    out("u32 casefold_next(u32 rune) { return ")
+
+    for i in range(len(arrays)):
+        out(f"casefold_array_{i}[")
+    for i, (shift, mask) in enumerate(reversed(list(zip(shifts, masks)))):
+        shift_expr = f"rune >> {shift}" if shift != 0 else "rune"
+        out(f"{'+' if i else ''}(({shift_expr}) & 0x{mask:02X})]")
+    out(";}")
+
+    file: IO = args.file
+    _insert_c_file(file, output, "gen_casefold")
+    file.close()
+    return 0
+
+
+_Range = tuple[str | int, str | int] | str | int
+_NRange = tuple[int, int]
+
+_Ranges = tuple[_Range, ...]
+_NRanges = list[_NRange]
+
+ASCII_CHARCLASSES: dict[str, _Ranges] = {
+    "alnum": (("0", "9"), ("A", "Z"), ("a", "z")),
+    "alpha": (("A", "Z"), ("a", "z")),
+    "ascii": ((0, 0x7F)),
+    "blank": ("\t", " "),
+    "cntrl": ((0, 0x1F), 0x7F),
+    "digit": (("0", "9")),
+    "graph": ((0x21, 0x7E)),
+    "lower": (("a", "z")),
+    "print": ((0x20, 0x7E)),
+    "punct": ((0x21, 0x2F), (0x3A, 0x40), (0x5B, 0x60), (0x7B, 0x7E)),
+    "space": (0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20),
+    "perl_space": (0x09, 0x0A, 0x0C, 0x0D, 0x20),
+    "upper": (("A", "Z")),
+    "word": (("0", "9"), ("A", "Z"), ("a", "z"), "_"),
+    "xdigit": (("0", "9"), ("A", "F"), ("a", "f")),
+}
+
+PERL_CHARCLASSES = {
+    "D": ("digit", True),
+    "d": ("digit", False),
+    "S": ("perl_space", True),
+    "s": ("perl_space", False),
+    "W": ("word", True),
+    "w": ("word", False),
+}
+
+
+def _ranges_expand(r: _Ranges) -> Iterator[_NRange]:
+    for range_expr in r:
+        if isinstance(range_expr, int):
+            yield (range_expr, range_expr)
+        elif isinstance(range_expr, str):
+            yield (ord(range_expr), ord(range_expr))
+        else:
+            start, end = range_expr
+            if isinstance(start, str):
+                start = ord(start)
+            if isinstance(end, str):
+                end = ord(end)
+            yield (start, end)
+
+
+def _nranges_normalize(r: _NRanges) -> Iterator[_NRange]:
+    local_min: int | None = None
+    local_max: int | None = None
+    for i, (cur_min, cur_max) in enumerate(r):
+        if i == 0:
+            local_min, local_max = cur_min, cur_max
+            continue
+        assert local_min is not None and local_max is not None
+        if cur_min <= local_max + 1:
+            local_max = cur_max if cur_max > local_max else local_max
+        else:
+            yield local_min, local_max
+            local_min, local_max = cur_min, cur_max
+    if local_min is not None and local_max is not None:
+        yield local_min, local_max
+
+
+def _nranges_invert(r: _NRanges, max_rune: int) -> Iterator[_NRange]:
+    local_max = 0
+    cur_max = -1
+    for cur_min, cur_max in r:
+        if cur_min > local_max:
+            yield local_max, cur_min - 1
+            local_max = cur_max + 1
+    if cur_max < max_rune:
+        yield cur_max + 1, max_rune
+
+
+def _cmd_gen_ascii_charclasses_impl(args) -> int:
+    out_lines = ["const ccdef builtin_cc[] = {\n"]
+    for name, cc in ASCII_CHARCLASSES.items():
+        normalized = list((_nranges_normalize(list(_ranges_expand(cc)))))
+        serialized = "".join(f"\\x{lo:02X}\\x{hi:02X}" for lo, hi in normalized)
+        out_lines.append(
+            f'{{{len(name)}, {len(normalized)}, "{name}", "{serialized}"}},\n'
+        )
+    out_lines.append("{0},};\n")
+    file: IO = args.file
+    _insert_c_file(file, out_lines, "gen_ascii_charclasses impl")
+    file.close()
+    return 0
+
+
+def _cmd_gen_ascii_charclasses_test(args) -> int:
+    tests = {}
+    output: list[str] = []
+
+    def out(s: str):
+        output.append(s + "\n")
+
+    def make_test(test_name: str, cc: _Ranges, regex: str) -> str:
+        regex = '"' + regex.replace("\\", "\\\\") + '"'
+        return f"""
+        TEST({test_name}) {{
+            return assert_cc_match(
+                {regex},
+                "{','.join(f"0x{lo:X} 0x{hi:X}"
+                           for lo, hi in _nranges_normalize(list(_ranges_expand(cc))))}");
+        }}
+        """
+
+    def make_suite(suite_name: str, tests: dict[str, str]) -> str:
+        return f"""
+            SUITE({suite_name}) {{
+                {'\n'.join([f"RUN_TEST({test_name});" for test_name in tests])}
+            }}
+            """
+
+    # named charclasses
+    for name, cc in ASCII_CHARCLASSES.items():
+        test_name = f"cls_named_{name}"
+        regex = f"[[:{name}:]]"
+        tests[test_name] = make_test(test_name, cc, regex)
+    out("\n".join(tests.values()))
+    out(make_suite("cls_named", tests))
+    tests = {}
+    # Perl charclasses
+    for ch, (name, inverted) in PERL_CHARCLASSES.items():
+        test_name = f"escape_perlclass_{ch}"
+        regex = f"\\{ch}"
+        cc = _nranges_normalize(list(_ranges_expand(ASCII_CHARCLASSES[name])))
+        if inverted:
+            cc = _nranges_invert(list(cc), UTF_MAX)
+        tests[test_name] = make_test(test_name, tuple(cc), regex)
+    out("\n".join(tests.values()))
+    out(make_suite("escape_perlclass", tests))
+
+    _insert_c_file(args.file, output, "gen_ascii_charclasses test")
+    return 0
 
 
 def main():
@@ -431,21 +326,52 @@ def main():
         help="show debug info",
     )
 
-    parse_cmds = parse.add_subparsers(help="subcommands", required=True)
-    parse_cmd_fetch = parse_cmds.add_parser("fetch", help="fetch unicode database")
-    parse_cmd_fetch.set_defaults(func=cmd_fetch)
-    parse_cmd_fetch.add_argument("--version", type=str, default="latest")
+    subcmds = parse.add_subparsers(help="subcommands", required=True)
+    subcmd_fetch = subcmds.add_parser("fetch", help="fetch unicode database")
+    subcmd_fetch.set_defaults(func=cmd_fetch)
+    subcmd_fetch.add_argument("--version", type=str, default="latest")
 
-    parse_cmd_make_casefold = parse_cmds.add_parser(
-        "make_casefold_data", help="make casefolding data"
+    subcmd_casefold_search = subcmds.add_parser(
+        "casefold_search", help="search for an optimal casefold compression scheme"
     )
-    parse_cmd_make_casefold.set_defaults(func=cmd_make_casefold_data)
-    parse_cmd_make_casefold.add_argument("--explore", action="store_true")
-    parse_cmd_make_casefold.add_argument("--explore-amt", type=int)
-    parse_cmd_make_casefold.add_argument("--sizes", type=str)
+    subcmd_casefold_search.set_defaults(func=_cmd_casefold_search)
+    subcmd_casefold_search.add_argument("--max-arrays", type=int, default=5)
+
+    subcmd_gen_casefold = subcmds.add_parser(
+        "gen_casefold", help="generate C code for casefold arrays"
+    )
+    subcmd_gen_casefold.set_defaults(func=_cmd_gen_casefold)
+    subcmd_gen_casefold.add_argument("file", type=argparse.FileType("r+"))
+    subcmd_gen_casefold.add_argument(
+        "sizes", type=str, nargs="?", default="2,4,2,32,16"
+    )
+
+    subcmd_gen_ascii_charclasses = subcmds.add_parser(
+        "gen_ascii_charclasses", help="generate ascii character classes"
+    )
+    subcmd_gen_ascii_charclasses_subcmds = subcmd_gen_ascii_charclasses.add_subparsers()
+    subcmd_gen_ascii_charclasses_subcmd_impl = (
+        subcmd_gen_ascii_charclasses_subcmds.add_parser("impl")
+    )
+    subcmd_gen_ascii_charclasses_subcmd_impl.add_argument(
+        "file", type=argparse.FileType("r+")
+    )
+    subcmd_gen_ascii_charclasses_subcmd_impl.set_defaults(
+        func=_cmd_gen_ascii_charclasses_impl
+    )
+
+    subcmd_gen_ascii_charclasses_subcmd_test = (
+        subcmd_gen_ascii_charclasses_subcmds.add_parser("test")
+    )
+    subcmd_gen_ascii_charclasses_subcmd_test.set_defaults(
+        func=_cmd_gen_ascii_charclasses_test
+    )
+    subcmd_gen_ascii_charclasses_subcmd_test.add_argument(
+        "file", type=argparse.FileType("r+")
+    )
 
     args = parse.parse_args()
-    args.func(args)
+    exit(args.func(args))
 
 
 if __name__ == "__main__":

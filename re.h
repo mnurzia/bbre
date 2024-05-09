@@ -5,7 +5,10 @@
 
 typedef struct re re;
 
+typedef signed int s32;
 typedef unsigned int u32;
+typedef signed short s16;
+typedef unsigned short u16;
 typedef unsigned char u8;
 
 #define ERR_MEM (-1)

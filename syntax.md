@@ -38,10 +38,16 @@
   [X] end of ranges as escapes
   [ ] cases for union-making
   [ ] swapped min/max
-[ ] repetitions
-  [ ] {n}
-  [ ] {n,}
-  [ ] {m,n}
+[X] repetitions
+  [X] {n}
+  [X] {n,}
+  [X] {m,n}
 [ ] empty asserts
-[ ] group flags
+[ ] group syntax
+  [ ] ()
+  [ ] (?P<name>...)
+  [ ] (?<name>...)
+  [ ] (?:re)
+  [ ] (?flags)
+  [ ] (?flags:re)
 [ ] ungreedy ?

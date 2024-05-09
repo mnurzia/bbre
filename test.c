@@ -1121,6 +1121,13 @@ SUITE(repetition) {
   RUN_TEST(repetition_one_three_nonmatch);
 }
 
+TEST(grp_flags) {
+  ASSERT_MATCH("(?i:a)", "A");
+  PASS();
+}
+
+SUITE(grp) { RUN_TEST(grp_flags); }
+
 int main(int argc, const char *const *argv) {
   MPTEST_MAIN_BEGIN_ARGS(argc, argv);
   RUN_SUITE(init);
@@ -1136,5 +1143,6 @@ int main(int argc, const char *const *argv) {
   RUN_SUITE(anychar);
   RUN_SUITE(escape);
   RUN_SUITE(repetition);
+  RUN_SUITE(grp);
   MPTEST_MAIN_END();
 }
