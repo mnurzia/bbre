@@ -42,19 +42,19 @@
   [X] {n}
   [X] {n,}
   [X] {m,n}
+[ ] ungreedy ?
 [ ] empty asserts
 [ ] group syntax
-  [ ] ()
-  [ ] (?P<name>...)
-  [ ] (?<name>...)
-  [ ] (?:re)
-  [ ] (?flags)
-  [ ] (?flags:re)
-  [ ] (?-flags:re)
-  [ ] (?flags-flags:re)
+  [X] ()
+  [X] (?P<name>...)
+  [X] (?<name>...)
+  [X] (?:re)
+  [X] (?flags)
+  [X] (?flags:re)
+  [X] (?-flags:re)
+  [X] (?flags-flags:re)
   [ ] individual flags
     [X] i
     [ ] m
     [X] s
     [ ] U
-[ ] ungreedy ?

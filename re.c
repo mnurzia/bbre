@@ -33,6 +33,15 @@ struct re {
 #define ENT_FWD     0
 #define ENT_REV     1
 
+#ifdef RE_TEST
+
+  #include "mptest/_cpack/mptest.h"
+  #define malloc  MPTEST_INJECT_MALLOC
+  #define realloc MPTEST_INJECT_REALLOC
+  #define free    MPTEST_INJECT_FREE
+
+#endif
+
 void *re_default_alloc(size_t prev, size_t next, void *ptr)
 {
   if (next) {
@@ -147,6 +156,7 @@ int re_init_full(re **pr, const char *regex, re_alloc alloc)
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
     if ((err = re_parse(r, (const u8 *)regex, strlen(regex), &r->ast_root))) {
+      re_destroy(r);
       return err;
     } else {
       r->ast_sets = 1;
@@ -171,6 +181,7 @@ typedef enum ast_type {
   CAT,     /* concatenation */
   ALT,     /* alternation */
   QUANT,   /* quantifier */
+  UQUANT,  /* ungreedy quantifier */
   GROUP,   /* group */
   IGROUP,  /* inline group */
   CLS,     /* character class */
@@ -185,6 +196,7 @@ const unsigned int ast_type_lens[] = {
     2, /* CAT */
     2, /* ALT */
     3, /* QUANT */
+    3, /* UQUANT */
     3, /* GROUP */
     3, /* IGROUP */
     3, /* CLS */
@@ -259,7 +271,7 @@ int re_union(re *r, const char *regex)
   if (!r->ast_sets &&
       (err = re_parse(r, (const u8 *)regex, strlen(regex), &r->ast_root))) {
     return err;
-  } else {
+  } else if (!r->ast_sets) {
     u32 next_reg, next_root;
     if ((err = re_parse(r, (const u8 *)regex, strlen(regex), &next_reg)) ||
         (err = re_mkast(r, ALT, r->ast_root, next_reg, 0, &next_root)))
@@ -491,15 +503,16 @@ int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert)
     cur_min = named->chars[i * 2], cur_max = named->chars[i * 2 + 1];
     if (!invert && (err = re_mkast(r, CLS, cur_min, cur_max, res, &res)))
       return err;
-    else if (invert && cur_min > max) {
+    else if (invert) {
+      assert(cur_min > max); /* builtin charclasses are ordered. */
       if ((err = re_mkast(r, CLS, max, cur_min - 1, res, &res)))
         return err;
       else
         max = cur_max + 1;
     }
   }
-  if (invert && i && cur_max < UTFMAX &&
-      (err = re_mkast(r, CLS, cur_max + 1, UTFMAX, res, &res)))
+  assert(cur_max < UTFMAX); /* builtin charclasses never reach UTFMAX */
+  if (invert && i && (err = re_mkast(r, CLS, cur_max + 1, UTFMAX, res, &res)))
     return err;
   if ((err = stk_push(r, &r->arg_stk, res)))
     return err;
@@ -658,13 +671,22 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
     if ((err = re_next(r, &ch, NULL)))
       return err;
     if (ch == '*' || ch == '+' || ch == '?') {
+      u32 q = ch, greedy = 1;
       /* arg_stk: | ... |  R  | */
       /* pop one from arg stk, create quant, push to arg stk */
       if (!r->arg_stk.size)
         return re_parse_err(r, "cannot apply quantifier to empty regex");
+      if (re_hasmore(r)) {
+        if ((err = re_peek_next(r, &ch)))
+          return err;
+        else if (ch == '?') {
+          re_next(r, &ch, NULL);
+          greedy = 0;
+        }
+      }
       if ((err = re_mkast(
-               r, QUANT, stk_pop(r, &r->arg_stk) /* child */,
-               ch == '+' /* min */, ch == '?' ? 1 : INFTY /* max */, &res)) ||
+               r, greedy ? QUANT : UQUANT, stk_pop(r, &r->arg_stk) /* child */,
+               q == '+' /* min */, q == '?' ? 1 : INFTY /* max */, &res)) ||
           (err = stk_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... | *(R) | */
@@ -1587,6 +1609,7 @@ int re_compile(re *r, u32 root, u32 reverse)
       u32 child;
       re_decompast(r, frame.root_ref, args);
       child = args[0];
+      grp_idx = 0;
       if (!frame.idx) { /* before child */
         patch(r, &frame, my_pc);
         if ((err = re_emit(
@@ -1659,16 +1682,17 @@ int re_compile(re *r, u32 root, u32 reverse)
       } else if (frame.idx == 2) { /* after right child */
         patch_merge(r, &frame, &returned_frame);
       }
-    } else if (type == QUANT) {
-      /*  in
-       *        +-------+
-       *       /         \
+    } else if (type == QUANT || type == UQUANT) {
+      /*        +-------+
+       *  in   /         \
        * ---> S -> [A] ---+
        *       \             out
        *        +-----------------> */
-      u32 child, min, max;
+      u32 child, min, max, is_greedy;
       re_decompast(r, frame.root_ref, args);
       child = args[0], min = args[1], max = args[2];
+      assert((min != INFTY && max != INFTY) || min != max);
+      is_greedy = !(frame.flags & UNGREEDY) ^ (type == UQUANT);
       if (frame.idx < min) { /* before minimum bound */
         patch_xfer(&child_frame, frame.idx ? &returned_frame : &frame);
         frame.child_ref = child;
@@ -1677,8 +1701,8 @@ int re_compile(re *r, u32 root, u32 reverse)
         if ((err = re_emit(r, INST(SPLIT, 0, 0))))
           return err;
         frame.pc = my_pc;
-        patch_add(r, &child_frame, my_pc, 0);
-        patch_add(r, &frame, my_pc, 1);
+        patch_add(r, &child_frame, my_pc, !is_greedy);
+        patch_add(r, &frame, my_pc, is_greedy);
         frame.child_ref = child;
       } else if (max == INFTY && frame.idx == min + 1) { /* after inf. bound */
         patch(r, &returned_frame, frame.pc);
@@ -1686,8 +1710,8 @@ int re_compile(re *r, u32 root, u32 reverse)
         patch(r, frame.idx ? &returned_frame : &frame, my_pc);
         if ((err = re_emit(r, INST(SPLIT, 0, 0))))
           return err;
-        patch_add(r, &child_frame, my_pc, 0);
-        patch_add(r, &frame, my_pc, 1);
+        patch_add(r, &child_frame, my_pc, !is_greedy);
+        patch_add(r, &frame, my_pc, is_greedy);
         frame.child_ref = child;
       } else if (frame.idx == max) { /* after maximum bound */
         patch_merge(r, &frame, &returned_frame);
@@ -1892,6 +1916,7 @@ int save_slots_set(re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
 {
   int err;
   *out = ref;
+  assert(idx < s->per_thrd - 1);
   if (!s->per_thrd) {
     /* not saving anything */
     assert(0);
@@ -2201,7 +2226,13 @@ void astdump_i(re *r, u32 root, u32 ilvl)
     astdump_i(r, *re_astarg(r, root, 0), ilvl + 1);
   } else if (first == QUANT) {
     printf(
-        "QNT min=%u max=%u\n", *re_astarg(r, root, 1), *re_astarg(r, root, 2));
+        "QUANT min=%u max=%u\n", *re_astarg(r, root, 1),
+        *re_astarg(r, root, 2));
+    astdump_i(r, *re_astarg(r, root, 0), ilvl + 1);
+  } else if (first == UQUANT) {
+    printf(
+        "UQUANT min=%u max=%u\n", *re_astarg(r, root, 1),
+        *re_astarg(r, root, 2));
     astdump_i(r, *re_astarg(r, root, 0), ilvl + 1);
   } else if (first == CLS) {
     printf(
@@ -2233,8 +2264,10 @@ void progdump(re *r)
       }
     }
     printf(
-        "%04X \x1b[%im%s\x1b[0m %04X %04X %s", i, colors[INST_OP(ins)],
-        ops[INST_OP(ins)], INST_N(ins), INST_P(ins), labels[k]);
+        "%04X \x1b[%im%s\x1b[0m \x1b[%im%04X\x1b[0m %04X %s", i,
+        colors[INST_OP(ins)], ops[INST_OP(ins)],
+        INST_N(ins) ? (INST_N(ins) == i + 1 ? 90 : 0) : 91, INST_N(ins),
+        INST_P(ins), labels[k]);
     if (INST_OP(ins) == MATCH) {
       printf(
           " %c/%u", IMATCH_S(INST_P(ins)) ? 'G' : 'E', IMATCH_I(INST_P(ins)));

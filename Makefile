@@ -1,4 +1,4 @@
-CFLAGS=-Wall -Werror -Wextra -Wshadow -pedantic -fsanitize=address -ferror-limit=0 -Wuninitialized -std=c89 -O0 -g
+CFLAGS=-Wall -Werror -Wextra -Wshadow -pedantic -fsanitize=address -ferror-limit=0 -Wuninitialized -std=c89 -O0 -g -DRE_TEST
 COVCFLAGS=--coverage
 
 SRCS=re.c test.c build/test-gen.c
@@ -69,6 +69,9 @@ tables: tools/.ucd.zip
 
 format:
 	clang-format -i $(SRCS) test-gen.c
+
+cov: build/cov/index.html
+	open build/cov/reee/re.c.gcov.html
 
 clean:
 	rm -rf build
