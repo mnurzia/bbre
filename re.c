@@ -1828,19 +1828,21 @@ void sset_destroy(re *r, sset *s)
   re_ialloc(r, sizeof(thrdspec) * s->dense_alloc, 0, s->dense);
 }
 
+int sset_memb(sset *s, u32 pc)
+{
+  assert(pc < s->dense_alloc);
+  return s->sparse[pc] < s->dense_size && s->dense[s->sparse[pc]].pc == pc;
+}
+
 void sset_add(sset *s, thrdspec spec)
 {
   assert(spec.pc < s->dense_alloc);
   assert(s->dense_size < s->dense_alloc);
   assert(spec.pc);
+  if (sset_memb(s, spec.pc))
+    return;
   s->dense[s->dense_size] = spec;
   s->sparse[spec.pc] = s->dense_size++;
-}
-
-int sset_memb(sset *s, u32 pc)
-{
-  assert(pc < s->dense_alloc);
-  return s->sparse[pc] < s->dense_size && s->dense[s->sparse[pc]].pc == pc;
 }
 
 typedef struct save_slots {
@@ -1976,14 +1978,15 @@ typedef struct exec_nfa {
   sset a, b, c;
   stk thrd_stk;
   save_slots slots;
-  stk pri_stk;
+  stk pri_stk, pri_bmp, pri_bmp_tmp;
   int reversed, track;
 } exec_nfa;
 
 void exec_nfa_init(re *r, exec_nfa *n)
 {
   sset_init(r, &n->a), sset_init(r, &n->b), sset_init(r, &n->c);
-  stk_init(r, &n->thrd_stk), stk_init(r, &n->pri_stk);
+  stk_init(r, &n->thrd_stk), stk_init(r, &n->pri_stk), stk_init(r, &n->pri_bmp),
+      stk_init(r, &n->pri_bmp_tmp);
   save_slots_init(r, &n->slots);
   n->reversed = n->track = 0;
 }
@@ -1991,7 +1994,8 @@ void exec_nfa_init(re *r, exec_nfa *n)
 void exec_nfa_destroy(re *r, exec_nfa *n)
 {
   sset_destroy(r, &n->a), sset_destroy(r, &n->b), sset_destroy(r, &n->c);
-  stk_destroy(r, &n->thrd_stk), stk_destroy(r, &n->pri_stk);
+  stk_destroy(r, &n->thrd_stk), stk_destroy(r, &n->pri_stk),
+      stk_destroy(r, &n->pri_bmp), stk_destroy(r, &n->pri_bmp_tmp);
   save_slots_destroy(r, &n->slots);
 }
 
@@ -2009,6 +2013,33 @@ thrdspec thrdstk_pop(re *r, stk *s)
   out.slot = stk_pop(r, s);
   out.pc = stk_pop(r, s);
   return out;
+}
+
+#define BITS_PER_U32 (sizeof(u32) * CHAR_BIT)
+
+int bmp_init(re *r, stk *s, u32 size)
+{
+  u32 i;
+  int err = 0;
+  s->size = 0;
+  for (i = 0; i < (size + BITS_PER_U32) / BITS_PER_U32; i++)
+    if ((err = stk_push(r, s, 0))) /* TODO: change this to a bulk allocation */
+      return err;
+  return err;
+}
+
+void bmp_clear(stk *s) { memset(s->ptr, 0, s->size * sizeof(u32)); }
+
+void bmp_set(stk *s, u32 idx)
+{
+  /* TODO: assert idx < nsets */
+  s->ptr[idx / BITS_PER_U32] |= (1 << (idx % BITS_PER_U32));
+}
+
+/* returns 0 or a positive value (not necessarily 1) */
+u32 bmp_get(stk *s, u32 idx)
+{
+  return s->ptr[idx / BITS_PER_U32] & (1 << (idx % BITS_PER_U32));
 }
 
 int exec_nfa_start(
@@ -2031,6 +2062,9 @@ int exec_nfa_start(
   for (i = 0; i < r->ast_sets; i++)
     if ((err = stk_push(r, &n->pri_stk, 0)))
       return err;
+  if ((err = bmp_init(r, &n->pri_bmp, r->ast_sets)) ||
+      (err = bmp_init(r, &n->pri_bmp_tmp, r->ast_sets)))
+    return err;
   n->reversed = reversed;
   n->track = track;
   return 0;
@@ -2099,7 +2133,7 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos)
 }
 
 int exec_nfa_matchend(
-    re *r, exec_nfa *n, thrdspec thrd, size_t pos, unsigned int ch)
+    re *r, exec_nfa *n, thrdspec thrd, size_t pos, unsigned int ch, int pri)
 {
   int err = 0;
   u32 idx = save_slots_get_setidx(&n->slots, thrd.slot);
@@ -2111,15 +2145,33 @@ int exec_nfa_matchend(
   if (n->slots.per_thrd) {
     u32 slot_idx = !n->reversed;
     if (*memo) {
+      int older = 1, same = 0, better_pri = 0, same_pri = 0;
       if ((u32)n->reversed < save_slots_perthrd(&n->slots)) {
         size_t start = save_slots_get(
           &n->slots, thrd.slot,
+          n->reversed /* TODO: should this actually be n->reversed or just 0 if we want leftmost matches */),
+          other_start = save_slots_get(
+          &n->slots, *memo,
           n->reversed /* TODO: should this actually be n->reversed or just 0 if we want leftmost matches */);
-        if (pos >= start)
+
+        older = start < other_start;
+        same = start == other_start;
+      }
+      better_pri = !!bmp_get(&n->pri_bmp, idx) < pri;
+      same_pri = !!bmp_get(&n->pri_bmp, idx) == pri;
+      if (!older && !same)
+        return 0;
+      else if (older && !same) {
+      } else if (!older && same) {
+        if (better_pri || (same_pri && !pri)) {
+        } else {
           return 0;
+        }
       }
       save_slots_kill(&n->slots, *memo);
     }
+    if (pri)
+      bmp_set(&n->pri_bmp, idx);
     *memo = thrd.slot;
     if (slot_idx < save_slots_perthrd(&n->slots) &&
         (err = save_slots_set(r, &n->slots, thrd.slot, slot_idx, pos, memo)))
@@ -2134,9 +2186,17 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
 {
   int err;
   size_t i;
+  bmp_clear(&n->pri_bmp_tmp);
   for (i = 0; i < n->b.dense_size; i++) {
     thrdspec thrd = n->b.dense[i];
     inst op = re_prog_get(r, thrd.pc);
+    int pri =
+        save_slots_perthrd(&n->slots)
+            ? !bmp_get(
+                  &n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot))
+            : 0;
+    if (pri)
+      bmp_set(&n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot));
     switch (INST_OP(op)) {
     case RANGE: {
       byte_range br = u2br(INST_P(op));
@@ -2149,7 +2209,7 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
     }
     case MATCH: {
       assert(!INST_N(op));
-      if ((err = exec_nfa_matchend(r, n, thrd, pos, ch)))
+      if ((err = exec_nfa_matchend(r, n, thrd, pos, ch, pri)))
         return err;
       break;
     }

@@ -421,9 +421,15 @@ TEST(star_two)
   PASS();
 }
 
+TEST(star_greedy)
+{
+  ASSERT_MATCH_G2_A("(a*)", "aa", 0, 2, 0, 2, 'U');
+  PASS();
+}
+
 TEST(star_ungreedy)
 {
-  ASSERT_MATCH_G2_A("a*?", "aa", 0, 0, 0, 0, 'U');
+  ASSERT_MATCH_G2_A("(a*?)", "aa", 0, 0, 0, 0, 'U');
   PASS();
 }
 
@@ -432,6 +438,7 @@ SUITE(star)
   RUN_TEST(star_empty);
   RUN_TEST(star_one);
   RUN_TEST(star_two);
+  RUN_TEST(star_greedy);
   RUN_TEST(star_ungreedy);
 }
 
