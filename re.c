@@ -9,7 +9,7 @@
 #include "re.h"
 
 #define REF_NONE 0
-#define UTFMAX 0x10FFFF
+#define UTFMAX   0x10FFFF
 
 typedef struct stk {
   u32 *ptr, size, alloc;
@@ -30,10 +30,11 @@ struct re {
 
 #define ENT_ONESHOT 0
 #define ENT_DOTSTAR 2
-#define ENT_FWD 0
-#define ENT_REV 1
+#define ENT_FWD     0
+#define ENT_REV     1
 
-void *re_default_alloc(size_t prev, size_t next, void *ptr) {
+void *re_default_alloc(size_t prev, size_t next, void *ptr)
+{
   if (next) {
     assert(prev || !ptr);
     return realloc(ptr, next);
@@ -43,28 +44,32 @@ void *re_default_alloc(size_t prev, size_t next, void *ptr) {
   return NULL;
 }
 
-void *re_ialloc(re *re, size_t prev, size_t next, void *ptr) {
+void *re_ialloc(re *re, size_t prev, size_t next, void *ptr)
+{
   return re->alloc(prev, next, ptr);
 }
 
-void stk_init(re *r, stk *s) {
+void stk_init(re *r, stk *s)
+{
   (void)(r);
   s->ptr = NULL;
   s->size = s->alloc = 0;
 }
 
-void stk_destroy(re *r, stk *s) {
+void stk_destroy(re *r, stk *s)
+{
   re_ialloc(r, sizeof(*s->ptr) * s->alloc, 0, s->ptr);
 }
 
-int stk_pushn(re *r, stk *s, void *p, u32 n) {
+int stk_pushn(re *r, stk *s, void *p, u32 n)
+{
   u32 words = (n + (sizeof(u32) - 1)) / sizeof(u32); /* ceil */
   size_t next_alloc = s->alloc ? s->alloc : 16;
   while (s->size + words > next_alloc)
     next_alloc *= 2;
   if (next_alloc > s->alloc) {
-    u32 *out = re_ialloc(r, sizeof(*s->ptr) * s->alloc,
-                         sizeof(*s->ptr) * next_alloc, s->ptr);
+    u32 *out = re_ialloc(
+        r, sizeof(*s->ptr) * s->alloc, sizeof(*s->ptr) * next_alloc, s->ptr);
     if (!out)
       return ERR_MEM;
     s->alloc = next_alloc;
@@ -79,7 +84,8 @@ int stk_push(re *r, stk *s, u32 v) { return stk_pushn(r, s, &v, sizeof(v)); }
 
 u32 stk_elemsize(size_t n) { return ((n + sizeof(u32) - 1) / sizeof(u32)); }
 
-void stk_popn(re *r, stk *s, void *p, u32 n) {
+void stk_popn(re *r, stk *s, void *p, u32 n)
+{
   u32 words = (n + (sizeof(u32) - 1)) / sizeof(u32); /* ceil */
   (void)(r);
   assert(s->size >= words);
@@ -87,37 +93,43 @@ void stk_popn(re *r, stk *s, void *p, u32 n) {
   s->size -= words;
 }
 
-u32 stk_pop(re *r, stk *s) {
+u32 stk_pop(re *r, stk *s)
+{
   u32 v;
   stk_popn(r, s, &v, sizeof(v));
   return v;
 }
 
-void *stk_getn(stk *s, u32 idx) {
+void *stk_getn(stk *s, u32 idx)
+{
   assert(idx < s->size);
   return s->ptr + idx;
 }
 
-u32 stk_peek(re *r, stk *s, u32 idx) {
+u32 stk_peek(re *r, stk *s, u32 idx)
+{
   (void)(r);
   assert(idx < s->size);
   return s->ptr[s->size - 1 - idx];
 }
 
-u32 stk_size(stk *s, u32 n) {
+u32 stk_size(stk *s, u32 n)
+{
   return s->size / ((n + sizeof(u32) - 1) / sizeof(u32));
 }
 
 int re_parse(re *r, const u8 *s, size_t sz, u32 *root);
 
-re *re_init(const char *regex) {
+re *re_init(const char *regex)
+{
   re *r;
   if (re_init_full(&r, regex, NULL) == ERR_MEM)
     return NULL;
   return r;
 }
 
-int re_init_full(re **pr, const char *regex, re_alloc alloc) {
+int re_init_full(re **pr, const char *regex, re_alloc alloc)
+{
   int err = 0;
   re *r;
   if (!alloc)
@@ -143,7 +155,8 @@ int re_init_full(re **pr, const char *regex, re_alloc alloc) {
   return err;
 }
 
-void re_destroy(re *r) {
+void re_destroy(re *r)
+{
   stk_destroy(r, &r->ast);
   stk_destroy(r, &r->op_stk), stk_destroy(r, &r->arg_stk),
       stk_destroy(r, &r->comp_stk);
@@ -154,14 +167,14 @@ void re_destroy(re *r) {
 
 typedef enum ast_type {
   REG = 1, /* entire subexpression */
-  CHR,     /* single character */
-  CAT,     /* concatenation */
-  ALT,     /* alternation */
-  QUANT,   /* quantifier */
-  GROUP,   /* group */
-  CLS,     /* character class */
-  ICLS,    /* inverted character class */
-  ANYBYTE  /* any byte (\C) */
+  CHR, /* single character */
+  CAT, /* concatenation */
+  ALT, /* alternation */
+  QUANT, /* quantifier */
+  GROUP, /* group */
+  CLS, /* character class */
+  ICLS, /* inverted character class */
+  ANYBYTE /* any byte (\C) */
 } ast_type;
 
 const unsigned int ast_type_lens[] = {
@@ -189,26 +202,31 @@ typedef struct byte_range {
   u8 l, h;
 } byte_range;
 
-byte_range mkbr(u8 l, u8 h) {
+byte_range mkbr(u8 l, u8 h)
+{
   byte_range out;
   out.l = l, out.h = h;
   return out;
 }
 
 u32 br2u(byte_range br) { return ((u32)br.l) | ((u32)br.h) << 8; }
+
 byte_range u2br(u32 u) { return mkbr(u & 0xFF, u >> 8 & 0xFF); }
 
-int br_isect(byte_range r, byte_range clip) {
+int br_isect(byte_range r, byte_range clip)
+{
   return r.l <= clip.h && clip.l <= r.h;
 }
 
-int br_adjace(byte_range left, byte_range right) {
+int br_adjace(byte_range left, byte_range right)
+{
   return ((u32)left.h) + 1 == ((u32)right.l);
 }
 
 #define BYTE_RANGE(l, h) mkbr(l, h)
 
-int re_mkast(re *re, ast_type type, u32 p0, u32 p1, u32 p2, u32 *out) {
+int re_mkast(re *re, ast_type type, u32 p0, u32 p1, u32 p2, u32 *out)
+{
   u32 args[4];
   int err;
   args[0] = type, args[1] = p0, args[2] = p1, args[3] = p2;
@@ -219,20 +237,23 @@ int re_mkast(re *re, ast_type type, u32 p0, u32 p1, u32 p2, u32 *out) {
   return stk_pushn(re, &re->ast, args, (1 + ast_type_lens[type]) * sizeof(u32));
 }
 
-void re_decompast(re *re, u32 root, u32 nargs, u32 *out_args) {
+void re_decompast(re *re, u32 root, u32 nargs, u32 *out_args)
+{
   u32 *in_args = stk_getn(&re->ast, root);
   (void)nargs;
   memcpy(out_args, in_args + 1, ast_type_lens[*in_args] * sizeof(u32));
 }
 
-u32 *re_astarg(re *re, u32 root, u32 n, u32 nargs) {
+u32 *re_astarg(re *re, u32 root, u32 n, u32 nargs)
+{
   (void)nargs;
   return re->ast.ptr + root + 1 + n;
 }
 
 u32 *re_asttype(re *re, u32 root) { return re->ast.ptr + root; }
 
-int re_union(re *r, const char *regex) { /* add an ALT here */
+int re_union(re *r, const char *regex)
+{ /* add an ALT here */
   int err = 0;
   if (!r->ast_sets &&
       (err = re_parse(r, (const u8 *)regex, strlen(regex), &r->ast_root))) {
@@ -281,7 +302,8 @@ static const uint8_t utf8d[] = {
     1,   1,   1,   1,   1,   1,   1,   1,   1,   1,
 };
 
-u32 utf8_decode(u32 *state, u32 *codep, u32 byte) {
+u32 utf8_decode(u32 *state, u32 *codep, u32 byte)
+{
   u32 type = utf8d[byte];
   *codep = (*state != UTF8_ACCEPT) ? (byte & 0x3fu) | (*codep << 6)
                                    : (0xff >> type) & (byte);
@@ -290,14 +312,16 @@ u32 utf8_decode(u32 *state, u32 *codep, u32 byte) {
   return *state;
 }
 
-int re_parse_err(re *r, const char *msg) {
+int re_parse_err(re *r, const char *msg)
+{
   r->error = msg, r->error_pos = r->expr_pos;
   return ERR_PARSE;
 }
 
 int re_hasmore(re *r) { return r->expr_pos != r->expr_size; }
 
-int re_next(re *r, u32 *first, const char *else_msg) {
+int re_next(re *r, u32 *first, const char *else_msg)
+{
   u32 state = UTF8_ACCEPT;
   assert(else_msg || re_hasmore(r));
   if (!re_hasmore(r))
@@ -311,7 +335,8 @@ int re_next(re *r, u32 *first, const char *else_msg) {
   return 0;
 }
 
-int re_peek_next(re *r, u32 *first) {
+int re_peek_next(re *r, u32 *first)
+{
   size_t prev_pos = r->expr_pos;
   int err;
   assert(re_hasmore(r));
@@ -322,11 +347,12 @@ int re_peek_next(re *r, u32 *first) {
 }
 
 #define MAXREP 100000
-#define INFTY (MAXREP + 1)
+#define INFTY  (MAXREP + 1)
 
 /* Given nodes R_1i..R_N on the argument stack, fold them into a single CAT
  * node. If there are no nodes on the stack, create an epsilon node. */
-int re_fold(re *r) {
+int re_fold(re *r)
+{
   int err = 0;
   if (!r->arg_stk.size) {
     /* arg_stk: | */
@@ -350,7 +376,8 @@ int re_fold(re *r) {
 /* Given a node R on the argument stack and an arbitrary number of ALT nodes at
  * the end of the operator stack, fold and finish each ALT node into a single
  * resulting ALT node on the argument stack. */
-int re_fold_alts(re *r) {
+int re_fold_alts(re *r)
+{
   int err = 0;
   assert(r->arg_stk.size);
   /* arg_stk: |  R  | */
@@ -383,7 +410,8 @@ int re_fold_alts(re *r) {
   return 0;
 }
 
-u32 re_uncc(re *r, u32 rest, u32 first) {
+u32 re_uncc(re *r, u32 rest, u32 first)
+{
   u32 cur = first, *next;
   assert(first);
   while (*(next = re_astarg(r, cur, 2, 3)))
@@ -392,7 +420,8 @@ u32 re_uncc(re *r, u32 rest, u32 first) {
   return first;
 }
 
-int re_parse_escape_addchr(re *r, u32 ch, u32 allowed_outputs) {
+int re_parse_escape_addchr(re *r, u32 ch, u32 allowed_outputs)
+{
   int err = 0;
   u32 res, args[1];
   assert(allowed_outputs & (1 << CHR));
@@ -403,7 +432,8 @@ int re_parse_escape_addchr(re *r, u32 ch, u32 allowed_outputs) {
   return 0;
 }
 
-int re_hexdig(u32 ch) {
+int re_hexdig(u32 ch)
+{
   if (ch >= '0' && ch <= '9')
     return ch - '0';
   else if (ch >= 'a' && ch <= 'f')
@@ -422,7 +452,8 @@ typedef struct ccdef {
 
 const ccdef builtin_cc[];
 
-const ccdef *re_parse_namedcc(const u8 *s, size_t sz) {
+const ccdef *re_parse_namedcc(const u8 *s, size_t sz)
+{
   const ccdef *p = builtin_cc;
   while (p->name_len) {
     if ((size_t)p->name_len == sz && !memcmp(s, (const u8 *)p->name, sz))
@@ -432,7 +463,8 @@ const ccdef *re_parse_namedcc(const u8 *s, size_t sz) {
   return NULL;
 }
 
-int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert) {
+int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert)
+{
   int err = 0;
   const ccdef *named = re_parse_namedcc(s, sz);
   u32 res = REF_NONE, i, max = 0, cur_min, cur_max;
@@ -458,28 +490,29 @@ int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert) {
 }
 
 /* after a \ */
-int re_parse_escape(re *r, u32 allowed_outputs) {
+int re_parse_escape(re *r, u32 allowed_outputs)
+{
   u32 ch;
   int err = 0;
   if ((err = re_next(r, &ch, "expected escape sequence")))
     return err;
-  if (                              /* single character escapes */
+  if (/* single character escapes */
       (ch == 'a' && (ch = '\a')) || /* bell */
       (ch == 'f' && (ch = '\f')) || /* form feed */
       (ch == 't' && (ch = '\t')) || /* tab */
       (ch == 'n' && (ch = '\n')) || /* newline */
       (ch == 'r' && (ch = '\r')) || /* carriage return */
       (ch == 'v' && (ch = '\v')) || /* vertical tab */
-      (ch == '?') ||                /* question mark */
-      (ch == '*') ||                /* asterisk */
-      (ch == '+') ||                /* plus */
-      (ch == '(') ||                /* open parenthesis */
-      (ch == ')') ||                /* close parenthesis */
-      (ch == '[') ||                /* open bracket */
-      (ch == ']') ||                /* close bracket */
-      (ch == '{') ||                /* open curly bracket */
-      (ch == '}') ||                /* close curly bracket */
-      (ch == '|') ||                /* pipe */
+      (ch == '?') || /* question mark */
+      (ch == '*') || /* asterisk */
+      (ch == '+') || /* plus */
+      (ch == '(') || /* open parenthesis */
+      (ch == ')') || /* close parenthesis */
+      (ch == '[') || /* open bracket */
+      (ch == ']') || /* close bracket */
+      (ch == '{') || /* open curly bracket */
+      (ch == '}') || /* close curly bracket */
+      (ch == '|') || /* pipe */
       (ch == '\\') /* escaped slash */) {
     return re_parse_escape_addchr(r, ch, allowed_outputs);
   } else if (ch >= '0' && ch <= '7') { /* octal escape */
@@ -561,17 +594,18 @@ int re_parse_escape(re *r, u32 allowed_outputs) {
     }
     if ((err = stk_push(r, &r->arg_stk, cat)))
       return err;
-  } else if (ch == 'D' || ch == 'd' || ch == 'S' || ch == 's' || ch == 'W' ||
-             ch == 'w') {
+  } else if (
+      ch == 'D' || ch == 'd' || ch == 'S' || ch == 's' || ch == 'W' ||
+      ch == 'w') {
     /* Perl builtin character classes */
     const char *cc_name;
     int inverted = ch >= 'A' && ch <= 'Z'; /* uppercase are inverted */
-    ch = inverted ? ch - 'A' + 'a' : ch;   /* convert to lowercase */
+    ch = inverted ? ch - 'A' + 'a' : ch; /* convert to lowercase */
     cc_name = ch == 'd' ? "digit" : ch == 's' ? "perl_space" : "word";
     if (!(allowed_outputs & (1 << CLS)))
       return re_parse_err(r, "cannot use a character classe here");
-    if ((err = re_parse_add_namedcc(r, (const u8 *)cc_name, strlen(cc_name),
-                                    inverted)))
+    if ((err = re_parse_add_namedcc(
+             r, (const u8 *)cc_name, strlen(cc_name), inverted)))
       return err;
   } else {
     return re_parse_err(r, "invalid escape sequence");
@@ -579,7 +613,8 @@ int re_parse_escape(re *r, u32 allowed_outputs) {
   return 0;
 }
 
-int re_parse_number(re *r, u32 *out, u32 max_digits) {
+int re_parse_number(re *r, u32 *out, u32 max_digits)
+{
   int err = 0;
   u32 ch, acc = 0, ndigs = 0;
   if (!re_hasmore(r))
@@ -595,7 +630,8 @@ int re_parse_number(re *r, u32 *out, u32 max_digits) {
   return err;
 }
 
-int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
+int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
+{
   int err;
   u32 flags = 0;
   r->expr = ts;
@@ -637,14 +673,15 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
         return err;
       if (ch == '?') { /* start of group flags */
         re_next(r, &ch, NULL);
-        if ((err = re_next(r, &ch,
-                           "expected 'P', '<', or group flags after special "
-                           "group opener \"(?\"")))
+        if ((err = re_next(
+                 r, &ch,
+                 "expected 'P', '<', or group flags after special "
+                 "group opener \"(?\"")))
           return err;
         if (ch == 'P' || ch == '<') {
           if (ch == 'P' &&
-              (err = re_next(r, &ch,
-                             "expected '<' after named group opener \"(?P\"")))
+              (err = re_next(
+                   r, &ch, "expected '<' after named group opener \"(?P\"")))
             return err;
           if (ch != '<')
             return re_parse_err(
@@ -666,10 +703,11 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
               if (neg)
                 return re_parse_err(r, "cannot apply flag negation '-' twice");
               neg = 1;
-            } else if ((ch == 'i' && (flag = INSENSITIVE)) ||
-                       (ch == 'm' && (flag = MULTILINE)) ||
-                       (ch == 's' && (flag = DOTNEWLINE)) ||
-                       (ch == 'u' && (flag = UNGREEDY))) {
+            } else if (
+                (ch == 'i' && (flag = INSENSITIVE)) ||
+                (ch == 'm' && (flag = MULTILINE)) ||
+                (ch == 's' && (flag = DOTNEWLINE)) ||
+                (ch == 'u' && (flag = UNGREEDY))) {
               flags = neg ? flags & flag : flags | flag;
             } else {
               return re_parse_err(
@@ -741,7 +779,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
                (r->expr_pos - start == 2 && inverted))) {
             min = ch; /* charclass starts with ] */
           } else
-            break;               /* charclass done */
+            break; /* charclass done */
         } else if (ch == '\\') { /* escape */
           if ((err = re_parse_escape(r, (1 << CHR) | (1 << CLS))))
             return err;
@@ -754,14 +792,15 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
             /* we parsed an entire class, so there's no ending character */
             continue;
           }
-        } else if (ch == '[' && re_hasmore(r) && !re_peek_next(r, &ch) &&
-                   ch == ':') { /* named class */
+        } else if (
+            ch == '[' && re_hasmore(r) && !re_peek_next(r, &ch) &&
+            ch == ':') { /* named class */
           int named_inverted = 0;
           size_t name_start, name_end;
           err = re_next(r, &ch, NULL); /* : */
           assert(!err && ch == ':');
           if (re_hasmore(r) && !re_peek_next(r, &ch) &&
-              ch == '^') {               /* inverted named class */
+              ch == '^') { /* inverted named class */
             err = re_next(r, &ch, NULL); /* ^ */
             assert(!err && ch == '^');
             named_inverted = 1;
@@ -781,9 +820,9 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
           if (ch != ']')
             return re_parse_err(
                 r, "expected closing bracket for named character class");
-          if ((err = re_parse_add_namedcc(r, r->expr + name_start,
-                                          (name_end - name_start),
-                                          named_inverted)))
+          if ((err = re_parse_add_namedcc(
+                   r, r->expr + name_start, (name_end - name_start),
+                   named_inverted)))
             return err;
           next = stk_pop(r, &r->arg_stk);
           assert(next && *re_asttype(r, next) == CLS);
@@ -795,8 +834,8 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
           /* range expression */
           err = re_next(r, &ch, NULL);
           assert(!err && ch == '-');
-          if ((err = re_next(r, &ch,
-                             "expected ending character for range expression")))
+          if ((err = re_next(
+                   r, &ch, "expected ending character for range expression")))
             return err;
           if (ch == '\\') { /* start of escape */
             if ((err = re_parse_escape(r, (1 << CHR))))
@@ -811,14 +850,14 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
         if ((err = re_mkast(r, CLS, min, max, res, &res)))
           return err;
       }
-      assert(res);  /* charclass cannot be empty */
+      assert(res); /* charclass cannot be empty */
       if (inverted) /* inverted character class */
         *re_asttype(r, res) = ICLS;
       if ((err = stk_push(r, &r->arg_stk, res)))
         return err;
     } else if (ch == '\\') { /* escape */
-      if ((err = re_parse_escape(r, 1 << CHR | 1 << CLS | 1 << ANYBYTE |
-                                        1 << CAT)))
+      if ((err = re_parse_escape(
+               r, 1 << CHR | 1 << CLS | 1 << ANYBYTE | 1 << CAT)))
         return err;
     } else if (ch == '{') { /* repetition */
       u32 min = 0, max = 0;
@@ -850,7 +889,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root) {
           (err = stk_push(r, &r->arg_stk, res)))
         return err;
     } else { /* char: push to the arg stk */
-             /* arg_stk: | ... | */
+      /* arg_stk: | ... | */
       args[0] = ch;
       if ((err = re_mkast(r, CHR, ch, 0, 0, &res)) ||
           (err = stk_push(r, &r->arg_stk, res)))
@@ -871,28 +910,32 @@ typedef struct inst {
   u32 l, h;
 } inst;
 
-#define INST_OP(i) ((i).l & 3)
-#define INST_N(i) ((i).l >> 2)
-#define INST_P(i) ((i).h)
+#define INST_OP(i)     ((i).l & 3)
+#define INST_N(i)      ((i).l >> 2)
+#define INST_P(i)      ((i).h)
 #define INST(op, n, p) mkinst((op) | ((n) << 2), (p))
 
-inst mkinst(u32 l, u32 h) {
+inst mkinst(u32 l, u32 h)
+{
   inst out;
   out.l = l, out.h = h;
   return out;
 }
 
-void re_prog_set(re *r, u32 pc, inst i) {
+void re_prog_set(re *r, u32 pc, inst i)
+{
   r->prog.ptr[pc * 2 + 0] = i.l, r->prog.ptr[pc * 2 + 1] = i.h;
 }
 
-inst re_prog_get(re *r, u32 pc) {
+inst re_prog_get(re *r, u32 pc)
+{
   return mkinst(r->prog.ptr[pc * 2 + 0], r->prog.ptr[pc * 2 + 1]);
 }
 
 u32 re_prog_size(re *r) { return r->prog.size >> 1; }
 
-int re_emit(re *r, inst i) {
+int re_emit(re *r, inst i)
+{
   int err = 0;
   if ((err = stk_push(r, &r->prog, 0)) || (err = stk_push(r, &r->prog, 0)))
     return err;
@@ -901,14 +944,16 @@ int re_emit(re *r, inst i) {
 }
 
 typedef struct compframe {
-  u32 root_ref, child_ref, idx, patch_head, patch_tail, pc;
+  u32 root_ref, child_ref, idx, patch_head, patch_tail, pc, flags;
 } compframe;
 
-int compframe_push(re *r, compframe c) {
+int compframe_push(re *r, compframe c)
+{
   return stk_pushn(r, &r->comp_stk, &c, sizeof(c));
 }
 
-compframe compframe_pop(re *r) {
+compframe compframe_pop(re *r)
+{
   compframe v;
   stk_popn(r, &r->comp_stk, &v, sizeof(v));
   return v;
@@ -919,19 +964,23 @@ enum op { RANGE, ASSERT, MATCH, SPLIT };
 enum asserts { A_EVERYTHING = 0xFF };
 
 #define IMATCH(s, i) ((i) << 1 | (s))
-#define IMATCH_S(m) ((m) & 1)
-#define IMATCH_I(m) ((m) >> 1)
+#define IMATCH_S(m)  ((m) & 1)
+#define IMATCH_I(m)  ((m) >> 1)
 
-inst patch_set(re *r, u32 pc, u32 val) {
+inst patch_set(re *r, u32 pc, u32 val)
+{
   inst prev = re_prog_get(r, pc >> 1);
   assert(pc);
-  re_prog_set(r, pc >> 1,
-              INST(INST_OP(prev), pc & 1 ? INST_N(prev) : val,
-                   pc & 1 ? val : INST_P(prev)));
+  re_prog_set(
+      r, pc >> 1,
+      INST(
+          INST_OP(prev), pc & 1 ? INST_N(prev) : val,
+          pc & 1 ? val : INST_P(prev)));
   return prev;
 }
 
-void patch_add(re *r, compframe *f, u32 dest_pc, int p) {
+void patch_add(re *r, compframe *f, u32 dest_pc, int p)
+{
   u32 out_val = dest_pc << 1 | !!p;
   assert(dest_pc);
   if (!f->patch_head)
@@ -942,7 +991,8 @@ void patch_add(re *r, compframe *f, u32 dest_pc, int p) {
   }
 }
 
-void patch_merge(re *r, compframe *p, compframe *q) {
+void patch_merge(re *r, compframe *p, compframe *q)
+{
   if (!p->patch_head) {
     p->patch_head = q->patch_head;
     p->patch_tail = q->patch_tail;
@@ -952,13 +1002,15 @@ void patch_merge(re *r, compframe *p, compframe *q) {
   p->patch_tail = q->patch_tail;
 }
 
-void patch_xfer(compframe *dst, compframe *src) {
+void patch_xfer(compframe *dst, compframe *src)
+{
   dst->patch_head = src->patch_head;
   dst->patch_tail = src->patch_tail;
   src->patch_head = src->patch_tail = REF_NONE;
 }
 
-void patch(re *r, compframe *p, u32 dest_pc) {
+void patch(re *r, compframe *p, u32 dest_pc)
+{
   u32 i = p->patch_head;
   while (i) {
     inst prev = patch_set(r, i, dest_pc);
@@ -973,17 +1025,20 @@ size_t i_rc(size_t i) { return 2 * i + 2; }
 
 u32 cckey(stk *cc, size_t idx) { return cc->ptr[idx * 2]; }
 
-int ccpush(re *r, stk *cc, u32 min, u32 max) {
+int ccpush(re *r, stk *cc, u32 min, u32 max)
+{
   int err = 0;
   (err = stk_push(r, cc, min)) || (err = stk_push(r, cc, max));
   return err;
 }
 
-void ccget(stk *cc, size_t idx, u32 *min, u32 *max) {
+void ccget(stk *cc, size_t idx, u32 *min, u32 *max)
+{
   *min = cc->ptr[idx * 2], *max = cc->ptr[idx * 2 + 1];
 }
 
-void ccswap(stk *cc, size_t a, size_t b) {
+void ccswap(stk *cc, size_t a, size_t b)
+{
   size_t t0 = cc->ptr[a * 2], t1 = cc->ptr[a * 2 + 1];
   cc->ptr[a * 2] = cc->ptr[b * 2];
   cc->ptr[a * 2 + 1] = cc->ptr[b * 2 + 1];
@@ -993,7 +1048,8 @@ void ccswap(stk *cc, size_t a, size_t b) {
 
 size_t ccsize(stk *cc) { return cc->size >> 1; }
 
-void re_compcc_hsort(stk *cc, size_t n) {
+void re_compcc_hsort(stk *cc, size_t n)
+{
   size_t start = n >> 1, end = n, root, child;
   while (end > 1) {
     if (start)
@@ -1017,13 +1073,15 @@ typedef struct compcc_node {
   u32 range, child_ref, sibling_ref, hash;
 } compcc_node;
 
-compcc_node *cc_treeref(stk *cc, u32 ref) {
+compcc_node *cc_treeref(stk *cc, u32 ref)
+{
   return (compcc_node *)stk_getn(cc, ref * stk_elemsize(sizeof(compcc_node)));
 }
 
 u32 cc_treesize(stk *cc) { return stk_size(cc, sizeof(compcc_node)); }
 
-int cc_treenew(re *r, stk *cc_out, compcc_node node, u32 *out) {
+int cc_treenew(re *r, stk *cc_out, compcc_node node, u32 *out)
+{
   int err = 0;
   if (!cc_out->size) {
     compcc_node sentinel = {0};
@@ -1037,7 +1095,8 @@ int cc_treenew(re *r, stk *cc_out, compcc_node node, u32 *out) {
   return 0;
 }
 
-int cc_treeappend(re *r, stk *cc, u32 range, u32 parent, u32 *out) {
+int cc_treeappend(re *r, stk *cc, u32 range, u32 parent, u32 *out)
+{
   compcc_node *parent_node, child_node = {0};
   u32 child_ref;
   int err;
@@ -1055,16 +1114,17 @@ int cc_treeappend(re *r, stk *cc, u32 range, u32 parent, u32 *out) {
   return 0;
 }
 
-int re_compcc_buildtree_split(re *r, stk *cc_out, u32 parent, u32 min, u32 max,
-                              u32 x_bits, u32 y_bits) {
+int re_compcc_buildtree_split(
+    re *r, stk *cc_out, u32 parent, u32 min, u32 max, u32 x_bits, u32 y_bits)
+{
   u32 x_mask = (1 << x_bits) - 1, y_min = min >> x_bits, y_max = max >> x_bits,
       u_mask = (0xFE << y_bits) & 0xFF, byte_min = (y_min & 0xFF) | u_mask,
       byte_max = (y_max & 0xFF) | u_mask, i, next;
   int err = 0;
   assert(y_bits <= 7);
   if (x_bits == 0) {
-    if ((err = cc_treeappend(r, cc_out, br2u(mkbr(byte_min, byte_max)), parent,
-                             &next)))
+    if ((err = cc_treeappend(
+             r, cc_out, br2u(mkbr(byte_min, byte_max)), parent, &next)))
       return err;
   } else {
     /* nonterminal */
@@ -1135,15 +1195,16 @@ int re_compcc_buildtree_split(re *r, stk *cc_out, u32 parent, u32 min, u32 max,
       parent_node = cc_treeref(cc_out, parent);
       if (parent_node->sibling_ref &&
 
-          br_isect(u2br(cc_treeref(cc_out, parent_node->sibling_ref)->range),
-                   u2br(brs[i]))) {
+          br_isect(
+              u2br(cc_treeref(cc_out, parent_node->sibling_ref)->range),
+              u2br(brs[i]))) {
         child_ref = parent_node->sibling_ref;
       } else {
         if ((err = cc_treeappend(r, cc_out, brs[i], parent, &child_ref)))
           return err;
       }
-      if ((err = re_compcc_buildtree_split(r, cc_out, child_ref, mins[i],
-                                           maxs[i], x_bits - 6, 6)))
+      if ((err = re_compcc_buildtree_split(
+               r, cc_out, child_ref, mins[i], maxs[i], x_bits - 6, 6)))
         return err;
     }
   }
@@ -1155,7 +1216,8 @@ int re_compcc_buildtree_split(re *r, stk *cc_out, u32 parent, u32 min, u32 max,
  * 1 child
  * 2 sibling
  * 3 hash of this node and its descendants */
-int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out) {
+int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out)
+{
   size_t i, j;
   u32 root_ref;
   compcc_node root_node;
@@ -1177,9 +1239,9 @@ int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out) {
         /* [min,max] intersects [min_bound,max_bound] */
         u32 clamped_min = min < min_bound ? min_bound : min, /* clamp range */
             clamped_max = max > max_bound ? max_bound : max;
-        if ((err =
-                 re_compcc_buildtree_split(r, cc_out, root_ref, clamped_min,
-                                           clamped_max, x_bits[j], y_bits[j])))
+        if ((err = re_compcc_buildtree_split(
+                 r, cc_out, root_ref, clamped_min, clamped_max, x_bits[j],
+                 y_bits[j])))
           return err;
       }
       min_bound = max_bound + 1;
@@ -1188,7 +1250,8 @@ int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out) {
   return err;
 }
 
-int re_compcc_treeeq(re *r, stk *cc_tree_in, compcc_node *a, compcc_node *b) {
+int re_compcc_treeeq(re *r, stk *cc_tree_in, compcc_node *a, compcc_node *b)
+{
   u32 a_child_ref = a->child_ref, b_child_ref = b->child_ref;
   while (a_child_ref && b_child_ref) {
     compcc_node *a_child = cc_treeref(cc_tree_in, a_child_ref),
@@ -1202,7 +1265,8 @@ int re_compcc_treeeq(re *r, stk *cc_tree_in, compcc_node *a, compcc_node *b) {
   return a->range == b->range;
 }
 
-void re_compcc_merge_one(stk *cc_tree_in, u32 child_ref, u32 sibling_ref) {
+void re_compcc_merge_one(stk *cc_tree_in, u32 child_ref, u32 sibling_ref)
+{
   compcc_node *child = cc_treeref(cc_tree_in, child_ref),
               *sibling = cc_treeref(cc_tree_in, sibling_ref);
   child->sibling_ref = sibling->sibling_ref;
@@ -1211,7 +1275,8 @@ void re_compcc_merge_one(stk *cc_tree_in, u32 child_ref, u32 sibling_ref) {
 }
 
 /*https://nullprogram.com/blog/2018/07/31/*/
-u32 hashington(u32 x) {
+u32 hashington(u32 x)
+{
   x ^= x >> 16;
   x *= 0x7feb352dU;
   x ^= x >> 15;
@@ -1225,7 +1290,8 @@ u32 hashington(u32 x) {
 
 u32 cc_htsize(stk *cc_ht) { return cc_ht->size / 2; }
 
-int cc_htinit(re *r, stk *cc_tree_in, stk *cc_ht_out) {
+int cc_htinit(re *r, stk *cc_tree_in, stk *cc_ht_out)
+{
   int err = 0;
   while (cc_htsize(cc_ht_out) <
          (cc_treesize(cc_tree_in) + (cc_treesize(cc_tree_in) >> 1)))
@@ -1235,8 +1301,8 @@ int cc_htinit(re *r, stk *cc_tree_in, stk *cc_ht_out) {
   return 0;
 }
 
-void re_compcc_hashtree(re *r, stk *cc_tree_in, stk *cc_ht_out,
-                        u32 parent_ref) {
+void re_compcc_hashtree(re *r, stk *cc_tree_in, stk *cc_ht_out, u32 parent_ref)
+{
   /* flip links and hash everything */
   compcc_node *parent_node = cc_treeref(cc_tree_in, parent_ref);
   u32 child_ref, next_child_ref, sibling_ref = 0;
@@ -1280,9 +1346,9 @@ void re_compcc_hashtree(re *r, stk *cc_tree_in, stk *cc_ht_out,
             cc_treeref(cc_tree_in, child_node->child_ref);
         hash_plain[2] = child_child_node->hash;
       }
-      child_node->hash =
-          hashington(hashington(hashington(hash_plain[0]) + hash_plain[1]) +
-                     hash_plain[2]);
+      child_node->hash = hashington(
+          hashington(hashington(hash_plain[0]) + hash_plain[1]) +
+          hash_plain[2]);
     }
     sibling_ref = child_ref;
     sibling_node = child_node;
@@ -1291,8 +1357,10 @@ void re_compcc_hashtree(re *r, stk *cc_tree_in, stk *cc_ht_out,
   parent_node->child_ref = sibling_ref;
 }
 
-int re_compcc_rendertree(re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref,
-                         u32 *my_out_pc, compframe *frame) {
+int re_compcc_rendertree(
+    re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref, u32 *my_out_pc,
+    compframe *frame)
+{
   int err = 0;
   u32 split_from = 0, my_pc = 0, range_pc = 0;
   while (node_ref) {
@@ -1311,8 +1379,8 @@ int re_compcc_rendertree(re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref,
           if (split_from) {
             inst i = re_prog_get(r, split_from);
             /* found our child, patch into it */
-            i = INST(INST_OP(i), INST_N(i),
-                     cc_ht->ptr[(probe % cc_ht->size) + 1]);
+            i = INST(
+                INST_OP(i), INST_N(i), cc_ht->ptr[(probe % cc_ht->size) + 1]);
             re_prog_set(r, split_from, i);
           } else if (!*my_out_pc)
             *my_out_pc = cc_ht->ptr[(probe % cc_ht->size) + 1];
@@ -1337,16 +1405,18 @@ int re_compcc_rendertree(re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref,
     if (!*my_out_pc)
       *my_out_pc = my_pc;
     range_pc = re_prog_size(r);
-    if ((err = re_emit(r, INST(RANGE, 0,
-                               br2u(BYTE_RANGE(u2br(node->range).l,
-                                               u2br(node->range).h))))))
+    if ((err = re_emit(
+             r,
+             INST(
+                 RANGE, 0,
+                 br2u(BYTE_RANGE(u2br(node->range).l, u2br(node->range).h))))))
       return err;
     if (node->child_ref) {
       /* need to down-compile */
       u32 their_pc = 0;
       inst i = re_prog_get(r, range_pc);
-      if ((err = re_compcc_rendertree(r, cc_tree_in, cc_ht, node->child_ref,
-                                      &their_pc, frame)))
+      if ((err = re_compcc_rendertree(
+               r, cc_tree_in, cc_ht, node->child_ref, &their_pc, frame)))
         return err;
       i = INST(INST_OP(i), their_pc, INST_P(i));
       re_prog_set(r, range_pc, i);
@@ -1362,8 +1432,12 @@ int re_compcc_rendertree(re *r, stk *cc_tree_in, stk *cc_ht, u32 node_ref,
   return 0;
 }
 
-int re_compcc(re *r, u32 root, compframe *frame) {
-  int err = 0, inverted = *re_asttype(r, frame->root_ref) == ICLS;
+int casefold_fold_range(re *r, u32 begin, u32 end, stk *cc_out);
+
+int re_compcc(re *r, u32 root, compframe *frame)
+{
+  int err = 0, inverted = *re_asttype(r, frame->root_ref) == ICLS,
+      insensitive = !!(frame->flags & INSENSITIVE);
   u32 start_pc = 0;
   r->cc_stk_a.size = r->cc_stk_b.size = 0; /* clear stks */
   /* push ranges */
@@ -1376,30 +1450,42 @@ int re_compcc(re *r, u32 root, compframe *frame) {
         (err = stk_push(r, &r->cc_stk_a, min > max ? min : max)))
       return err;
   }
-  /* sort ranges */
-  re_compcc_hsort(&r->cc_stk_a, ccsize(&r->cc_stk_a));
-  /* normalize ranges */
-  {
-    u32 min, max;
-    size_t i;
-    for (i = 0; i < ccsize(&r->cc_stk_a); i++) {
-      u32 cur_min, cur_max;
-      ccget(&r->cc_stk_a, i, &cur_min, &cur_max);
-      assert(cur_min <= cur_max);
-      if (!i)
-        min = cur_min, max = cur_max; /* first range */
-      else if (cur_min <= max + 1) {
-        max = cur_max > max ? cur_max : max; /* intersection */
-      } else {
-        /* disjoint */
-        if ((err = ccpush(r, &r->cc_stk_b, min, max)))
-          return err;
-        min = cur_min, max = cur_max;
+  do {
+    /* sort ranges */
+    re_compcc_hsort(&r->cc_stk_a, ccsize(&r->cc_stk_a));
+    /* normalize ranges */
+    {
+      u32 min, max, cur_min, cur_max;
+      size_t i;
+      for (i = 0; i < ccsize(&r->cc_stk_a); i++) {
+        ccget(&r->cc_stk_a, i, &cur_min, &cur_max);
+        assert(cur_min <= cur_max);
+        if (!i)
+          min = cur_min, max = cur_max; /* first range */
+        else if (cur_min <= max + 1) {
+          max = cur_max > max ? cur_max : max; /* intersection */
+        } else {
+          /* disjoint */
+          if ((err = ccpush(r, &r->cc_stk_b, min, max)))
+            return err;
+          min = cur_min, max = cur_max;
+        }
+      }
+      if (i && (err = ccpush(r, &r->cc_stk_b, min, max)))
+        return err;
+      if (insensitive) {
+        /* casefold normalized ranges */
+        r->cc_stk_a.size = 0;
+        for (i = 0; i < ccsize(&r->cc_stk_b); i++) {
+          ccget(&r->cc_stk_a, i, &cur_min, &cur_max);
+          if ((err = ccpush(r, &r->cc_stk_a, cur_min, cur_max)))
+            return err;
+          if ((err = casefold_fold_range(r, cur_min, cur_max, &r->cc_stk_a)))
+            return err;
+        }
       }
     }
-    if (i && (err = ccpush(r, &r->cc_stk_b, min, max)))
-      return err;
-  }
+  } while (insensitive && insensitive-- /* re-normalize by looping again */);
   /* invert ranges */
   if (inverted) {
     u32 max = 0, cur_min, cur_max, i, old_size = ccsize(&r->cc_stk_b);
@@ -1431,15 +1517,17 @@ int re_compcc(re *r, u32 root, compframe *frame) {
     return err;
   re_compcc_hashtree(r, &r->cc_stk_a, &r->cc_stk_b, 1);
   /* prune/render tree */
-  if ((err = re_compcc_rendertree(r, &r->cc_stk_a, &r->cc_stk_b,
-                                  2 /* root's first node */, &start_pc, frame)))
+  if ((err = re_compcc_rendertree(
+           r, &r->cc_stk_a, &r->cc_stk_b, 2 /* root's first node */, &start_pc,
+           frame)))
     return err;
   return err;
 }
 
-int re_compile(re *r, u32 root, u32 reverse) {
+int re_compile(re *r, u32 root, u32 reverse)
+{
   int err = 0;
-  compframe initial_frame, returned_frame, child_frame;
+  compframe initial_frame = {0}, returned_frame = {0}, child_frame = {0};
   u32 set_idx = 0, grp_idx = 0, tmp_cc_ast = REF_NONE;
   if (!r->prog.size &&
       ((err = stk_push(r, &r->prog, 0)) || (err = stk_push(r, &r->prog, 0))))
@@ -1473,8 +1561,8 @@ int re_compile(re *r, u32 root, u32 reverse) {
       child = args[0];
       if (!frame.idx) { /* before child */
         patch(r, &frame, my_pc);
-        if ((err = re_emit(r,
-                           INST(MATCH, 0, IMATCH(1, 2 * grp_idx++ + reverse)))))
+        if ((err = re_emit(
+                 r, INST(MATCH, 0, IMATCH(1, 2 * grp_idx++ + reverse)))))
           return err;
         patch_add(r, &child_frame, my_pc, 0);
         frame.child_ref = child, frame.idx++;
@@ -1486,11 +1574,11 @@ int re_compile(re *r, u32 root, u32 reverse) {
     } else if (type == CHR) {
       patch(r, &frame, my_pc);
       re_decompast(r, frame.root_ref, 1, args);
-      if (args[0] < 128) { /* ascii */
+      if (args[0] < 128 && !(frame.flags & INSENSITIVE)) { /* ascii */
         /*  in     out
          * ---> R ----> */
-        if ((err = re_emit(r,
-                           INST(RANGE, 0, br2u(BYTE_RANGE(args[0], args[0]))))))
+        if ((err = re_emit(
+                 r, INST(RANGE, 0, br2u(BYTE_RANGE(args[0], args[0]))))))
           return err;
         patch_add(r, &frame, my_pc, 0);
       } else { /* unicode */
@@ -1514,11 +1602,11 @@ int re_compile(re *r, u32 root, u32 reverse) {
       /*  in              out
        * ---> [A] -> [B] ----> */
       re_decompast(r, frame.root_ref, 2, args);
-      if (frame.idx == 0) {              /* before left child */
+      if (frame.idx == 0) { /* before left child */
         frame.child_ref = args[reverse]; /* push left child */
         patch_xfer(&child_frame, &frame);
         frame.idx++;
-      } else if (frame.idx == 1) {        /* after left child */
+      } else if (frame.idx == 1) { /* after left child */
         frame.child_ref = args[!reverse]; /* push right child */
         patch_xfer(&child_frame, &returned_frame);
         frame.idx++;
@@ -1582,21 +1670,24 @@ int re_compile(re *r, u32 root, u32 reverse) {
       /*  in                 out
        * ---> M -> [A] -> M ----> */
       u32 child;
-      re_decompast(r, frame.root_ref, 2, args);
+      re_decompast(r, frame.root_ref, 3, args);
       child = args[0];
+      frame.flags = args[1];
       if (!frame.idx) { /* before child */
         patch(r, &frame, my_pc);
-        if ((err = re_emit(r,
-                           INST(MATCH, 0, IMATCH(1, 2 * grp_idx++ + reverse)))))
+        if ((err = re_emit(
+                 r, INST(MATCH, 0, IMATCH(1, 2 * grp_idx++ + reverse)))))
           return err;
         patch_add(r, &child_frame, my_pc, 0);
         frame.child_ref = child, frame.idx++;
       } else if (frame.idx) { /* after child */
         patch(r, &returned_frame, my_pc);
         if ((err = re_emit(
-                 r, INST(MATCH, 0,
-                         IMATCH(1, IMATCH_I(INST_P(re_prog_get(r, frame.pc))) +
-                                       (reverse ? -1 : 1))))))
+                 r, INST(
+                        MATCH, 0,
+                        IMATCH(
+                            1, IMATCH_I(INST_P(re_prog_get(r, frame.pc))) +
+                                   (reverse ? -1 : 1))))))
           return err;
         patch_add(r, &frame, my_pc, 0);
       }
@@ -1614,6 +1705,7 @@ int re_compile(re *r, u32 root, u32 reverse) {
       child_frame.root_ref = frame.child_ref;
       child_frame.idx = 0;
       child_frame.pc = re_prog_size(r);
+      child_frame.flags = frame.flags;
       if ((err = compframe_push(r, child_frame)))
         return err;
     }
@@ -1626,8 +1718,9 @@ int re_compile(re *r, u32 root, u32 reverse) {
         re_prog_size(r);
     if ((err = re_emit(
              r,
-             INST(SPLIT, r->entry[ENT_ONESHOT | (reverse ? ENT_REV : ENT_FWD)],
-                  dstar + 1))))
+             INST(
+                 SPLIT, r->entry[ENT_ONESHOT | (reverse ? ENT_REV : ENT_FWD)],
+                 dstar + 1))))
       return err;
     if ((err = re_emit(r, INST(RANGE, dstar, br2u(mkbr(0, 255))))))
       return err;
@@ -1645,18 +1738,21 @@ typedef struct sset {
   u32 dense_size, dense_alloc;
 } sset;
 
-int sset_reset(re *r, sset *s, size_t sz) {
+int sset_reset(re *r, sset *s, size_t sz)
+{
   size_t next_alloc = sz;
   u32 *next_sparse;
   thrdspec *next_dense;
   if (!next_alloc)
     return 0;
-  if (!(next_sparse = re_ialloc(r, sizeof(u32) * s->sparse_alloc,
-                                sizeof(u32) * next_alloc, s->sparse)))
+  if (!(next_sparse = re_ialloc(
+            r, sizeof(u32) * s->sparse_alloc, sizeof(u32) * next_alloc,
+            s->sparse)))
     return ERR_MEM;
   s->sparse = next_sparse;
-  if (!(next_dense = re_ialloc(r, sizeof(thrdspec) * s->dense_alloc,
-                               sizeof(thrdspec) * next_alloc, s->dense)))
+  if (!(next_dense = re_ialloc(
+            r, sizeof(thrdspec) * s->dense_alloc, sizeof(thrdspec) * next_alloc,
+            s->dense)))
     return ERR_MEM;
   s->dense = next_dense;
   s->dense_size = 0;
@@ -1666,7 +1762,8 @@ int sset_reset(re *r, sset *s, size_t sz) {
 
 void sset_clear(sset *s) { s->dense_size = 0; }
 
-void sset_init(re *r, sset *s) {
+void sset_init(re *r, sset *s)
+{
   (void)(r);
   s->sparse = NULL;
   s->sparse_alloc = 0;
@@ -1674,12 +1771,14 @@ void sset_init(re *r, sset *s) {
   s->dense_alloc = s->dense_size = 0;
 }
 
-void sset_destroy(re *r, sset *s) {
+void sset_destroy(re *r, sset *s)
+{
   re_ialloc(r, sizeof(u32) * s->sparse_alloc, 0, s->sparse);
   re_ialloc(r, sizeof(thrdspec) * s->dense_alloc, 0, s->dense);
 }
 
-void sset_add(sset *s, thrdspec spec) {
+void sset_add(sset *s, thrdspec spec)
+{
   assert(spec.pc < s->dense_alloc);
   assert(s->dense_size < s->dense_alloc);
   assert(spec.pc);
@@ -1687,7 +1786,8 @@ void sset_add(sset *s, thrdspec spec) {
   s->sparse[spec.pc] = s->dense_size++;
 }
 
-int sset_memb(sset *s, u32 pc) {
+int sset_memb(sset *s, u32 pc)
+{
   assert(pc < s->dense_alloc);
   return s->sparse[pc] < s->dense_size && s->dense[s->sparse[pc]].pc == pc;
 }
@@ -1696,22 +1796,26 @@ typedef struct save_slots {
   size_t *slots, slots_size, slots_alloc, last_empty, per_thrd;
 } save_slots;
 
-void save_slots_init(re *r, save_slots *s) {
+void save_slots_init(re *r, save_slots *s)
+{
   (void)r;
   s->slots = NULL;
   s->slots_size = s->slots_alloc = s->last_empty = s->per_thrd = 0;
 }
 
-void save_slots_destroy(re *r, save_slots *s) {
+void save_slots_destroy(re *r, save_slots *s)
+{
   re_ialloc(r, sizeof(size_t) * s->slots_alloc, 0, s->slots);
 }
 
-void save_slots_clear(save_slots *s, size_t per_thrd) {
+void save_slots_clear(save_slots *s, size_t per_thrd)
+{
   s->slots_size = 0, s->last_empty = 0,
   s->per_thrd = per_thrd + 1 /* for refcnt */;
 }
 
-int save_slots_new(re *r, save_slots *s, u32 *next) {
+int save_slots_new(re *r, save_slots *s, u32 *next)
+{
   int err = 0;
   assert(s->per_thrd);
   if (s->last_empty) {
@@ -1723,8 +1827,9 @@ int save_slots_new(re *r, save_slots *s, u32 *next) {
       /* initial alloc / realloc */
       size_t new_alloc =
           (s->slots_alloc ? s->slots_alloc * 2 : 16) * s->per_thrd;
-      size_t *new_slots = re_ialloc(r, s->slots_alloc * sizeof(size_t),
-                                    new_alloc * sizeof(size_t), s->slots);
+      size_t *new_slots = re_ialloc(
+          r, s->slots_alloc * sizeof(size_t), new_alloc * sizeof(size_t),
+          s->slots);
       if (!new_slots)
         return 0;
       s->slots = new_slots, s->slots_alloc = new_alloc;
@@ -1738,13 +1843,15 @@ int save_slots_new(re *r, save_slots *s, u32 *next) {
   return 0;
 }
 
-u32 save_slots_fork(save_slots *s, u32 ref) {
+u32 save_slots_fork(save_slots *s, u32 ref)
+{
   if (s->per_thrd)
     s->slots[ref * s->per_thrd + s->per_thrd - 1]++;
   return ref;
 }
 
-void save_slots_kill(save_slots *s, u32 ref) {
+void save_slots_kill(save_slots *s, u32 ref)
+{
   if (!s->per_thrd)
     return;
   if (!s->slots[ref * s->per_thrd + s->per_thrd - 1]--) {
@@ -1754,7 +1861,8 @@ void save_slots_kill(save_slots *s, u32 ref) {
   }
 }
 
-int save_slots_set(re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out) {
+int save_slots_set(re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
+{
   int err;
   *out = ref;
   if (!s->per_thrd) {
@@ -1768,18 +1876,21 @@ int save_slots_set(re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out) {
     if ((err = save_slots_new(r, s, out)))
       return err;
     save_slots_kill(s, ref); /* decrement refcount */
-    memcpy(s->slots + *out * s->per_thrd, s->slots + ref * s->per_thrd,
-           sizeof(*s->slots) * s->per_thrd);
+    memcpy(
+        s->slots + *out * s->per_thrd, s->slots + ref * s->per_thrd,
+        sizeof(*s->slots) * s->per_thrd);
     s->slots[*out * s->per_thrd + idx] = v;
   }
   return 0;
 }
 
-u32 save_slots_perthrd(save_slots *s) {
+u32 save_slots_perthrd(save_slots *s)
+{
   return s->per_thrd ? s->per_thrd - 1 : s->per_thrd;
 }
 
-u32 save_slots_get(save_slots *s, u32 ref, u32 idx) {
+u32 save_slots_get(save_slots *s, u32 ref, u32 idx)
+{
   assert(idx < save_slots_perthrd(s));
   return s->slots[ref * s->per_thrd + idx];
 }
@@ -1792,35 +1903,40 @@ typedef struct exec_nfa {
   int reversed, track;
 } exec_nfa;
 
-void exec_nfa_init(re *r, exec_nfa *n) {
+void exec_nfa_init(re *r, exec_nfa *n)
+{
   sset_init(r, &n->a), sset_init(r, &n->b), sset_init(r, &n->c);
   stk_init(r, &n->thrd_stk), stk_init(r, &n->pri_stk);
   save_slots_init(r, &n->slots);
   n->reversed = n->track = 0;
 }
 
-void exec_nfa_destroy(re *r, exec_nfa *n) {
+void exec_nfa_destroy(re *r, exec_nfa *n)
+{
   sset_destroy(r, &n->a), sset_destroy(r, &n->b), sset_destroy(r, &n->c);
   stk_destroy(r, &n->thrd_stk), stk_destroy(r, &n->pri_stk);
   save_slots_destroy(r, &n->slots);
 }
 
-int thrdstk_push(re *r, stk *s, thrdspec t) {
+int thrdstk_push(re *r, stk *s, thrdspec t)
+{
   int err = 0;
   assert(t.pc);
   (err = stk_push(r, s, t.pc)) || (err = stk_push(r, s, t.slot));
   return err;
 }
 
-thrdspec thrdstk_pop(re *r, stk *s) {
+thrdspec thrdstk_pop(re *r, stk *s)
+{
   thrdspec out;
   out.slot = stk_pop(r, s);
   out.pc = stk_pop(r, s);
   return out;
 }
 
-int exec_nfa_start(re *r, exec_nfa *n, u32 pc, u32 noff, int reversed,
-                   int track) {
+int exec_nfa_start(
+    re *r, exec_nfa *n, u32 pc, u32 noff, int reversed, int track)
+{
   thrdspec initial_thrd;
   u32 i;
   int err = 0;
@@ -1843,7 +1959,8 @@ int exec_nfa_start(re *r, exec_nfa *n, u32 pc, u32 noff, int reversed,
   return 0;
 }
 
-int exec_nfa_eps(re *r, exec_nfa *n, size_t pos) {
+int exec_nfa_eps(re *r, exec_nfa *n, size_t pos)
+{
   int err;
   size_t i;
   sset_clear(&n->b);
@@ -1864,8 +1981,9 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos) {
       case MATCH:
         if (IMATCH_S(INST_P(op))) /* this is a save */ {
           if (IMATCH_I(INST_P(op)) < save_slots_perthrd(&n->slots)) {
-            if ((err = save_slots_set(r, &n->slots, top.slot,
-                                      IMATCH_I(INST_P(op)), pos, &top.slot)))
+            if ((err = save_slots_set(
+                     r, &n->slots, top.slot, IMATCH_I(INST_P(op)), pos,
+                     &top.slot)))
               return err;
           }
           top.pc = INST_N(op);
@@ -1894,8 +2012,9 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos) {
   return 0;
 }
 
-int exec_nfa_matchend(re *r, exec_nfa *n, u32 idx, thrdspec thrd, size_t pos,
-                      unsigned int ch) {
+int exec_nfa_matchend(
+    re *r, exec_nfa *n, u32 idx, thrdspec thrd, size_t pos, unsigned int ch)
+{
   int err;
   u32 *memo = n->pri_stk.ptr + idx - 1;
   if (!n->track && ch < 256)
@@ -1912,7 +2031,8 @@ int exec_nfa_matchend(re *r, exec_nfa *n, u32 idx, thrdspec thrd, size_t pos,
   return 0;
 }
 
-int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos) {
+int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
+{
   int err;
   size_t i;
   for (i = 0; i < n->b.dense_size; i++) {
@@ -1947,8 +2067,10 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos) {
 /* if max_set != 0 and max_span == 0 */
 /* if max_set == 0 and max_span != 0 */
 /* if max_set != 0 and max_span != 0 */
-int exec_nfa_end(re *r, size_t pos, exec_nfa *n, u32 max_span, u32 max_set,
-                 span *out_span, u32 *out_set) {
+int exec_nfa_end(
+    re *r, size_t pos, exec_nfa *n, u32 max_span, u32 max_set, span *out_span,
+    u32 *out_set)
+{
   int err;
   size_t j, sets = 0, nset = 0;
   if ((err = exec_nfa_eps(r, n, pos)) || (err = exec_nfa_chr(r, n, 256, pos)))
@@ -1970,7 +2092,8 @@ int exec_nfa_end(re *r, size_t pos, exec_nfa *n, u32 max_span, u32 max_set,
   return nset;
 }
 
-int exec_nfa_run(re *r, exec_nfa *n, unsigned int ch, size_t pos) {
+int exec_nfa_run(re *r, exec_nfa *n, unsigned int ch, size_t pos)
+{
   int err;
   (err = exec_nfa_eps(r, n, pos)) || (err = exec_nfa_chr(r, n, ch, pos));
   return err;
@@ -1991,8 +2114,10 @@ int exec_nfa_run(re *r, exec_nfa *n, unsigned int ch, size_t pos) {
 /* end-anchored match:   run reverse until priority exhaustion */
 /* unanchored match:     run dotstar */
 
-int re_match(re *r, const char *s, size_t n, u32 max_span, u32 max_set,
-             span *out_span, u32 *out_set, anchor_type anchor) {
+int re_match(
+    re *r, const char *s, size_t n, u32 max_span, u32 max_set, span *out_span,
+    u32 *out_set, anchor_type anchor)
+{
   exec_nfa nfa;
   int err = 0;
   u32 entry = entry = anchor == A_END          ? ENT_REV
@@ -2003,8 +2128,9 @@ int re_match(re *r, const char *s, size_t n, u32 max_span, u32 max_set,
                            (err = re_compile(r, r->ast_root, ENT_REV))))
     return err;
   exec_nfa_init(r, &nfa);
-  if ((err = exec_nfa_start(r, &nfa, r->entry[entry], max_span * 2,
-                            entry & ENT_REV, entry & ENT_DOTSTAR)))
+  if ((err = exec_nfa_start(
+           r, &nfa, r->entry[entry], max_span * 2, entry & ENT_REV,
+           entry & ENT_DOTSTAR)))
     goto done;
   for (i = 0; i < n; i++) {
     if ((err = exec_nfa_run(r, &nfa, ((const u8 *)s)[i], i)))
@@ -2018,7 +2144,8 @@ done:
 }
 
 #ifndef RE_COV
-void astdump_i(re *r, u32 root, u32 ilvl) {
+void astdump_i(re *r, u32 root, u32 ilvl)
+{
   u32 i, first = r->ast.ptr[root], rest = r->ast.ptr[root + 1];
   printf("%04u ", root);
   for (i = 0; i < ilvl; i++)
@@ -2042,23 +2169,27 @@ void astdump_i(re *r, u32 root, u32 ilvl) {
     printf("GRP flag=%X\n", *re_astarg(r, root, 1, 2));
     astdump_i(r, *re_astarg(r, root, 0, 2), ilvl + 1);
   } else if (first == QUANT) {
-    printf("QNT min=%u max=%u\n", *re_astarg(r, root, 1, 3),
-           *re_astarg(r, root, 2, 3));
+    printf(
+        "QNT min=%u max=%u\n", *re_astarg(r, root, 1, 3),
+        *re_astarg(r, root, 2, 3));
     astdump_i(r, *re_astarg(r, root, 0, 3), ilvl + 1);
   } else if (first == CLS) {
-    printf("CLS min=%02X max=%02X\n", *re_astarg(r, root, 0, 3),
-           *re_astarg(r, root, 1, 3));
+    printf(
+        "CLS min=%02X max=%02X\n", *re_astarg(r, root, 0, 3),
+        *re_astarg(r, root, 1, 3));
     astdump_i(r, *re_astarg(r, root, 2, 3), ilvl + 1);
   } else if (first == ICLS) {
-    printf("ICLS min=%02X max=%02X\n", *re_astarg(r, root, 0, 3),
-           *re_astarg(r, root, 1, 3));
+    printf(
+        "ICLS min=%02X max=%02X\n", *re_astarg(r, root, 0, 3),
+        *re_astarg(r, root, 1, 3));
     astdump_i(r, *re_astarg(r, root, 2, 3), ilvl + 1);
   }
 }
 
 void astdump(re *r, u32 root) { astdump_i(r, root, 0); }
 
-void progdump(re *r) {
+void progdump(re *r)
+{
   u32 i, j, k;
   for (i = 0; i < re_prog_size(r); i++) {
     inst ins = re_prog_get(r, i);
@@ -2071,17 +2202,19 @@ void progdump(re *r) {
         k = k == 4 ? j : 5;
       }
     }
-    printf("%04X \x1b[%im%s\x1b[0m %04X %04X %s", i, colors[INST_OP(ins)],
-           ops[INST_OP(ins)], INST_N(ins), INST_P(ins), labels[k]);
+    printf(
+        "%04X \x1b[%im%s\x1b[0m %04X %04X %s", i, colors[INST_OP(ins)],
+        ops[INST_OP(ins)], INST_N(ins), INST_P(ins), labels[k]);
     if (INST_OP(ins) == MATCH) {
-      printf(" %c/%u", IMATCH_S(INST_P(ins)) ? 'G' : 'E',
-             IMATCH_I(INST_P(ins)));
+      printf(
+          " %c/%u", IMATCH_S(INST_P(ins)) ? 'G' : 'E', IMATCH_I(INST_P(ins)));
     }
     printf("\n");
   }
 }
 
-void cctreedump_i(stk *cc_tree, u32 ref, u32 lvl) {
+void cctreedump_i(stk *cc_tree, u32 ref, u32 lvl)
+{
   u32 i;
   compcc_node *node = cc_treeref(cc_tree, ref);
   printf("%04X [%08X] ", ref, node->hash);
@@ -2296,18 +2429,76 @@ static const u8 casefold_array_5[] = {
     0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C,
     0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C,
     0x3C, 0x3C, 0x3C, 0x3C};
-u32 casefold_next(u32 rune) {
+
+s32 casefold_next(u32 rune)
+{
   return casefold_array_0
       [casefold_array_1
            [casefold_array_2
                 [casefold_array_3
-                     [casefold_array_4[casefold_array_5[((rune >> 13) & 0xFF)] +
-                                       ((rune >> 9) & 0x0F)] +
+                     [casefold_array_4
+                          [casefold_array_5[((rune >> 13) & 0xFF)] +
+                           ((rune >> 9) & 0x0F)] +
                       ((rune >> 4) & 0x1F)] +
                  ((rune >> 3) & 0x01)] +
             ((rune >> 1) & 0x03)] +
-       ((rune) & 0x01)];
+       (rune & 0x01)];
 }
+
+int casefold_fold_range(re *r, u32 begin, u32 end, stk *cc_out)
+{
+  int err = 0;
+  s32 a0;
+  u16 a1, a2, a4;
+  u32 current, x0, x1, x2, x3, x4, x5;
+  u8 a3, a5;
+  assert(begin <= UTFMAX && end <= UTFMAX && begin <= end);
+  for (x5 = ((begin >> 13) & 0xFF); x5 <= 0x87 && begin <= end; x5++) {
+    if ((a5 = casefold_array_5[x5]) == 0x3C) {
+      begin = ((begin >> 13) + 1) << 13;
+      continue;
+    }
+    for (x4 = ((begin >> 9) & 0x0F); x4 <= 0xF && begin <= end; x4++) {
+      if ((a4 = casefold_array_4[a5 + x4]) == 0xCC) {
+        begin = ((begin >> 9) + 1) << 9;
+        continue;
+      }
+      for (x3 = ((begin >> 4) & 0x1F); x3 <= 0x1F && begin <= end; x3++) {
+        if ((a3 = casefold_array_3[a4 + x3]) == 0x30) {
+          begin = ((begin >> 4) + 1) << 4;
+          continue;
+        }
+        for (x2 = ((begin >> 3) & 0x01); x2 <= 0x1 && begin <= end; x2++) {
+          if ((a2 = casefold_array_2[a3 + x2]) == 0x7D) {
+            begin = ((begin >> 3) + 1) << 3;
+            continue;
+          }
+          for (x1 = ((begin >> 1) & 0x03); x1 <= 0x3 && begin <= end; x1++) {
+            if ((a1 = casefold_array_1[a2 + x1]) == 0x60) {
+              begin = ((begin >> 1) + 1) << 1;
+              continue;
+            }
+            for (x0 = (begin & 0x01); x0 <= 0x1 && begin <= end; x0++) {
+              if ((a0 = casefold_array_0[a1 + x0]) == +0x0) {
+                begin = ((begin >> 0) + 1) << 0;
+                continue;
+              }
+              current = begin + a0;
+              while (current != begin) {
+                if ((err = ccpush(r, cc_out, current, current)))
+                  return err;
+                current = (u32)((s32)current + casefold_next(current));
+              }
+              begin++;
+            }
+          }
+        }
+      }
+    }
+  }
+  return err;
+}
+
 /*t Generated by `unicode_data.py gen_casefold` */
 
 /*T Generated by `unicode_data.py gen_ascii_charclasses impl` */

@@ -30,6 +30,14 @@ class _SquishSpec(NamedTuple):
     arrangement: _Arrangement
 
 
+class _SquishedArray(list):
+    zero_location: int
+
+    def __init__(self, zero_location: int, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.zero_location = zero_location
+
+
 class _FixSpec(NamedTuple):
     # Holds lead and trail repeats.
 
@@ -205,14 +213,18 @@ def _heuristic_squish(blocks: list[_Block]) -> tuple[list[int], list[int]]:
     return (array, locs)
 
 
-def _cached_make_arrays(deltas: list[int]) -> Callable[[_Sizes], list[list[int]]]:
+def _cached_make_arrays(deltas: list[int]) -> Callable[[_Sizes], list[_SquishedArray]]:
     """Return a make_arrays function that uses a cache."""
 
+    squished_array_deltas = _SquishedArray(0, deltas)
+
     @cache
-    def make_arrays_recursive(sizes: _Sizes) -> list[list[int]]:
+    def make_arrays_recursive(sizes: _Sizes) -> list[_SquishedArray]:
         *prev_sizes, my_size = sizes
         arrays = (
-            [deltas] if len(sizes) == 1 else make_arrays_recursive(tuple(prev_sizes))
+            [squished_array_deltas]
+            if len(sizes) == 1
+            else make_arrays_recursive(tuple(prev_sizes))
         )
         blocks: list[_Block] = list(
             list(arrays[-1][i * my_size : (i + 1) * my_size])
@@ -220,20 +232,28 @@ def _cached_make_arrays(deltas: list[int]) -> Callable[[_Sizes], list[list[int]]
         )
         unique_blocks: dict[tuple[int, ...], int] = {}
         block_refs = []
+        zero_block_ref: int | None = None
+        previous_zero = arrays[-1].zero_location
         for block in map(tuple, blocks):
             unique_blocks[block] = (
                 index := unique_blocks.get(block, len(unique_blocks))
             )
+            if all(elem == previous_zero for elem in block):
+                zero_block_ref = index
             block_refs.append(index)
+        assert zero_block_ref is not None
         my_array, my_locs = _heuristic_squish(list(map(list, unique_blocks.keys())))
         prev_refs = list([my_locs[x] for x in block_refs])
-        result = arrays[:-1] + [my_array, prev_refs]
+        result = arrays[:-1] + [
+            _SquishedArray(previous_zero, my_array),
+            _SquishedArray(my_locs[zero_block_ref], prev_refs),
+        ]
         return result
 
     return make_arrays_recursive
 
 
-def _calculate_num_bytes(arrays: list[list[int]]) -> int:
+def _calculate_num_bytes(arrays: list[_SquishedArray]) -> int:
     # Compute the number of bytes needed to store the resulting arrays.
     return sum(len(a) * DataType.from_list(a).size_bytes for a in arrays)
 
@@ -258,7 +278,7 @@ def _combo_iterator(
 
 def _try_all_sizes(
     deltas: list[int], num_tables: int, max_rune: int, show_progress: bool
-) -> Iterator[tuple[int, _Sizes, list[list[int]]]]:
+) -> Iterator[tuple[int, _Sizes, list[_SquishedArray]]]:
     pow2: list[int] = [2**x for x in range(1, max_rune.bit_length())]
     make_arrays = _cached_make_arrays(deltas)
     max_progress = len(pow2) ** (num_tables + 1)
@@ -285,7 +305,7 @@ def find_best_arrays(
     Exhaustively try array size combinations, finding the one that compresses
     to the least bytes.
     """
-    lowest: tuple[int, _Sizes, list[list[int]]] = min(
+    lowest: tuple[int, _Sizes, list[_SquishedArray]] = min(
         _try_all_sizes(deltas, num_tables, max_rune, show_progress)
     )
     if show_progress:
@@ -295,7 +315,7 @@ def find_best_arrays(
     return lowest[1:]
 
 
-def build_arrays(deltas: list[int], sizes: _Sizes) -> list[list[int]]:
+def build_arrays(deltas: list[int], sizes: _Sizes) -> list[_SquishedArray]:
     """
     Given the list of array block sizes, build and compress the output arrays.
     """
@@ -321,7 +341,7 @@ def calculate_masks(array_sizes: _Sizes, max_rune: int) -> list[int]:
 def check_arrays(
     deltas: list[int],
     array_sizes: _Sizes,
-    arrays: list[list[int]],
+    arrays: list[_SquishedArray],
     max_rune: int,
     *,
     show_progress: bool = False,

@@ -59,5 +59,16 @@ build/cov/lcov.info: build/cov build/cov/re-cov
 build/cov/index.html: build/cov/lcov.info
 	genhtml build/cov/lcov.info --output-directory build/cov
 
+tools/.ucd.zip:
+	python tools/unicode_data.py --debug --db tools/.ucd.zip fetch
+
+tables: tools/.ucd.zip
+	python tools/unicode_data.py --debug --db tools/.ucd.zip gen_casefold re.c
+	python tools/unicode_data.py --debug --db tools/.ucd.zip gen_ascii_charclasses impl re.c
+	clang-format -i re.c
+
+format:
+	clang-format -i $(SRCS) test-gen.c
+
 clean:
 	rm -rf build

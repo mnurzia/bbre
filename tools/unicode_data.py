@@ -135,33 +135,76 @@ def _cmd_gen_casefold(args) -> int:
     arrays = build_arrays(deltas, array_sizes)
     shifts = calculate_shifts(array_sizes)
     masks = calculate_masks(array_sizes, UTF_MAX)
+    data_types = list(map(DataType.from_list, arrays))
     output: list[str] = []
 
     def out(s: str):
         output.append(s + "\n")
 
+    def fmt_hex(n: int, data_type: DataType, num_digits: int = 0) -> str:
+        return f"{'-' if n < 0 else '+' if data_type.signed else ''}0x{abs(n):0{num_digits}X}"
+
     for i, array in enumerate(arrays):
         num_digits = (max(map(abs, array)).bit_length() + 3) // 4
-        data_type = DataType.from_list(array)
-        out(f"static const {data_type.to_ctype()} casefold_array_{i}[] = {{")
-        out(
-            ",".join(
-                [
-                    f"{'-' if n < 0 else '+' if data_type.signed else ''}0x{abs(n):0{num_digits}X}"
-                    for n in array
-                ]
-            )
-        )
+        out(f"static const {data_types[i].to_ctype()} casefold_array_{i}[] = {{")
+        out(",".join(fmt_hex(n, data_types[i], num_digits) for n in array))
         out("};")
 
-    out("u32 casefold_next(u32 rune) { return ")
+    out("s32 casefold_next(u32 rune) { return ")
+
+    def shift_mask_expr(name: str, i: int) -> str:
+        return f"({f"({name} >> {shifts[i]})" if shifts[i] != 0 else name} & 0x{masks[i]:02X})"
 
     for i in range(len(arrays)):
         out(f"casefold_array_{i}[")
-    for i, (shift, mask) in enumerate(reversed(list(zip(shifts, masks)))):
-        shift_expr = f"rune >> {shift}" if shift != 0 else "rune"
-        out(f"{'+' if i else ''}(({shift_expr}) & 0x{mask:02X})]")
+    for i in reversed(range(len(arrays))):
+        out(f"{'+' if i != len(arrays) - 1 else ''}{shift_mask_expr("rune", i)}]")
     out(";}")
+
+    out("int casefold_fold_range(re *r, u32 begin, u32 end, stk *cc_out) {")
+
+    types = {
+        "int": ["err = 0"],
+        "u32": ["current"] + [f"x{i}" for i in range(len(arrays))],
+    }
+
+    for i, data_type in enumerate(data_types):
+        types[data_type.to_ctype()] = types.setdefault(data_type.to_ctype(), []) + [f"a{i}"]
+
+    for data_type, defs in sorted(types.items()):
+        out(f"{data_type} {','.join(defs)};")
+
+    out("assert(begin <= UTFMAX && end <= UTFMAX && begin <= end);")
+
+    for i, array in reversed(list(enumerate(arrays))):
+        limit = len(arrays[-1]) if i == len(array_sizes) else array_sizes[i]
+        out( "for (")
+        out(f"  x{i} = {shift_mask_expr("begin", i)};")
+        out(f"  x{i} <= 0x{limit - 1:X} && begin <= end;")
+        out(f"  x{i}++")
+        out( ") {")
+        out( "if (")
+        out(f"  (a{i} = casefold_array_{i}[{f"a{i+1} +" if i != len(arrays) - 1 else ""}x{i}])")
+        out(f"    == {fmt_hex(arrays[i].zero_location, data_types[i])}")
+        out( ") {")
+        out(f"  begin = ((begin >> {shifts[i]}) + 1) << {shifts[i]};")
+        out( "  continue;")
+        out( "}")
+
+
+    out("current = begin + a0;")
+    out("while (current != begin) {")
+    out("  if ((err = ccpush(r, cc_out, current, current)))")
+    out("    return err;")
+    out("  current = (u32)((s32)current + casefold_next(current));")
+    out("}")
+    out("begin++;")
+
+    for _ in range(len(arrays)):
+        out("}")
+
+    out("  return err;")
+    out("}")
 
     file: IO = args.file
     _insert_c_file(file, output, "gen_casefold")
