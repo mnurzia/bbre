@@ -423,7 +423,7 @@ TEST(star_two)
 
 TEST(star_ungreedy)
 {
-  ASSERT_MATCH_G2_A("(a*?)", "aa", 0, 0, 0, 0, 'U');
+  ASSERT_MATCH_G2_A("a*?", "aa", 0, 0, 0, 0, 'U');
   PASS();
 }
 

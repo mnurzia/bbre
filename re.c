@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -1609,17 +1610,16 @@ int re_compile(re *r, u32 root, u32 reverse)
       u32 child;
       re_decompast(r, frame.root_ref, args);
       child = args[0];
-      grp_idx = 0;
+      grp_idx = 1;      /* the bounds group is matched by this REG */
       if (!frame.idx) { /* before child */
         patch(r, &frame, my_pc);
-        if ((err = re_emit(
-                 r, INST(MATCH, 0, IMATCH(1, 2 * grp_idx++ + reverse)))))
+        if ((err = re_emit(r, INST(MATCH, 0, IMATCH(0, 1 + set_idx++)))))
           return err;
         patch_add(r, &child_frame, my_pc, 0);
         frame.child_ref = child, frame.idx++;
       } else if (frame.idx) { /* after child */
         patch(r, &returned_frame, my_pc);
-        if ((err = re_emit(r, INST(MATCH, 0, IMATCH(0, 1 + set_idx++)))))
+        if ((err = re_emit(r, INST(MATCH, 0, IMATCH(1, reverse)))))
           return err;
       }
     } else if (type == CHR) {
@@ -1862,19 +1862,18 @@ void save_slots_destroy(re *r, save_slots *s)
 void save_slots_clear(save_slots *s, size_t per_thrd)
 {
   s->slots_size = 0, s->last_empty = 0,
-  s->per_thrd = per_thrd + 1 /* for refcnt */;
+  s->per_thrd = per_thrd + 2 /* for refcnt and setidx */;
 }
 
 int save_slots_new(re *r, save_slots *s, u32 *next)
 {
-  int err = 0;
   assert(s->per_thrd);
   if (s->last_empty) {
     /* reclaim */
     *next = s->last_empty;
     s->last_empty = s->slots[*next * s->per_thrd];
   } else {
-    if (s->slots_size + s->per_thrd > s->slots_alloc) {
+    if ((s->slots_size + 1) * (s->per_thrd + 1) > s->slots_alloc) {
       /* initial alloc / realloc */
       size_t new_alloc =
           (s->slots_alloc ? s->slots_alloc * 2 : 16) * s->per_thrd;
@@ -1885,12 +1884,17 @@ int save_slots_new(re *r, save_slots *s, u32 *next)
         return 0;
       s->slots = new_slots, s->slots_alloc = new_alloc;
     }
-    if (s->slots_size++)
-      *next = s->slots_size;
-    else if ((err = save_slots_new(r, s, next))) /* create sentinel 0th */
-      return err;
-    memset(s->slots + *next * s->per_thrd, 0, sizeof(*s->slots) * s->per_thrd);
+    if (!s->slots_size) {
+      /* initial allocation */
+      memset(s->slots + s->slots_size, 0, sizeof(*s->slots) * s->per_thrd);
+      s->slots_size++;
+    }
+    *next = s->slots_size++;
+    assert(s->slots_size * s->per_thrd <= s->slots_alloc);
   }
+  memset(s->slots + *next * s->per_thrd, 0, sizeof(*s->slots) * s->per_thrd);
+  s->slots[*next * s->per_thrd + s->per_thrd - 1] =
+      1; /* initial refcount = 1 */
   return 0;
 }
 
@@ -1912,7 +1916,8 @@ void save_slots_kill(save_slots *s, u32 ref)
   }
 }
 
-int save_slots_set(re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
+int save_slots_set_internal(
+    re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
 {
   int err;
   *out = ref;
@@ -1928,17 +1933,32 @@ int save_slots_set(re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
     if ((err = save_slots_new(r, s, out)))
       return err;
     save_slots_kill(s, ref); /* decrement refcount */
+    assert(
+        s->slots[*out * s->per_thrd + s->per_thrd - 1] ==
+        1); /* new refcount is 1 */
     memcpy(
         s->slots + *out * s->per_thrd, s->slots + ref * s->per_thrd,
-        sizeof(*s->slots) * s->per_thrd);
-    s->slots[*out * s->per_thrd + idx] = v;
+        sizeof(*s->slots) *
+            (s->per_thrd - 1) /* leave refcount at 1 for new slot */);
+    s->slots[*out * s->per_thrd + idx] = v; /* and update the requested value */
   }
   return 0;
 }
 
 u32 save_slots_perthrd(save_slots *s)
 {
-  return s->per_thrd ? s->per_thrd - 1 : s->per_thrd;
+  return s->per_thrd ? s->per_thrd - 2 : s->per_thrd;
+}
+
+int save_slots_set(re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
+{
+  assert(idx < save_slots_perthrd(s));
+  return save_slots_set_internal(r, s, ref, idx, v, out);
+}
+
+int save_slots_set_setidx(re *r, save_slots *s, u32 ref, u32 setidx, u32 *out)
+{
+  return save_slots_set_internal(r, s, ref, s->per_thrd - 2, (u32)setidx, out);
 }
 
 u32 save_slots_get(save_slots *s, u32 ref, u32 idx)
@@ -1947,18 +1967,23 @@ u32 save_slots_get(save_slots *s, u32 ref, u32 idx)
   return s->slots[ref * s->per_thrd + idx];
 }
 
+u32 save_slots_get_setidx(save_slots *s, u32 ref)
+{
+  return s->slots[ref * s->per_thrd + s->per_thrd - 2];
+}
+
 typedef struct exec_nfa {
   sset a, b, c;
   stk thrd_stk;
   save_slots slots;
-  stk pri_stk;
+  stk pri_stk, pri_bmp;
   int reversed, track;
 } exec_nfa;
 
 void exec_nfa_init(re *r, exec_nfa *n)
 {
   sset_init(r, &n->a), sset_init(r, &n->b), sset_init(r, &n->c);
-  stk_init(r, &n->thrd_stk), stk_init(r, &n->pri_stk);
+  stk_init(r, &n->thrd_stk), stk_init(r, &n->pri_stk), stk_init(r, &n->pri_bmp);
   save_slots_init(r, &n->slots);
   n->reversed = n->track = 0;
 }
@@ -1986,6 +2011,32 @@ thrdspec thrdstk_pop(re *r, stk *s)
   return out;
 }
 
+#define BITS_PER_U32 (sizeof(u32) * CHAR_BIT)
+
+int bmp_init(re *r, stk *s, u32 size)
+{
+  u32 i;
+  int err = 0;
+  for (i = 0; i < (size + BITS_PER_U32) / BITS_PER_U32; i++)
+    if ((err = stk_push(r, s, 0)))
+      return err;
+  return err;
+}
+
+void bmp_clear(stk *s) { memset(s->ptr, 0, s->size * sizeof(u32)); }
+
+void bmp_set(stk *s, u32 idx)
+{
+  /* TODO: assert idx < nsets */
+  s->ptr[idx / BITS_PER_U32] |= (1 << (idx % BITS_PER_U32));
+}
+
+/* returns 0 or a positive value (not necessarily 1) */
+u32 bmp_get(stk *s, u32 idx)
+{
+  return s->ptr[idx / BITS_PER_U32] & (1 << (idx % BITS_PER_U32));
+}
+
 int exec_nfa_start(
     re *r, exec_nfa *n, u32 pc, u32 noff, int reversed, int track)
 {
@@ -2006,10 +2057,14 @@ int exec_nfa_start(
   for (i = 0; i < r->ast_sets; i++)
     if ((err = stk_push(r, &n->pri_stk, 0)))
       return err;
+  if ((err = bmp_init(r, &n->pri_bmp, r->ast_sets)))
+    return err;
   n->reversed = reversed;
   n->track = track;
   return 0;
 }
+
+#define IMPLIES(subj, pred) (!(subj) || (pred))
 
 int exec_nfa_eps(re *r, exec_nfa *n, size_t pos)
 {
@@ -2031,13 +2086,18 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos)
       sset_add(&n->c, top);
       switch (INST_OP(re_prog_get(r, top.pc))) {
       case MATCH:
-        if (IMATCH_S(INST_P(op))) /* this is a save */ {
-          if (IMATCH_I(INST_P(op)) < save_slots_perthrd(&n->slots)) {
-            if ((err = save_slots_set(
-                     r, &n->slots, top.slot, IMATCH_I(INST_P(op)), pos,
-                     &top.slot)))
-              return err;
-          }
+        if (INST_N(op)) {
+          u32 idx = IMATCH_S(INST_P(op))
+                        ? IMATCH_I(INST_P(op)) /* this is a save */
+                        : n->reversed /* this is a set index marker */;
+          if (!IMATCH_S(INST_P(op)) &&
+              (err = save_slots_set_setidx(
+                   r, &n->slots, top.slot, IMATCH_I(INST_P(op)), &top.slot)))
+            return err;
+          if (idx < save_slots_perthrd(&n->slots) &&
+              (err =
+                   save_slots_set(r, &n->slots, top.slot, idx, pos, &top.slot)))
+            return err;
           top.pc = INST_N(op);
           if ((err = thrdstk_push(r, &n->thrd_stk, top)))
             return err;
@@ -2050,8 +2110,10 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos)
         thrdspec pri, sec;
         pri.pc = INST_N(op), pri.slot = top.slot;
         sec.pc = INST_P(op), sec.slot = save_slots_fork(&n->slots, top.slot);
-        if ((err = thrdstk_push(r, &n->thrd_stk, pri)) ||
-            (err = thrdstk_push(r, &n->thrd_stk, sec)))
+        if ((err = thrdstk_push(r, &n->thrd_stk, sec)) ||
+            (err = thrdstk_push(r, &n->thrd_stk, pri)))
+          /* sec is pushed first because it needs to be processed after pri.
+           * pri comes off the stack first because it's FIFO. */
           return err;
         break;
       }
@@ -2065,31 +2127,51 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos)
 }
 
 int exec_nfa_matchend(
-    re *r, exec_nfa *n, u32 idx, thrdspec thrd, size_t pos, unsigned int ch)
+    re *r, exec_nfa *n, thrdspec thrd, size_t pos, unsigned int ch)
 {
-  int err;
+  int err = 0;
+  u32 idx = save_slots_get_setidx(&n->slots, thrd.slot);
   u32 *memo = n->pri_stk.ptr + idx - 1;
+  assert(idx > 0); /* save_slots_set_setidx() MUST have been called */
+  assert(idx - 1 < n->pri_stk.size);
   if (!n->track && ch < 256)
-    return 0;
+    return err;
   if (n->slots.per_thrd) {
-    if (*memo)
+    u32 slot_idx = !n->reversed;
+    if (*memo) {
+      if ((u32)n->reversed < save_slots_perthrd(&n->slots)) {
+        size_t start = save_slots_get(
+          &n->slots, thrd.slot,
+          n->reversed /* TODO: should this actually be n->reversed or just 0 if we want leftmost matches */);
+        if (pos >= start)
+          return 0;
+      }
       save_slots_kill(&n->slots, *memo);
-    if ((err =
-             save_slots_set(r, &n->slots, thrd.slot, !n->reversed, pos, memo)))
+    }
+    *memo = thrd.slot;
+    if (slot_idx < save_slots_perthrd(&n->slots) &&
+        (err = save_slots_set(r, &n->slots, thrd.slot, slot_idx, pos, memo)))
       return err;
   } else {
     *memo = 1; /* just mark that a set was matched */
   }
-  return 0;
+  return err;
 }
 
 int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
 {
   int err;
   size_t i;
+  bmp_clear(&n->pri_bmp);
   for (i = 0; i < n->b.dense_size; i++) {
     thrdspec thrd = n->b.dense[i];
     inst op = re_prog_get(r, thrd.pc);
+    int pri =
+        save_slots_perthrd(&n->slots)
+            ? bmp_get(&n->pri_bmp, save_slots_get_setidx(&n->slots, thrd.slot))
+            : 0;
+    if (!pri)
+      bmp_set(&n->pri_bmp, pri);
     switch (INST_OP(op)) {
     case RANGE: {
       byte_range br = u2br(INST_P(op));
@@ -2101,8 +2183,8 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
       break;
     }
     case MATCH: {
-      assert(!IMATCH_S(INST_P(op)));
-      if ((err = exec_nfa_matchend(r, n, IMATCH_I(INST_P(op)), thrd, pos, ch)))
+      assert(!INST_N(op));
+      if ((err = exec_nfa_matchend(r, n, thrd, pos, ch)))
         return err;
       break;
     }
@@ -2249,24 +2331,25 @@ void astdump_i(re *r, u32 root, u32 ilvl)
 
 void astdump(re *r, u32 root) { astdump_i(r, root, 0); }
 
-void progdump(re *r)
+void progdump_range(re *r, u32 start, u32 end)
 {
-  u32 i, j, k;
-  for (i = 0; i < re_prog_size(r); i++) {
-    inst ins = re_prog_get(r, i);
+  u32 j, k;
+  assert(end <= re_prog_size(r));
+  for (start = 0; start < end; start++) {
+    inst ins = re_prog_get(r, start);
     static const char *ops[] = {"RANGE", "ASSRT", "MATCH", "SPLIT"};
     static const int colors[] = {91, 92, 93, 94};
     static const char *labels[] = {"F  ", "R  ", "F.*", "R.*", "   ", "+  "};
     k = 4;
     for (j = 0; j < 4; j++) {
-      if (i == r->entry[j]) {
+      if (start == r->entry[j]) {
         k = k == 4 ? j : 5;
       }
     }
     printf(
-        "%04X \x1b[%im%s\x1b[0m \x1b[%im%04X\x1b[0m %04X %s", i,
+        "%04X \x1b[%im%s\x1b[0m \x1b[%im%04X\x1b[0m %04X %s", start,
         colors[INST_OP(ins)], ops[INST_OP(ins)],
-        INST_N(ins) ? (INST_N(ins) == i + 1 ? 90 : 0) : 91, INST_N(ins),
+        INST_N(ins) ? (INST_N(ins) == start + 1 ? 90 : 0) : 91, INST_N(ins),
         INST_P(ins), labels[k]);
     if (INST_OP(ins) == MATCH) {
       printf(
@@ -2275,6 +2358,15 @@ void progdump(re *r)
     printf("\n");
   }
 }
+
+void progdump(re *r) { progdump_range(r, 1, r->entry[ENT_REV]); }
+
+void progdump_r(re *r)
+{
+  progdump_range(r, r->entry[ENT_REV], re_prog_size(r));
+}
+
+void progdump_whole(re *r) { progdump_range(r, 0, re_prog_size(r)); }
 
 void cctreedump_i(stk *cc_tree, u32 ref, u32 lvl)
 {
