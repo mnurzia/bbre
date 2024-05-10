@@ -1976,14 +1976,14 @@ typedef struct exec_nfa {
   sset a, b, c;
   stk thrd_stk;
   save_slots slots;
-  stk pri_stk, pri_bmp;
+  stk pri_stk;
   int reversed, track;
 } exec_nfa;
 
 void exec_nfa_init(re *r, exec_nfa *n)
 {
   sset_init(r, &n->a), sset_init(r, &n->b), sset_init(r, &n->c);
-  stk_init(r, &n->thrd_stk), stk_init(r, &n->pri_stk), stk_init(r, &n->pri_bmp);
+  stk_init(r, &n->thrd_stk), stk_init(r, &n->pri_stk);
   save_slots_init(r, &n->slots);
   n->reversed = n->track = 0;
 }
@@ -2011,32 +2011,6 @@ thrdspec thrdstk_pop(re *r, stk *s)
   return out;
 }
 
-#define BITS_PER_U32 (sizeof(u32) * CHAR_BIT)
-
-int bmp_init(re *r, stk *s, u32 size)
-{
-  u32 i;
-  int err = 0;
-  for (i = 0; i < (size + BITS_PER_U32) / BITS_PER_U32; i++)
-    if ((err = stk_push(r, s, 0)))
-      return err;
-  return err;
-}
-
-void bmp_clear(stk *s) { memset(s->ptr, 0, s->size * sizeof(u32)); }
-
-void bmp_set(stk *s, u32 idx)
-{
-  /* TODO: assert idx < nsets */
-  s->ptr[idx / BITS_PER_U32] |= (1 << (idx % BITS_PER_U32));
-}
-
-/* returns 0 or a positive value (not necessarily 1) */
-u32 bmp_get(stk *s, u32 idx)
-{
-  return s->ptr[idx / BITS_PER_U32] & (1 << (idx % BITS_PER_U32));
-}
-
 int exec_nfa_start(
     re *r, exec_nfa *n, u32 pc, u32 noff, int reversed, int track)
 {
@@ -2057,8 +2031,6 @@ int exec_nfa_start(
   for (i = 0; i < r->ast_sets; i++)
     if ((err = stk_push(r, &n->pri_stk, 0)))
       return err;
-  if ((err = bmp_init(r, &n->pri_bmp, r->ast_sets)))
-    return err;
   n->reversed = reversed;
   n->track = track;
   return 0;
@@ -2162,16 +2134,9 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
 {
   int err;
   size_t i;
-  bmp_clear(&n->pri_bmp);
   for (i = 0; i < n->b.dense_size; i++) {
     thrdspec thrd = n->b.dense[i];
     inst op = re_prog_get(r, thrd.pc);
-    int pri =
-        save_slots_perthrd(&n->slots)
-            ? bmp_get(&n->pri_bmp, save_slots_get_setidx(&n->slots, thrd.slot))
-            : 0;
-    if (!pri)
-      bmp_set(&n->pri_bmp, pri);
     switch (INST_OP(op)) {
     case RANGE: {
       byte_range br = u2br(INST_P(op));
