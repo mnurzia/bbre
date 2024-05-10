@@ -50,4 +50,11 @@
   [ ] (?:re)
   [ ] (?flags)
   [ ] (?flags:re)
+  [ ] (?-flags:re)
+  [ ] (?flags-flags:re)
+  [ ] individual flags
+    [X] i
+    [ ] m
+    [X] s
+    [ ] U
 [ ] ungreedy ?

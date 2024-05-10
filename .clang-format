@@ -8,6 +8,6 @@ BreakBeforeBraces: Linux
 ReflowComments: true
 AlignArrayOfStructures: Left
 AlignConsecutiveMacros: Consecutive
-AlignTrailingComments: false
+AlignTrailingComments: true
 SeparateDefinitionBlocks: Always
 IndentPPDirectives: BeforeHash

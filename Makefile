@@ -49,15 +49,15 @@ debug_testoom_%: build/re
 
 build/cov/re-cov: build $(SRCS)
 	rm -rf build/*.gcda build/*.gcno 
-	$(CC) $(CFLAGS) -DRE_COV $(COVCFLAGS) $(SRCS) -o $@
+	$(CC) $(CFLAGS) -DRE_COV -DNDEBUG $(COVCFLAGS) $(SRCS) -o $@
 
 build/cov/lcov.info: build/cov build/cov/re-cov
 	rm -rf $@ build/cov/*.gcda
 	cd build/cov; ./re-cov --leak-check --fault-check
-	lcov --directory build/cov --base-directory . --capture --exclude test -o $@
+	lcov --rc lcov_branch_coverage=1 --directory build/cov --base-directory . --capture --exclude test -o $@
 
 build/cov/index.html: build/cov/lcov.info
-	genhtml build/cov/lcov.info --output-directory build/cov
+	genhtml build/cov/lcov.info --branch-coverage --output-directory build/cov
 
 tools/.ucd.zip:
 	python tools/unicode_data.py --debug --db tools/.ucd.zip fetch

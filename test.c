@@ -11,6 +11,9 @@
 
 #ifdef TEST_BULK
   #define TEST_NAMED_CLASS_RANGE_MAX 0x110000
+#elif RE_COV
+  /* to ensure the OOM checker doesn't take a long-ass time */
+  #define TEST_NAMED_CLASS_RANGE_MAX 0x1
 #else
   #define TEST_NAMED_CLASS_RANGE_MAX 0x80
 #endif
@@ -120,8 +123,17 @@ int check_match_g1_a(
 {
   span g;
   g.begin = b, g.end = e;
-
   return check_match(regex, s, strlen(s), 1, 1, anchor, &g, NULL, 1);
+}
+
+int check_match_g2_a(
+    const char *regex, const char *s, size_t b, size_t e, size_t b2, size_t e2,
+    anchor_type anchor)
+{
+  span g[2];
+  g[0].begin = b, g[0].end = e;
+  g[1].begin = b2, g[1].end = e2;
+  return check_match(regex, s, strlen(s), 2, 1, anchor, g, NULL, 1);
 }
 
 #define ASSERT_MATCH(regex, str)  PROPAGATE(check_fullmatch(regex, str))
@@ -134,6 +146,10 @@ int check_match_g1_a(
   PROPAGATE(check_match_g1_a(regex, str, b, e, anchor))
 #define ASSERT_MATCH_1(regex, str, b, e)                                       \
   ASSERT_MATCH_1_A(regex, str, b, e, A_BOTH)
+#define ASSERT_MATCH_2_A(regex, str, b, e, b2, e2, anchor)                     \
+  PROPAGATE(check_match_g2_a(regex, str, b, e, b2, e2, anchor))
+#define ASSERT_MATCH_2(regex, str, b, e, b2, e2)                               \
+  ASSERT_MATCH_2_A(regex, str, b, e, b2, e2, A_BOTH)
 
 #define ASSERT_MATCH_ONLY(regex, str) ASSERT_MATCH(regex, str)
 
@@ -660,6 +676,12 @@ TEST(cls_named_unknown)
   PASS();
 }
 
+TEST(cls_insensitive)
+{
+  ASSERT_CC_MATCH("(?i:[a])", "a a,A A");
+  PASS();
+}
+
 SUITE(cls)
 {
   RUN_SUITE(cls_escape);
@@ -671,6 +693,7 @@ SUITE(cls)
   RUN_TEST(cls_ending_dash);
   RUN_TEST(cls_named_unfinished);
   RUN_TEST(cls_named_unknown);
+  RUN_TEST(cls_insensitive);
 }
 
 TEST(escape_null)
@@ -1033,6 +1056,12 @@ SUITE(escape_quote)
 
 SUITE(escape_perlclass); /* provided by test-gen.c */
 
+TEST(escape_unfinished)
+{
+  ASSERT_NOPARSE("\\");
+  PASS();
+}
+
 SUITE(escape)
 {
   RUN_TEST(escape_null);
@@ -1059,6 +1088,7 @@ SUITE(escape)
   RUN_TEST(escape_any_byte);
   RUN_SUITE(escape_quote);
   RUN_SUITE(escape_perlclass);
+  RUN_TEST(escape_unfinished);
 }
 
 TEST(repetition_zero_empty)
@@ -1289,13 +1319,230 @@ SUITE(repetition)
   RUN_TEST(repetition_one_three_nonmatch);
 }
 
-TEST(grp_flags)
+TEST(grp_flag_i_match)
 {
   ASSERT_MATCH("(?i:a)", "A");
   PASS();
 }
 
-SUITE(grp) { RUN_TEST(grp_flags); }
+TEST(grp_flag_i_nmatch)
+{
+  ASSERT_NMATCH("(?i:a)", "B");
+  PASS();
+}
+
+TEST(grp_flag_i_off_match)
+{
+  ASSERT_MATCH("(?i:(?-i:a))", "a");
+  PASS();
+}
+
+TEST(grp_flag_i_off_nmatch)
+{
+  ASSERT_NMATCH("(?i:(?-i:a))", "A");
+  PASS();
+}
+
+SUITE(grp_flag_i)
+{
+  RUN_TEST(grp_flag_i_match);
+  RUN_TEST(grp_flag_i_nmatch);
+  RUN_TEST(grp_flag_i_off_match);
+  RUN_TEST(grp_flag_i_off_nmatch);
+}
+
+TEST(grp_flag_s_match)
+{
+  ASSERT_MATCH("(?s:.)", "\n");
+  PASS();
+}
+
+TEST(grp_flag_s_nmatch)
+{
+  /* since with s-flag . matches everything, just give it an invalid utf-8 */
+  ASSERT_NMATCH("(?s:.)", "\xff");
+  PASS();
+}
+
+TEST(grp_flag_s_off_match)
+{
+  ASSERT_MATCH("(?s:(?-s:.))", "a");
+  PASS();
+}
+
+TEST(grp_flag_s_off_nmatch)
+{
+  ASSERT_NMATCH("(?s:(?-s:.))", "\n");
+  PASS();
+}
+
+SUITE(grp_flag_s)
+{
+  RUN_TEST(grp_flag_s_match);
+  RUN_TEST(grp_flag_s_nmatch);
+  RUN_TEST(grp_flag_s_off_match);
+  RUN_TEST(grp_flag_s_off_nmatch);
+}
+
+TEST(grp_named_regular)
+{
+  ASSERT_MATCH("(?<name>a)", "a");
+  PASS();
+}
+
+TEST(grp_named_regular_unfinished)
+{
+  ASSERT_NOPARSE("(?<name");
+  PASS();
+}
+
+TEST(grp_named_regular_malformed_before_name)
+{
+  ASSERT_NOPARSE("(?\xff");
+  PASS();
+}
+
+TEST(grp_named_regular_malformed)
+{
+  ASSERT_NOPARSE("(?<name\xff");
+  PASS();
+}
+
+TEST(grp_named_perl)
+{
+  ASSERT_MATCH("(?P<name>a)", "a");
+  PASS();
+}
+
+TEST(grp_named_perl_unfinished_before_name)
+{
+  ASSERT_NOPARSE("(?P");
+  PASS();
+}
+
+TEST(grp_named_perl_malformed_before_name)
+{
+  ASSERT_NOPARSE("(?P\xff");
+  PASS();
+}
+
+TEST(grp_named_perl_unfinished)
+{
+  ASSERT_NOPARSE("(?P<name");
+  PASS();
+}
+
+TEST(grp_named_perl_malformed)
+{
+  ASSERT_NOPARSE("(?P<name\xff");
+  PASS();
+}
+
+TEST(grp_named_perl_invalid)
+{
+  ASSERT_MATCH("(?P<name>a)", "a");
+  PASS();
+}
+
+TEST(grp_named_perl_invalid_before_name)
+{
+  ASSERT_NOPARSE("(?Pl");
+  PASS();
+}
+
+SUITE(grp_named)
+{
+  RUN_TEST(grp_named_regular);
+  RUN_TEST(grp_named_regular_unfinished);
+  RUN_TEST(grp_named_regular_malformed);
+  RUN_TEST(grp_named_regular_malformed_before_name);
+  RUN_TEST(grp_named_perl_unfinished_before_name);
+  RUN_TEST(grp_named_perl_malformed_before_name);
+  RUN_TEST(grp_named_perl);
+  RUN_TEST(grp_named_perl_unfinished);
+  RUN_TEST(grp_named_perl_invalid_before_name);
+}
+
+TEST(grp_unfinished)
+{
+  ASSERT_NOPARSE("(");
+  PASS();
+}
+
+TEST(grp_malformed)
+{
+  ASSERT_NOPARSE("(\xff");
+  PASS();
+}
+
+TEST(grp_empty)
+{
+  ASSERT_MATCH_2("()", "", 0, 0, 0, 0);
+  PASS();
+}
+
+TEST(grp_nonmatching_unfinished)
+{
+  ASSERT_NOPARSE("(?");
+  PASS();
+}
+
+TEST(grp_nonmatching_malformed)
+{
+  ASSERT_NOPARSE("(?\xff");
+  PASS();
+}
+
+TEST(grp_negate_twice)
+{
+  ASSERT_NOPARSE("(?--:)");
+  PASS();
+}
+
+TEST(grp_inline_flag_set_match)
+{
+  ASSERT_MATCH("(a(?i)a)", "aA");
+  PASS();
+}
+
+TEST(grp_inline_flag_reset_match)
+{
+  ASSERT_MATCH("(a(?i)a(?-i)a)", "aAa");
+  PASS();
+}
+
+TEST(grp_inline_flag_reset_nmatch)
+{
+  ASSERT_NMATCH("a(?i)a(?-i)a", "aAA");
+  PASS();
+}
+
+TEST(grp_after_cat)
+{
+  ASSERT_MATCH_2("a(b)", "ab", 0, 2, 1, 2);
+  PASS();
+}
+
+SUITE(grp_inline_flag)
+{
+  RUN_TEST(grp_inline_flag_set_match);
+  RUN_TEST(grp_inline_flag_reset_match);
+  RUN_TEST(grp_inline_flag_reset_nmatch);
+}
+
+SUITE(grp)
+{
+  RUN_SUITE(grp_flag_i);
+  RUN_SUITE(grp_flag_s);
+  RUN_SUITE(grp_named);
+  RUN_TEST(grp_unfinished);
+  RUN_TEST(grp_empty);
+  RUN_TEST(grp_nonmatching_unfinished);
+  RUN_TEST(grp_nonmatching_malformed);
+  RUN_TEST(grp_negate_twice);
+  RUN_SUITE(grp_inline_flag);
+  RUN_TEST(grp_after_cat);
+}
 
 int main(int argc, const char *const *argv)
 {

@@ -36,7 +36,7 @@ struct re {
 void *re_default_alloc(size_t prev, size_t next, void *ptr)
 {
   if (next) {
-    assert(prev || !ptr);
+    (void)prev, assert(prev || !ptr);
     return realloc(ptr, next);
   } else if (ptr) {
     free(ptr);
@@ -167,14 +167,15 @@ void re_destroy(re *r)
 
 typedef enum ast_type {
   REG = 1, /* entire subexpression */
-  CHR, /* single character */
-  CAT, /* concatenation */
-  ALT, /* alternation */
-  QUANT, /* quantifier */
-  GROUP, /* group */
-  CLS, /* character class */
-  ICLS, /* inverted character class */
-  ANYBYTE /* any byte (\C) */
+  CHR,     /* single character */
+  CAT,     /* concatenation */
+  ALT,     /* alternation */
+  QUANT,   /* quantifier */
+  GROUP,   /* group */
+  IGROUP,  /* inline group */
+  CLS,     /* character class */
+  ICLS,    /* inverted character class */
+  ANYBYTE  /* any byte (\C) */
 } ast_type;
 
 const unsigned int ast_type_lens[] = {
@@ -185,17 +186,18 @@ const unsigned int ast_type_lens[] = {
     2, /* ALT */
     3, /* QUANT */
     3, /* GROUP */
+    3, /* IGROUP */
     3, /* CLS */
     3, /* ICLS */
     0, /* ANYBYTE */
 };
 
 typedef enum group_flag {
-  INSENSITIVE = 1,
-  MULTILINE = 2,
-  DOTNEWLINE = 4,
-  UNGREEDY = 8,
-  NONCAPTURING = 16
+  INSENSITIVE = 1,  /* case-insensitive matching */
+  MULTILINE = 2,    /* ^$ match beginning/end of each line */
+  DOTNEWLINE = 4,   /* . matches \n */
+  UNGREEDY = 8,     /* ungreedy quantifiers */
+  NONCAPTURING = 16 /* non-capturing group (?:...) */
 } group_flag;
 
 typedef struct byte_range {
@@ -237,16 +239,15 @@ int re_mkast(re *re, ast_type type, u32 p0, u32 p1, u32 p2, u32 *out)
   return stk_pushn(re, &re->ast, args, (1 + ast_type_lens[type]) * sizeof(u32));
 }
 
-void re_decompast(re *re, u32 root, u32 nargs, u32 *out_args)
+void re_decompast(re *re, u32 root, u32 *out_args)
 {
   u32 *in_args = stk_getn(&re->ast, root);
-  (void)nargs;
   memcpy(out_args, in_args + 1, ast_type_lens[*in_args] * sizeof(u32));
 }
 
-u32 *re_astarg(re *re, u32 root, u32 n, u32 nargs)
+u32 *re_astarg(re *re, u32 root, u32 n)
 {
-  (void)nargs;
+  assert(ast_type_lens[re->ast.ptr[root]] > n);
   return re->ast.ptr + root + 1 + n;
 }
 
@@ -376,16 +377,32 @@ int re_fold(re *r)
 /* Given a node R on the argument stack and an arbitrary number of ALT nodes at
  * the end of the operator stack, fold and finish each ALT node into a single
  * resulting ALT node on the argument stack. */
-int re_fold_alts(re *r)
+int re_fold_alts(re *r, u32 *flags)
 {
   int err = 0;
-  assert(r->arg_stk.size);
+  assert(r->arg_stk.size == 1);
+  /* First pop all inline groups. */
+  while (r->op_stk.size &&
+         *re_asttype(r, stk_peek(r, &r->op_stk, 0)) == IGROUP) {
+    /* arg_stk: |  R  | */
+    /* op_stk:  | ... | (S) | */
+    u32 igrp = stk_pop(r, &r->op_stk), prev = *re_astarg(r, igrp, 0), cat,
+        old_flags = *re_astarg(r, igrp, 2);
+    *re_astarg(r, igrp, 0) = stk_pop(r, &r->arg_stk);
+    *flags = old_flags;
+    if ((err = re_mkast(r, CAT, prev, igrp, 0, &cat)) ||
+        (err = stk_push(r, &r->arg_stk, cat)))
+      return err;
+    /* arg_stk: | S(R)| */
+    /* op_stk:  | ... | */
+  }
+  assert(r->arg_stk.size == 1);
   /* arg_stk: |  R  | */
   /* op_stk:  | ... | */
   if (r->op_stk.size && *re_asttype(r, stk_peek(r, &r->op_stk, 0)) == ALT) {
     /* op_stk:  | ... |  A  | */
     /* finish the last alt */
-    *re_astarg(r, stk_peek(r, &r->op_stk, 0), 1, 2) = stk_pop(r, &r->arg_stk);
+    *re_astarg(r, stk_peek(r, &r->op_stk, 0), 1) = stk_pop(r, &r->arg_stk);
     /* arg_stk: | */
     /* op_stk:  | ... | */
   }
@@ -394,7 +411,7 @@ int re_fold_alts(re *r)
          *re_asttype(r, stk_peek(r, &r->op_stk, 1)) == ALT) {
     /* op_stk:  | ... | A_1 | A_2 | */
     u32 right = stk_pop(r, &r->op_stk), left = stk_pop(r, &r->op_stk);
-    *re_astarg(r, left, 1, 2) = right;
+    *re_astarg(r, left, 1) = right;
     if ((err = stk_push(r, &r->op_stk, left)))
       return err;
     /* op_stk:  | ... | A_1(|A_2) | */
@@ -414,7 +431,7 @@ u32 re_uncc(re *r, u32 rest, u32 first)
 {
   u32 cur = first, *next;
   assert(first);
-  while (*(next = re_astarg(r, cur, 2, 3)))
+  while (*(next = re_astarg(r, cur, 2)))
     cur = *next;
   *next = rest;
   return first;
@@ -424,7 +441,7 @@ int re_parse_escape_addchr(re *r, u32 ch, u32 allowed_outputs)
 {
   int err = 0;
   u32 res, args[1];
-  assert(allowed_outputs & (1 << CHR));
+  (void)allowed_outputs, assert(allowed_outputs & (1 << CHR));
   args[0] = ch;
   if ((err = re_mkast(r, CHR, ch, 0, 0, &res)) ||
       (err = stk_push(r, &r->arg_stk, res)))
@@ -496,23 +513,23 @@ int re_parse_escape(re *r, u32 allowed_outputs)
   int err = 0;
   if ((err = re_next(r, &ch, "expected escape sequence")))
     return err;
-  if (/* single character escapes */
+  if (                              /* single character escapes */
       (ch == 'a' && (ch = '\a')) || /* bell */
       (ch == 'f' && (ch = '\f')) || /* form feed */
       (ch == 't' && (ch = '\t')) || /* tab */
       (ch == 'n' && (ch = '\n')) || /* newline */
       (ch == 'r' && (ch = '\r')) || /* carriage return */
       (ch == 'v' && (ch = '\v')) || /* vertical tab */
-      (ch == '?') || /* question mark */
-      (ch == '*') || /* asterisk */
-      (ch == '+') || /* plus */
-      (ch == '(') || /* open parenthesis */
-      (ch == ')') || /* close parenthesis */
-      (ch == '[') || /* open bracket */
-      (ch == ']') || /* close bracket */
-      (ch == '{') || /* open curly bracket */
-      (ch == '}') || /* close curly bracket */
-      (ch == '|') || /* pipe */
+      (ch == '?') ||                /* question mark */
+      (ch == '*') ||                /* asterisk */
+      (ch == '+') ||                /* plus */
+      (ch == '(') ||                /* open parenthesis */
+      (ch == ')') ||                /* close parenthesis */
+      (ch == '[') ||                /* open bracket */
+      (ch == ']') ||                /* close bracket */
+      (ch == '{') ||                /* open curly bracket */
+      (ch == '}') ||                /* close curly bracket */
+      (ch == '|') ||                /* pipe */
       (ch == '\\') /* escaped slash */) {
     return re_parse_escape_addchr(r, ch, allowed_outputs);
   } else if (ch >= '0' && ch <= '7') { /* octal escape */
@@ -600,7 +617,7 @@ int re_parse_escape(re *r, u32 allowed_outputs)
     /* Perl builtin character classes */
     const char *cc_name;
     int inverted = ch >= 'A' && ch <= 'Z'; /* uppercase are inverted */
-    ch = inverted ? ch - 'A' + 'a' : ch; /* convert to lowercase */
+    ch = inverted ? ch - 'A' + 'a' : ch;   /* convert to lowercase */
     cc_name = ch == 'd' ? "digit" : ch == 's' ? "perl_space" : "word";
     if (!(allowed_outputs & (1 << CLS)))
       return re_parse_err(r, "cannot use a character classe here");
@@ -637,8 +654,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
   r->expr = ts;
   r->expr_size = tsz, r->expr_pos = 0;
   while (re_hasmore(r)) {
-    u32 ch;
-    u32 args[3] = {REF_NONE}, res = REF_NONE;
+    u32 ch, res = REF_NONE;
     if ((err = re_next(r, &ch, NULL)))
       return err;
     if (ch == '*' || ch == '+' || ch == '?') {
@@ -646,9 +662,9 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* pop one from arg stk, create quant, push to arg stk */
       if (!r->arg_stk.size)
         return re_parse_err(r, "cannot apply quantifier to empty regex");
-      args[0] = stk_pop(r, &r->arg_stk);
-      args[1] = ch == '+', args[2] = (ch == '?' ? 1 : INFTY);
-      if ((err = re_mkast(r, QUANT, args[0], args[1], args[2], &res)) ||
+      if ((err = re_mkast(
+               r, QUANT, stk_pop(r, &r->arg_stk) /* child */,
+               ch == '+' /* min */, ch == '?' ? 1 : INFTY /* max */, &res)) ||
           (err = stk_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... | *(R) | */
@@ -659,16 +675,17 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       if ((err = re_fold(r)))
         return err;
       /* arg_stk: |  R  | */
-      args[0] = stk_pop(r, &r->arg_stk);
-      args[1] = REF_NONE;
-      if ((err = re_mkast(r, ALT, args[0], args[1], 0, &res)) ||
+      if ((err = re_mkast(
+               r, ALT, stk_pop(r, &r->arg_stk) /* left */, REF_NONE /* right */,
+               0, &res)) ||
           (err = stk_push(r, &r->op_stk, res)))
         return err;
       /* arg_stk: | */
       /* op_stk:  | ... | R(|) | */
     } else if (ch == '(') {
-      u32 old_flags = flags;
-      /* op_stk:  | ... | */
+      u32 old_flags = flags, inline_group = 0;
+      if (!re_hasmore(r))
+        return re_parse_err(r, "expected ')' to close group");
       if ((err = re_peek_next(r, &ch)))
         return err;
       if (ch == '?') { /* start of group flags */
@@ -695,9 +712,9 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
               break;
           }
         } else {
+          u32 neg = 0, flag;
           while (1) {
-            u32 neg = 0, flag;
-            if (ch == ':' || ch == '(')
+            if (ch == ':' || ch == ')')
               break;
             else if (ch == '-') {
               if (neg)
@@ -708,7 +725,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
                 (ch == 'm' && (flag = MULTILINE)) ||
                 (ch == 's' && (flag = DOTNEWLINE)) ||
                 (ch == 'u' && (flag = UNGREEDY))) {
-              flags = neg ? flags & flag : flags | flag;
+              flags = neg ? flags & ~flag : flags | flag;
             } else {
               return re_parse_err(
                   r, "expected ':', ')', or group flags for special group");
@@ -718,46 +735,58 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
                      "expected ':', ')', or group flags for special group")))
               return err;
           }
-          if (ch == ':') {
-            flags |= NONCAPTURING;
-          } else { /* ch == ')' */
-            /* inline flag set */
-            /* don't make group */
-            continue;
-          }
+          flags |= NONCAPTURING;
+          if (ch == ')')
+            inline_group = 1;
         }
       }
-      if ((err = re_mkast(r, GROUP, 0, flags, old_flags, &res)) ||
+      /* op_stk:  | ... | */
+      /* arg_stk: | R_1 | R_2 | ... | R_N | */
+      if ((err = re_fold(r)))
+        return err;
+      /* arg_stk: |  R  | */
+      if ((err = re_mkast(
+               r, inline_group ? IGROUP : GROUP, stk_pop(r, &r->arg_stk), flags,
+               old_flags, &res)) ||
           (err = stk_push(r, &r->op_stk, res)))
         return err;
-      /* op_stk:  | ... | () | */
+      /* op_stk:  | ... | (R) | */
     } else if (ch == ')') {
-      u32 grp;
-      /* arg_stk: | R_1 | R_2 | ... | R_N | */
-      /* op_stk:  | ... |  () | ... | */
+      u32 grp, prev;
+      /* arg_stk: | S_1 | S_2 | ... | S_N | */
+      /* op_stk:  | ... | (R) | ... | */
       /* fold the arg stk into a concat, fold remaining alts, create group,
        * push it to the arg stk */
-      if ((err = re_fold(r)) || (err = re_fold_alts(r)))
+      if ((err = re_fold(r)) || (err = re_fold_alts(r, &flags)))
         return err;
       /* arg_stk has one value */
       assert(r->arg_stk.size == 1);
       if (!r->op_stk.size)
         return re_parse_err(r, "extra close parenthesis");
-      /* arg_stk: |  R  | */
-      /* op_stk:  | ... |  () | */
+      /* arg_stk: |  S  | */
+      /* op_stk:  | ... | (R) | */
       grp = stk_peek(r, &r->op_stk, 0);
+      /* retrieve the previous contents of arg_stk */
+      prev = *re_astarg(r, grp, 0);
       /* add it to the group */
-      *(re_astarg(r, grp, 0, 3)) = stk_pop(r, &r->arg_stk);
+      *(re_astarg(r, grp, 0)) = stk_pop(r, &r->arg_stk);
       /* restore group flags */
-      flags = *(re_astarg(r, grp, 2, 3));
+      flags = *(re_astarg(r, grp, 2));
+      /* push the saved contents of arg_stk */
+      if (prev && (err = stk_push(r, &r->arg_stk, prev)))
+        return err;
       /* pop the group frame into arg_stk */
       if ((err = stk_push(r, &r->arg_stk, stk_pop(r, &r->op_stk))))
         return err;
-      /* arg_stk: | (R) | */
+      /* arg_stk: |  S  |  R  | */
       /* op_stk:  | ... | */
     } else if (ch == '.') { /* any char */
       /* arg_stk: | ... | */
-      if ((err = re_mkast(r, CLS, 0, UTFMAX, REF_NONE, &res)) ||
+      if (((flags & DOTNEWLINE) &&
+           (err = re_mkast(r, CLS, 0, UTFMAX, REF_NONE, &res))) ||
+          (!(flags & DOTNEWLINE) &&
+           ((err = re_mkast(r, CLS, 0, '\n' - 1, REF_NONE, &res)) ||
+            (err = re_mkast(r, CLS, '\n' + 1, UTFMAX, res, &res)))) ||
           (err = stk_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... |  .  | */
@@ -779,14 +808,14 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
                (r->expr_pos - start == 2 && inverted))) {
             min = ch; /* charclass starts with ] */
           } else
-            break; /* charclass done */
+            break;               /* charclass done */
         } else if (ch == '\\') { /* escape */
           if ((err = re_parse_escape(r, (1 << CHR) | (1 << CLS))))
             return err;
           next = stk_pop(r, &r->arg_stk);
           assert(*re_asttype(r, next) == CHR || *re_asttype(r, next == CLS));
           if (*re_asttype(r, next) == CHR)
-            min = *re_astarg(r, next, 0, 1); /* single-character escape */
+            min = *re_astarg(r, next, 0); /* single-character escape */
           else if (*re_asttype(r, next) == CLS) {
             re_uncc(r, res, next);
             /* we parsed an entire class, so there's no ending character */
@@ -800,7 +829,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
           err = re_next(r, &ch, NULL); /* : */
           assert(!err && ch == ':');
           if (re_hasmore(r) && !re_peek_next(r, &ch) &&
-              ch == '^') { /* inverted named class */
+              ch == '^') {               /* inverted named class */
             err = re_next(r, &ch, NULL); /* ^ */
             assert(!err && ch == '^');
             named_inverted = 1;
@@ -842,7 +871,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
               return err;
             next = stk_pop(r, &r->arg_stk);
             assert(*re_asttype(r, next) == CHR);
-            max = *re_astarg(r, next, 0, 1);
+            max = *re_astarg(r, next, 0);
           } else {
             max = ch; /* non-escaped character */
           }
@@ -850,7 +879,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         if ((err = re_mkast(r, CLS, min, max, res, &res)))
           return err;
       }
-      assert(res); /* charclass cannot be empty */
+      assert(res);  /* charclass cannot be empty */
       if (inverted) /* inverted character class */
         *re_asttype(r, res) = ICLS;
       if ((err = stk_push(r, &r->arg_stk, res)))
@@ -890,14 +919,13 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         return err;
     } else { /* char: push to the arg stk */
       /* arg_stk: | ... | */
-      args[0] = ch;
       if ((err = re_mkast(r, CHR, ch, 0, 0, &res)) ||
           (err = stk_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... | chr | */
     }
   }
-  if ((err = re_fold(r)) || (err = re_fold_alts(r)))
+  if ((err = re_fold(r)) || (err = re_fold_alts(r, &flags)))
     return err;
   if (r->op_stk.size)
     return re_parse_err(r, "unmatched open parenthesis");
@@ -1443,7 +1471,7 @@ int re_compcc(re *r, u32 root, compframe *frame)
   /* push ranges */
   while (root) {
     u32 args[3], min, max;
-    re_decompast(r, root, 3, args);
+    re_decompast(r, root, args);
     min = args[0], max = args[1], root = args[2];
     /* handle out-of-order ranges (min > max) */
     if ((err = stk_push(r, &r->cc_stk_a, min > max ? max : min)) ||
@@ -1557,7 +1585,7 @@ int re_compile(re *r, u32 root, u32 reverse)
       /*  in                 out (none)
        * ---> M -> [A] -> M      */
       u32 child;
-      re_decompast(r, frame.root_ref, 1, args);
+      re_decompast(r, frame.root_ref, args);
       child = args[0];
       if (!frame.idx) { /* before child */
         patch(r, &frame, my_pc);
@@ -1573,7 +1601,7 @@ int re_compile(re *r, u32 root, u32 reverse)
       }
     } else if (type == CHR) {
       patch(r, &frame, my_pc);
-      re_decompast(r, frame.root_ref, 1, args);
+      re_decompast(r, frame.root_ref, args);
       if (args[0] < 128 && !(frame.flags & INSENSITIVE)) { /* ascii */
         /*  in     out
          * ---> R ----> */
@@ -1586,8 +1614,7 @@ int re_compile(re *r, u32 root, u32 reverse)
         if (!tmp_cc_ast &&
             (err = re_mkast(r, CLS, 0, 0, REF_NONE, &tmp_cc_ast)))
           return err;
-        *re_astarg(r, tmp_cc_ast, 0, tmp_cc_ast) =
-            *re_astarg(r, tmp_cc_ast, 1, tmp_cc_ast) = args[0];
+        *re_astarg(r, tmp_cc_ast, 0) = *re_astarg(r, tmp_cc_ast, 1) = args[0];
         if ((err = re_compcc(r, tmp_cc_ast, &frame)))
           return err;
       }
@@ -1601,12 +1628,12 @@ int re_compile(re *r, u32 root, u32 reverse)
     } else if (type == CAT) {
       /*  in              out
        * ---> [A] -> [B] ----> */
-      re_decompast(r, frame.root_ref, 2, args);
-      if (frame.idx == 0) { /* before left child */
+      re_decompast(r, frame.root_ref, args);
+      if (frame.idx == 0) {              /* before left child */
         frame.child_ref = args[reverse]; /* push left child */
         patch_xfer(&child_frame, &frame);
         frame.idx++;
-      } else if (frame.idx == 1) { /* after left child */
+      } else if (frame.idx == 1) {        /* after left child */
         frame.child_ref = args[!reverse]; /* push right child */
         patch_xfer(&child_frame, &returned_frame);
         frame.idx++;
@@ -1618,7 +1645,7 @@ int re_compile(re *r, u32 root, u32 reverse)
        * ---> S --> [A] ---->
        *       \         out
        *        --> [B] ----> */
-      re_decompast(r, frame.root_ref, 2, args);
+      re_decompast(r, frame.root_ref, args);
       if (frame.idx == 0) { /* before left child */
         patch(r, &frame, frame.pc);
         if ((err = re_emit(r, INST(SPLIT, 0, 0))))
@@ -1640,7 +1667,7 @@ int re_compile(re *r, u32 root, u32 reverse)
        *       \             out
        *        +-----------------> */
       u32 child, min, max;
-      re_decompast(r, frame.root_ref, 3, args);
+      re_decompast(r, frame.root_ref, args);
       child = args[0], min = args[1], max = args[2];
       if (frame.idx < min) { /* before minimum bound */
         patch_xfer(&child_frame, frame.idx ? &returned_frame : &frame);
@@ -1666,11 +1693,11 @@ int re_compile(re *r, u32 root, u32 reverse)
         patch_merge(r, &frame, &returned_frame);
       }
       frame.idx++;
-    } else if (type == GROUP) {
+    } else if (type == GROUP || type == IGROUP) {
       /*  in                 out
        * ---> M -> [A] -> M ----> */
       u32 child;
-      re_decompast(r, frame.root_ref, 3, args);
+      re_decompast(r, frame.root_ref, args);
       child = args[0];
       frame.flags = args[1];
       if (!frame.idx) { /* before child */
@@ -2081,9 +2108,10 @@ int exec_nfa_end(
     if (!slot)
       continue; /* no match for this set */
     for (j = 0; (j < max_span) && out_span; j++) {
-      out_span[nset * max_span + j].begin = save_slots_get(&n->slots, slot, j);
+      out_span[nset * max_span + j].begin =
+          save_slots_get(&n->slots, slot, j * 2);
       out_span[nset * max_span + j].end =
-          save_slots_get(&n->slots, slot, j + 1);
+          save_slots_get(&n->slots, slot, j * 2 + 1);
     }
     if (out_set)
       out_set[nset] = sets;
@@ -2154,35 +2182,37 @@ void astdump_i(re *r, u32 root, u32 ilvl)
     printf("<eps>\n");
   } else if (first == REG) {
     printf("REG\n");
-    astdump_i(r, *re_astarg(r, root, 0, 1), ilvl + 1);
+    astdump_i(r, *re_astarg(r, root, 0), ilvl + 1);
   } else if (first == CHR) {
     printf("CHR %02X\n", rest);
   } else if (first == CAT) {
     printf("CAT\n");
-    astdump_i(r, *re_astarg(r, root, 0, 2), ilvl + 1);
-    astdump_i(r, *re_astarg(r, root, 1, 2), ilvl + 1);
+    astdump_i(r, *re_astarg(r, root, 0), ilvl + 1);
+    astdump_i(r, *re_astarg(r, root, 1), ilvl + 1);
   } else if (first == ALT) {
     printf("ALT\n");
-    astdump_i(r, *re_astarg(r, root, 0, 2), ilvl + 1);
-    astdump_i(r, *re_astarg(r, root, 1, 2), ilvl + 1);
+    astdump_i(r, *re_astarg(r, root, 0), ilvl + 1);
+    astdump_i(r, *re_astarg(r, root, 1), ilvl + 1);
   } else if (first == GROUP) {
-    printf("GRP flag=%X\n", *re_astarg(r, root, 1, 2));
-    astdump_i(r, *re_astarg(r, root, 0, 2), ilvl + 1);
+    printf("GRP flag=%X\n", *re_astarg(r, root, 1));
+    astdump_i(r, *re_astarg(r, root, 0), ilvl + 1);
+  } else if (first == IGROUP) {
+    printf("IGRP flag=%X\n", *re_astarg(r, root, 1));
+    astdump_i(r, *re_astarg(r, root, 0), ilvl + 1);
   } else if (first == QUANT) {
     printf(
-        "QNT min=%u max=%u\n", *re_astarg(r, root, 1, 3),
-        *re_astarg(r, root, 2, 3));
-    astdump_i(r, *re_astarg(r, root, 0, 3), ilvl + 1);
+        "QNT min=%u max=%u\n", *re_astarg(r, root, 1), *re_astarg(r, root, 2));
+    astdump_i(r, *re_astarg(r, root, 0), ilvl + 1);
   } else if (first == CLS) {
     printf(
-        "CLS min=%02X max=%02X\n", *re_astarg(r, root, 0, 3),
-        *re_astarg(r, root, 1, 3));
-    astdump_i(r, *re_astarg(r, root, 2, 3), ilvl + 1);
+        "CLS min=%02X max=%02X\n", *re_astarg(r, root, 0),
+        *re_astarg(r, root, 1));
+    astdump_i(r, *re_astarg(r, root, 2), ilvl + 1);
   } else if (first == ICLS) {
     printf(
-        "ICLS min=%02X max=%02X\n", *re_astarg(r, root, 0, 3),
-        *re_astarg(r, root, 1, 3));
-    astdump_i(r, *re_astarg(r, root, 2, 3), ilvl + 1);
+        "ICLS min=%02X max=%02X\n", *re_astarg(r, root, 0),
+        *re_astarg(r, root, 1));
+    astdump_i(r, *re_astarg(r, root, 2), ilvl + 1);
   }
 }
 
