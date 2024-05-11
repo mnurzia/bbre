@@ -645,9 +645,23 @@ int re_parse_escape(re *r, u32 allowed_outputs)
     ch = inverted ? ch - 'A' + 'a' : ch;   /* convert to lowercase */
     cc_name = ch == 'd' ? "digit" : ch == 's' ? "perl_space" : "word";
     if (!(allowed_outputs & (1 << CLS)))
-      return re_parse_err(r, "cannot use a character classe here");
+      return re_parse_err(r, "cannot use a character class here");
     if ((err = re_parse_add_namedcc(
              r, (const u8 *)cc_name, strlen(cc_name), inverted)))
+      return err;
+  } else if (ch == 'A' || ch == 'z' || ch == 'B' || ch == 'b') { /* empty
+                                                                    asserts */
+    u32 res;
+    if (!(allowed_outputs & (1 << AASSERT)))
+      return re_parse_err(r, "cannot use an epsilon assertion here");
+    if ((err = re_mkast(
+             r, AASSERT,
+             ch == 'A'   ? TEXT_BEGIN
+             : ch == 'z' ? TEXT_END
+             : ch == 'B' ? NOT_WORD
+                         : WORD,
+             0, 0, &res)) ||
+        (err = stk_push(r, &r->arg_stk, res)))
       return err;
   } else {
     return re_parse_err(r, "invalid escape sequence");
@@ -920,7 +934,8 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         return err;
     } else if (ch == '\\') { /* escape */
       if ((err = re_parse_escape(
-               r, 1 << CHR | 1 << CLS | 1 << ANYBYTE | 1 << CAT)))
+               r,
+               1 << CHR | 1 << CLS | 1 << ANYBYTE | 1 << CAT | 1 << AASSERT)))
         return err;
     } else if (ch == '{') { /* repetition */
       u32 min = 0, max = 0;
@@ -2145,6 +2160,7 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos, assert_flag ass)
         break;
       }
       case ASSERT: {
+        assert(!!(ass & WORD) ^ !!(ass & NOT_WORD));
         if ((INST_P(op) & ass) == INST_P(op)) {
           top.pc = INST_N(op);
           if ((err = thrdstk_push(r, &n->thrd_stk, top)))
@@ -2250,11 +2266,20 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
   return 0;
 }
 
-assert_flag make_assert_flag(size_t pos, int is_end, int is_from_nl, u32 ch)
+#define SENT_CH 256
+
+int is_word_char(u32 ch)
 {
-  return (pos == 0 ? TEXT_BEGIN : 0) | (is_end ? TEXT_END : 0) |
-         (pos == 0 ? LINE_BEGIN : is_from_nl * LINE_BEGIN) |
-         ((ch == '\n' || is_end) * LINE_END);
+  return (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') ||
+         (ch >= 'a' && ch <= 'z') || ch == '_';
+}
+
+assert_flag make_assert_flag(u32 prev_ch, u32 next_ch)
+{
+  return (prev_ch == SENT_CH) * TEXT_BEGIN | (next_ch == SENT_CH) * TEXT_END |
+         (prev_ch == SENT_CH || prev_ch == '\n') * LINE_BEGIN |
+         (next_ch == SENT_CH || next_ch == '\n') * LINE_END |
+         ((is_word_char(prev_ch) == is_word_char(next_ch)) ? NOT_WORD : WORD);
 }
 
 /* return number of sets matched, -n otherwise */
@@ -2265,12 +2290,11 @@ assert_flag make_assert_flag(size_t pos, int is_end, int is_from_nl, u32 ch)
 /* if max_set != 0 and max_span != 0 */
 int exec_nfa_end(
     re *r, size_t pos, exec_nfa *n, u32 max_span, u32 max_set, span *out_span,
-    u32 *out_set, int is_from_nl)
+    u32 *out_set, u32 prev_ch)
 {
   int err;
   size_t j, sets = 0, nset = 0;
-  if ((err = exec_nfa_eps(
-           r, n, pos, make_assert_flag(pos, 1, is_from_nl, 256))) ||
+  if ((err = exec_nfa_eps(r, n, pos, make_assert_flag(prev_ch, SENT_CH))) ||
       (err = exec_nfa_chr(r, n, 256, pos)))
     return err;
   for (sets = 0; sets < r->ast_sets && (max_set ? nset < max_set : nset < 1);
@@ -2291,10 +2315,10 @@ int exec_nfa_end(
   return nset;
 }
 
-int exec_nfa_run(re *r, exec_nfa *n, u32 ch, size_t pos, int is_from_nl)
+int exec_nfa_run(re *r, exec_nfa *n, u32 ch, size_t pos, u32 prev_ch)
 {
   int err;
-  (err = exec_nfa_eps(r, n, pos, make_assert_flag(pos, 0, is_from_nl, ch))) ||
+  (err = exec_nfa_eps(r, n, pos, make_assert_flag(prev_ch, ch))) ||
       (err = exec_nfa_chr(r, n, ch, pos));
   return err;
 }
@@ -2324,6 +2348,7 @@ int re_match(
                       : anchor == A_UNANCHORED ? ENT_FWD | ENT_DOTSTAR
                                                : ENT_FWD;
   size_t i;
+  u32 prev_ch = SENT_CH;
   if (!re_prog_size(r) && ((err = re_compile(r, r->ast_root, ENT_FWD)) ||
                            (err = re_compile(r, r->ast_root, ENT_REV))))
     return err;
@@ -2333,13 +2358,12 @@ int re_match(
            entry & ENT_DOTSTAR)))
     goto done;
   for (i = 0; i < n; i++) {
-    if ((err = exec_nfa_run(
-             r, &nfa, ((const u8 *)s)[i], i, i ? s[i - 1] == '\n' : 0)))
+    if ((err = exec_nfa_run(r, &nfa, ((const u8 *)s)[i], i, prev_ch)))
       goto done;
+    prev_ch = ((const u8 *)s)[i];
   }
   if ((err = exec_nfa_end(
-           r, n, &nfa, max_span, max_set, out_span, out_set,
-           i ? s[i - 1] == '\n' : 0)))
+           r, n, &nfa, max_span, max_set, out_span, out_set, prev_ch)))
     goto done;
 done:
   exec_nfa_destroy(r, &nfa);

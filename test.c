@@ -1855,10 +1855,268 @@ SUITE(assert_line_end)
   RUN_TEST(assert_line_end_multiline_beforenl);
 }
 
+TEST(assert_text_begin_empty)
+{
+  ASSERT_MATCH("\\A", "");
+  PASS();
+}
+
+TEST(assert_text_begin_beforesome)
+{
+  ASSERT_MATCH("\\Aabc", "abc");
+  PASS();
+}
+
+TEST(assert_text_begin_aftersome)
+{
+  ASSERT_NMATCH("abc\\A", "abc");
+  PASS();
+}
+
+TEST(assert_text_begin_afternl)
+{
+  ASSERT_NMATCH("\n\\A", "\n");
+  PASS();
+}
+
+TEST(assert_text_begin_beforenl)
+{
+  ASSERT_MATCH("\\A\n", "\n");
+  PASS();
+}
+
+TEST(assert_text_begin_multiline_empty)
+{
+  ASSERT_MATCH("(?m)\\A", "");
+  PASS();
+}
+
+TEST(assert_text_begin_multiline_beforesome)
+{
+  ASSERT_MATCH("(?m)\\Aabc", "abc");
+  PASS();
+}
+
+TEST(assert_text_begin_multiline_aftersome)
+{
+  ASSERT_NMATCH("(?m)abc\\A", "abc");
+  PASS();
+}
+
+TEST(assert_text_begin_multiline_afternl)
+{
+  ASSERT_NMATCH("(?m)\n\\A", "\n");
+  PASS();
+}
+
+TEST(assert_text_begin_multiline_beforenl)
+{
+  ASSERT_MATCH("(?m)\\A\n", "\n");
+  PASS();
+}
+
+SUITE(assert_text_begin)
+{
+  RUN_TEST(assert_text_begin_empty);
+  RUN_TEST(assert_text_begin_beforesome);
+  RUN_TEST(assert_text_begin_aftersome);
+  RUN_TEST(assert_text_begin_afternl);
+  RUN_TEST(assert_text_begin_beforenl);
+  RUN_TEST(assert_text_begin_multiline_empty);
+  RUN_TEST(assert_text_begin_multiline_beforesome);
+  RUN_TEST(assert_text_begin_multiline_aftersome);
+  RUN_TEST(assert_text_begin_multiline_afternl);
+  RUN_TEST(assert_text_begin_multiline_beforenl);
+}
+
+TEST(assert_text_end_empty)
+{
+  ASSERT_MATCH("\\z", "");
+  PASS();
+}
+
+TEST(assert_text_end_beforesome)
+{
+  ASSERT_NMATCH("\\zabc", "abc");
+  PASS();
+}
+
+TEST(assert_text_end_aftersome)
+{
+  ASSERT_MATCH("abc\\z", "abc");
+  PASS();
+}
+
+TEST(assert_text_end_afternl)
+{
+  ASSERT_MATCH("\n\\z", "\n");
+  PASS();
+}
+
+TEST(assert_text_end_beforenl)
+{
+  ASSERT_NMATCH("\\z\n", "\n");
+  PASS();
+}
+
+TEST(assert_text_end_multiline_empty)
+{
+  ASSERT_MATCH("(?m)\\z", "");
+  PASS();
+}
+
+TEST(assert_text_end_multiline_beforesome)
+{
+  ASSERT_NMATCH("(?m)\\zabc", "abc");
+  PASS();
+}
+
+TEST(assert_text_end_multiline_aftersome)
+{
+  ASSERT_MATCH("(?m)abc\\z", "abc");
+  PASS();
+}
+
+TEST(assert_text_end_multiline_afternl)
+{
+  ASSERT_MATCH("(?m)\n\\z", "\n");
+  PASS();
+}
+
+TEST(assert_text_end_multiline_beforenl)
+{
+  ASSERT_NMATCH("(?m)\\z\n", "\n");
+  PASS();
+}
+
+SUITE(assert_text_end)
+{
+  RUN_TEST(assert_text_end_empty);
+  RUN_TEST(assert_text_end_beforesome);
+  RUN_TEST(assert_text_end_aftersome);
+  RUN_TEST(assert_text_end_afternl);
+  RUN_TEST(assert_text_end_beforenl);
+  RUN_TEST(assert_text_end_multiline_empty);
+  RUN_TEST(assert_text_end_multiline_beforesome);
+  RUN_TEST(assert_text_end_multiline_aftersome);
+  RUN_TEST(assert_text_end_multiline_afternl);
+  RUN_TEST(assert_text_end_multiline_beforenl);
+}
+
+TEST(assert_word_empty)
+{
+  ASSERT_NMATCH("\\b", "");
+  PASS();
+}
+
+TEST(assert_word_beginning_word)
+{
+  ASSERT_MATCH("\\ba", "a");
+  PASS();
+}
+
+TEST(assert_word_beginning_notword)
+{
+  ASSERT_NMATCH("\\b#", "#");
+  PASS();
+}
+
+TEST(assert_word_end_word)
+{
+  ASSERT_MATCH("a\\b", "a");
+  PASS();
+}
+
+TEST(assert_word_end_notword)
+{
+  ASSERT_NMATCH("#\\b", "#");
+  PASS();
+}
+
+TEST(assert_word_middle_word)
+{
+  ASSERT_MATCH("ab\\w\\b\\Wcd", "abZ.cd");
+  PASS();
+}
+
+TEST(assert_word_middle_notword)
+{
+  ASSERT_NMATCH("ab\\w\\b\\wcd", "abZacd");
+  PASS();
+}
+
+SUITE(assert_word)
+{
+  RUN_TEST(assert_word_empty);
+  RUN_TEST(assert_word_beginning_word);
+  RUN_TEST(assert_word_beginning_notword);
+  RUN_TEST(assert_word_end_word);
+  RUN_TEST(assert_word_end_notword);
+  RUN_TEST(assert_word_middle_word);
+  RUN_TEST(assert_word_middle_notword);
+}
+
+TEST(assert_not_word_empty)
+{
+  ASSERT_MATCH("\\B", "");
+  PASS();
+}
+
+TEST(assert_not_word_beginning_word)
+{
+  ASSERT_NMATCH("\\Ba", "a");
+  PASS();
+}
+
+TEST(assert_not_word_beginning_notword)
+{
+  ASSERT_MATCH("\\B#", "#");
+  PASS();
+}
+
+TEST(assert_not_word_end_word)
+{
+  ASSERT_NMATCH("a\\B", "a");
+  PASS();
+}
+
+TEST(assert_not_word_end_notword)
+{
+  ASSERT_MATCH("#\\B", "#");
+  PASS();
+}
+
+TEST(assert_not_word_middle_word)
+{
+  ASSERT_NMATCH("ab\\w\\B\\Wcd", "abZ.cd");
+  PASS();
+}
+
+TEST(assert_not_word_middle_notword)
+{
+  ASSERT_MATCH("ab\\w\\B\\wcd", "abZacd");
+  PASS();
+}
+
+SUITE(assert_not_word)
+{
+  RUN_TEST(assert_not_word_empty);
+  RUN_TEST(assert_not_word_beginning_word);
+  RUN_TEST(assert_not_word_beginning_notword);
+  RUN_TEST(assert_not_word_end_word);
+  RUN_TEST(assert_not_word_end_notword);
+  RUN_TEST(assert_not_word_middle_word);
+  RUN_TEST(assert_not_word_middle_notword);
+}
+
 SUITE(assert)
 {
   RUN_SUITE(assert_line_begin);
   RUN_SUITE(assert_line_end);
+  RUN_SUITE(assert_text_begin);
+  RUN_SUITE(assert_text_end);
+  RUN_SUITE(assert_word);
+  RUN_SUITE(assert_not_word);
 }
 
 int main(int argc, const char *const *argv)
