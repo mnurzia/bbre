@@ -518,8 +518,9 @@ int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert)
     if (!invert && (err = re_mkast(r, CLS, cur_min, cur_max, res, &res)))
       return err;
     else if (invert) {
-      assert(cur_min > max); /* builtin charclasses are ordered. */
-      if ((err = re_mkast(r, CLS, max, cur_min - 1, res, &res)))
+      assert(cur_min >= max); /* builtin charclasses are ordered. */
+      if (max != cur_min &&
+          (err = re_mkast(r, CLS, max, cur_min - 1, res, &res)))
         return err;
       else
         max = cur_max + 1;
@@ -1150,7 +1151,7 @@ void re_compcc_hsort(stk *cc, size_t n)
     root = start;
     while ((child = i_lc(root)) < end) {
       if (child + 1 < end && cckey(cc, child) < cckey(cc, child + 1))
-        child--;
+        child++;
       if (cckey(cc, root) < cckey(cc, child)) {
         ccswap(cc, root, child);
         root = child;
@@ -2754,13 +2755,13 @@ int casefold_fold_range(re *r, u32 begin, u32 end, stk *cc_out)
 const ccdef builtin_cc[] = {
     {5, 3, "alnum", "\x30\x39\x41\x5A\x61\x7A"},
     {5, 2, "alpha", "\x41\x5A\x61\x7A"},
-    {5, 2, "ascii", "\x00\x00\x7F\x7F"},
+    {5, 1, "ascii", "\x00\x7F"},
     {5, 2, "blank", "\x09\x09\x20\x20"},
     {5, 2, "cntrl", "\x00\x1F\x7F\x7F"},
     {5, 2, "digit", "\x30\x30\x39\x39"},
     {5, 2, "graph", "\x21\x21\x7E\x7E"},
     {5, 2, "lower", "\x61\x61\x7A\x7A"},
-    {5, 2, "print", "\x20\x20\x7E\x7E"},
+    {5, 1, "print", "\x20\x7E"},
     {5, 4, "punct", "\x21\x2F\x3A\x40\x5B\x60\x7B\x7E"},
     {5, 2, "space", "\x09\x0D\x20\x20"},
     {10, 3, "perl_space", "\x09\x0A\x0C\x0D\x20\x20"},

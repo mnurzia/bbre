@@ -226,13 +226,13 @@ _NRanges = list[_NRange]
 ASCII_CHARCLASSES: dict[str, _Ranges] = {
     "alnum": (("0", "9"), ("A", "Z"), ("a", "z")),
     "alpha": (("A", "Z"), ("a", "z")),
-    "ascii": ((0, 0x7F)),
+    "ascii": ((0, 0x7F),),
     "blank": ("\t", " "),
     "cntrl": ((0, 0x1F), 0x7F),
     "digit": (("0", "9")),
     "graph": ((0x21, 0x7E)),
     "lower": (("a", "z")),
-    "print": ((0x20, 0x7E)),
+    "print": ((0x20, 0x7E),),
     "punct": ((0x21, 0x2F), (0x3A, 0x40), (0x5B, 0x60), (0x7B, 0x7E)),
     "space": (0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20),
     "perl_space": (0x09, 0x0A, 0x0C, 0x0D, 0x20),
@@ -313,14 +313,14 @@ def _cmd_gen_ascii_charclasses_test(args) -> int:
     tests = {}
     output, out = _make_appender_func()
 
-    def make_test(test_name: str, cc: _Ranges, regex: str) -> str:
+    def make_test(test_name: str, cc: _Ranges, regex: str, invert: int) -> str:
         regex = '"' + regex.replace("\\", "\\\\") + '"'
         return f"""
         TEST({test_name}) {{
             return assert_cc_match(
                 {regex},
                 "{','.join(f"0x{lo:X} 0x{hi:X}"
-                           for lo, hi in _nranges_normalize(list(_ranges_expand(cc))))}");
+                           for lo, hi in _nranges_normalize(list(_ranges_expand(cc))))}", {invert});
         }}
         """
 
@@ -334,8 +334,9 @@ def _cmd_gen_ascii_charclasses_test(args) -> int:
     # named charclasses
     for name, cc in ASCII_CHARCLASSES.items():
         test_name = f"cls_named_{name}"
-        regex = f"[[:{name}:]]"
-        tests[test_name] = make_test(test_name, cc, regex)
+        tests[test_name] = make_test(test_name, cc, f"[[:{name}:]]", 0)
+        tests[test_name + "_invert"] = make_test(test_name + "_invert", cc, f"[[:^{name}:]]", 1)
+
     out("\n".join(tests.values()))
     out(make_suite("cls_named", tests))
     tests = {}
@@ -346,7 +347,7 @@ def _cmd_gen_ascii_charclasses_test(args) -> int:
         cc = _nranges_normalize(list(_ranges_expand(ASCII_CHARCLASSES[name])))
         if inverted:
             cc = _nranges_invert(list(cc), UTF_MAX)
-        tests[test_name] = make_test(test_name, tuple(cc), regex)
+        tests[test_name] = make_test(test_name, tuple(cc), regex, 0)
     out("\n".join(tests.values()))
     out(make_suite("escape_perlclass", tests))
 

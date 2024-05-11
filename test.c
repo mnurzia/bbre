@@ -280,7 +280,7 @@ u32 matchspec(const char *spec, rrange *ranges)
   return n;
 }
 
-int assert_cc_match(const char *regex, const char *spec)
+int assert_cc_match(const char *regex, const char *spec, int invert)
 {
   re *r;
   int err;
@@ -293,18 +293,18 @@ int assert_cc_match(const char *regex, const char *spec)
   ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
     size_t sz = utf_encode(utf8, codep);
+    if ((err = re_match(r, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) == ERR_MEM)
+      goto oom;
     for (range_idx = 0; range_idx < num_ranges; range_idx++) {
       if (codep >= ranges[range_idx].lo && codep <= ranges[range_idx].hi) {
-        if ((err = re_match(r, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) == ERR_MEM)
-          goto oom;
-        ASSERT_EQ(err, 1);
+        ASSERT_EQ(err, !invert);
         break;
       }
     }
     if (range_idx == num_ranges) {
       if ((err = re_match(r, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) == ERR_MEM)
         goto oom;
-      ASSERT_EQ(err, 0);
+      ASSERT_EQ(err, invert);
     }
   }
   re_destroy(r);
@@ -314,7 +314,7 @@ oom:
   OOM();
 }
 
-#define ASSERT_CC_MATCH(regex, spec) PROPAGATE(assert_cc_match(regex, spec))
+#define ASSERT_CC_MATCH(regex, spec) PROPAGATE(assert_cc_match(regex, spec, 0))
 
 TEST(init_empty)
 {
