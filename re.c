@@ -132,9 +132,12 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root);
 
 re *re_init(const char *regex)
 {
+  int err;
   re *r;
-  if (re_init_full(&r, regex, strlen(regex), NULL) == ERR_MEM)
-    return NULL;
+  if ((err = re_init_full(&r, regex, strlen(regex), NULL))) {
+    re_destroy(r);
+    r = NULL;
+  }
   return r;
 }
 
@@ -157,7 +160,6 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
     if ((err = re_parse(r, (const u8 *)regex, n, &r->ast_root))) {
-      re_destroy(r);
       return err;
     } else {
       r->ast_sets = 1;
@@ -168,6 +170,8 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
 
 void re_destroy(re *r)
 {
+  if (!r)
+    return;
   stk_destroy(r, &r->ast);
   stk_destroy(r, &r->op_stk), stk_destroy(r, &r->arg_stk),
       stk_destroy(r, &r->comp_stk);
@@ -350,7 +354,7 @@ int re_next(re *r, u32 *first, const char *else_msg)
   if (!re_hasmore(r))
     return re_parse_err(r, else_msg);
   while (utf8_decode(&state, first, *(r->expr + r->expr_pos)),
-         (r->expr_pos++ != r->expr_size))
+         (++r->expr_pos != r->expr_size))
     if (!state)
       return 0;
   if (state != UTF8_ACCEPT)
@@ -673,8 +677,8 @@ int re_parse_number(re *r, u32 *out, u32 max_digits)
   u32 ch, acc = 0, ndigs = 0;
   if (!re_hasmore(r))
     return re_parse_err(r, "expected at least one decimal digit");
-  while (!(err = re_peek_next(r, &ch)) && ch >= '0' && ch <= '9' &&
-         (re_next(r, &ch, NULL), ++ndigs < max_digits))
+  while (re_hasmore(r) && !(err = re_peek_next(r, &ch)) && ch >= '0' &&
+         ch <= '9' && (re_next(r, &ch, NULL), ++ndigs < max_digits))
     acc = acc * 10 + (ch - '0');
   if (err)
     return err;
@@ -859,11 +863,11 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
           if ((err = re_parse_escape(r, (1 << CHR) | (1 << CLS))))
             return err;
           next = stk_pop(r, &r->arg_stk);
-          assert(*re_asttype(r, next) == CHR || *re_asttype(r, next == CLS));
+          assert(*re_asttype(r, next) == CHR || *re_asttype(r, next) == CLS);
           if (*re_asttype(r, next) == CHR)
             min = *re_astarg(r, next, 0); /* single-character escape */
           else if (*re_asttype(r, next) == CLS) {
-            re_uncc(r, res, next);
+            res = re_uncc(r, res, next);
             /* we parsed an entire class, so there's no ending character */
             continue;
           }
@@ -944,6 +948,9 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       if (ch == '}')
         max = min;
       else if (ch == ',') {
+        if (!re_hasmore(r))
+          return re_parse_err(
+              r, "expected upper bound or } to end repetition expression");
         if ((err = re_peek_next(r, &ch)))
           return err;
         if (ch == '}')

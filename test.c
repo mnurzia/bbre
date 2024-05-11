@@ -77,7 +77,7 @@ int check_matches(
   if ((err = re_init_full(
            &r, nregex == 1 ? *regexes : NULL,
            nregex == 1 ? strlen(*regexes) : 0, test_alloc)) == ERR_MEM)
-    goto oom_set;
+    goto oom_re;
   for (i = 0; i < nregex && nregex != 1; i++) {
     if ((err = re_union(r, regexes[i], strlen(regexes[i]))) == ERR_MEM)
       goto oom_re;
@@ -228,9 +228,13 @@ int check_noparse(const char *regex)
   re *r;
   int err;
   if ((err = re_init_full(&r, regex, strlen(regex), test_alloc)) == ERR_MEM)
-    OOM();
+    goto oom;
   ASSERT_EQ(err, ERR_PARSE);
+  re_destroy(r);
   PASS();
+oom:
+  re_destroy(r);
+  OOM();
 }
 
 #define ASSERT_NOPARSE(regex) PROPAGATE(check_noparse(regex))
@@ -285,7 +289,7 @@ int assert_cc_match(const char *regex, const char *spec)
   rrange ranges[64];
   u32 num_ranges = matchspec(spec, ranges), range_idx;
   if ((err = re_init_full(&r, regex, strlen(regex), test_alloc)) == ERR_MEM)
-    OOM();
+    goto oom;
   ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
     size_t sz = utf_encode(utf8, codep);
@@ -331,20 +335,22 @@ TEST(init_some)
   PASS();
 }
 
+/*
+currently, we have no way of differentiating between a parse error and OOM
 TEST(init_bad)
 {
-  /* TODO: explicitly detect the parse error */
   re *r = re_init("\xff");
   if (!r)
     OOM();
   PASS();
 }
+*/
 
 SUITE(init)
 {
   RUN_TEST(init_empty);
   RUN_TEST(init_some);
-  RUN_TEST(init_bad);
+  /*RUN_TEST(init_bad);*/
 }
 
 TEST(chr_1)
@@ -757,6 +763,12 @@ TEST(cls_insensitive)
   PASS();
 }
 
+TEST(cls_subclass)
+{
+  ASSERT_CC_MATCH("[\\w]", "0x30 0x39,0x41 0x5A,0x61 0x7A");
+  PASS();
+}
+
 SUITE(cls)
 {
   RUN_SUITE(cls_escape);
@@ -769,6 +781,7 @@ SUITE(cls)
   RUN_TEST(cls_named_unfinished);
   RUN_TEST(cls_named_unknown);
   RUN_TEST(cls_insensitive);
+  RUN_TEST(cls_subclass);
 }
 
 TEST(escape_null)
@@ -2129,6 +2142,8 @@ SUITE(assert)
   RUN_SUITE(assert_not_word);
 }
 
+SUITE(fuzz_regression); /* provided by test-gen.c */
+
 int main(int argc, const char *const *argv)
 {
   MPTEST_MAIN_BEGIN_ARGS(argc, argv);
@@ -2145,5 +2160,11 @@ int main(int argc, const char *const *argv)
   RUN_SUITE(grp);
   RUN_SUITE(set);
   RUN_SUITE(assert);
+#ifndef RE_COV
+  /* regression tests should not account for coverage. we should explicitly
+   * write tests that fully cover our code, as they are more documentable than
+   * potentially cryptic regression tests. */
+  RUN_SUITE(fuzz_regression);
+#endif
   MPTEST_MAIN_END();
 }

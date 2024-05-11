@@ -1,7 +1,7 @@
-CFLAGS=-Wall -Werror -Wextra -Wshadow -pedantic -fsanitize=address -ferror-limit=0 -Wuninitialized -std=c89 -O0 -g -DRE_TEST
+CFLAGS=-Wall -Werror -Wextra -Wshadow -pedantic -fsanitize=address -ferror-limit=0 -Wuninitialized -std=c89 -O0 -g
 COVCFLAGS=--coverage
 
-SRCS=re.c test.c build/test-gen.c
+SRCS=re.c test.c test-gen.c
 GDB=lldb --
 
 all: test
@@ -13,11 +13,11 @@ build/cov:
 	mkdir -p build/cov
 
 build/re: build $(SRCS)
-	$(CC) $(CFLAGS) $(SRCS) -o $@
+	$(CC) $(CFLAGS) -DRE_TEST $(SRCS) -o $@
 
-build/test-gen.c: build test-gen.c tools/unicode_data.py
-	cp test-gen.c $@
-	python tools/unicode_data.py gen_ascii_charclasses test build/test-gen.c
+test-gen.c: build tools/unicode_data.py fuzz_results.json
+	python tools/unicode_data.py gen_ascii_charclasses test test-gen.c
+	python tools/unicode_data.py gen_parser_fuzz_regression_tests fuzz_results.json test-gen.c
 	clang-format -i $@
 
 build/compile_commands.json: build $(SRCS) 
@@ -49,7 +49,7 @@ debug_testoom_%: build/re
 
 build/cov/re-cov: build $(SRCS)
 	rm -rf build/*.gcda build/*.gcno 
-	$(CC) $(CFLAGS) -DRE_COV -DNDEBUG $(COVCFLAGS) $(SRCS) -o $@
+	$(CC) $(CFLAGS) -DRE_COV -DNDEBUG -DRE_TEST $(COVCFLAGS) $(SRCS) -o $@
 
 build/cov/lcov.info: build/cov build/cov/re-cov
 	rm -rf $@ build/cov/*.gcda
@@ -58,6 +58,27 @@ build/cov/lcov.info: build/cov build/cov/re-cov
 
 build/cov/index.html: build/cov/lcov.info
 	genhtml build/cov/lcov.info --branch-coverage --output-directory build/cov
+
+cov: build/cov/index.html
+	open build/cov/reee/re.c.gcov.html
+
+build/parser_fuzz: build parser_fuzz.c re.c re.h
+	$(CC) $(CFLAGS) -fsanitize=fuzzer,address re.c parser_fuzz.c -o $@
+
+corpus:
+	mkdir -p corpus
+
+corpus/new: corpus
+	mkdir -p corpus/new
+
+corpus/artifact: corpus
+	mkdir -p corpus/artifact
+
+parser_fuzz: corpus corpus/new corpus/artifact build/parser_fuzz
+	./build/parser_fuzz -artifact_prefix=corpus/artifact/ corpus corpus/new
+
+parser_fuzz_import: corpus/artifact
+	python tools/unicode_data.py --debug add_parser_fuzz_regression_tests fuzz_results.json corpus/artifact/*
 
 tools/.ucd.zip:
 	python tools/unicode_data.py --debug --db tools/.ucd.zip fetch
@@ -70,8 +91,6 @@ tables: tools/.ucd.zip
 format:
 	clang-format -i $(SRCS) test-gen.c
 
-cov: build/cov/index.html
-	open build/cov/reee/re.c.gcov.html
 
 clean:
-	rm -rf build
+	rm -rf build corpus

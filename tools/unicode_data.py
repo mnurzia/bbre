@@ -2,6 +2,7 @@
 
 import argparse
 import io
+from json import dump, load
 from pathlib import Path
 from sys import stderr
 from typing import IO, Callable, Iterator
@@ -127,6 +128,13 @@ def _insert_c_file(file: IO, insert_lines: list[str], tag: str):
     file.truncate(0)
     file.writelines(lines[: start_index + 1] + insert_lines + lines[end_index:])
 
+def _make_appender_func() -> tuple[list[str], Callable[[str], None]]:
+    array = []
+
+    def out(s: str):
+        array.append(s + "\n")
+
+    return array, out
 
 def _cmd_gen_casefold(args) -> int:
     # Generate C code for casefolding.
@@ -136,10 +144,7 @@ def _cmd_gen_casefold(args) -> int:
     shifts = calculate_shifts(array_sizes)
     masks = calculate_masks(array_sizes, UTF_MAX)
     data_types = list(map(DataType.from_list, arrays))
-    output: list[str] = []
-
-    def out(s: str):
-        output.append(s + "\n")
+    output, out = _make_appender_func()
 
     def fmt_hex(n: int, data_type: DataType, num_digits: int = 0) -> str:
         return f"{'-' if n < 0 else '+' if data_type.signed else ''}0x{abs(n):0{num_digits}X}"
@@ -306,10 +311,7 @@ def _cmd_gen_ascii_charclasses_impl(args) -> int:
 
 def _cmd_gen_ascii_charclasses_test(args) -> int:
     tests = {}
-    output: list[str] = []
-
-    def out(s: str):
-        output.append(s + "\n")
+    output, out = _make_appender_func()
 
     def make_test(test_name: str, cc: _Ranges, regex: str) -> str:
         regex = '"' + regex.replace("\\", "\\\\") + '"'
@@ -350,6 +352,92 @@ def _cmd_gen_ascii_charclasses_test(args) -> int:
 
     _insert_c_file(args.file, output, "gen_ascii_charclasses test")
     return 0
+
+C_SPECIALS = {
+    ord("\n") : "\\n",
+    ord("\r") : "\\r",
+    ord("\t") : "\\t",
+    ord("\"") : "\\\"",
+    ord("\\") : "\\\\"
+}
+
+JSON_SPECIALS = {
+    ord("\n") : "\\n",
+    ord("\r") : "\\r",
+    ord("\t") : "\\t",
+    ord("\"") : "\\\"",
+    ord("\\") : "\\\\"
+}
+
+def _sanitize_char_for_c_string(c: int) -> str:
+    assert 0 <= c <= 255
+    return C_SPECIALS.get(c, chr(c) if c >= 0x20 and c < 0x7F else f"\\x{c:02X}")
+
+def _sanitize_for_c_string(a: bytes) -> str:
+    return '"' + ''.join(map(_sanitize_char_for_c_string, a)) + '"'
+
+def _sanitize_for_json(a: bytes) -> str | list[int]:
+    if 0 in a:
+        return list(a)
+    try:
+        return a.decode().translate(JSON_SPECIALS)
+    except UnicodeDecodeError:
+        return list(a)
+
+def _parse_fuzz_json(tests: list) -> Iterator[tuple[bytes, bool]]:
+    for corpus, should_parse in tests:
+        yield bytes(map(ord, corpus) if isinstance(corpus, str) else corpus), should_parse
+
+def _cmd_gen_parser_fuzz_regression_tests(args) -> int:
+    output, out = _make_appender_func()
+    test_names = []
+
+    for i, (corpus, should_parse) in enumerate(_parse_fuzz_json(load(args.tests))):
+        test_name = f"fuzz_regression_{i:04X}"
+        test_names.append(test_name)
+
+        out(f"TEST({test_name}) {{")
+        out("   re *r;")
+        out(f"  int err = re_init_full(&r, {_sanitize_for_c_string(corpus)}, {len(corpus)}, NULL);")
+        out("   if (err == ERR_MEM) {")
+        out("     re_destroy(r);")
+        out("     OOM();")
+        out("   }")
+        out(f"  ASSERT_EQ(err, {0 if should_parse else "ERR_PARSE"});")
+        out("   re_destroy(r);")
+        out("   PASS();")
+        out(" }")
+
+    out("SUITE(fuzz_regression) {")
+    for test_name in test_names:
+        out(f"  RUN_TEST({test_name});")
+    out("}")
+
+    _insert_c_file(args.file, output, "gen_parser_fuzz_regression_tests")
+
+    return 0
+
+def _cmd_add_parser_fuzz_regression_tests(args) -> int:
+    original_file = load(args.tests)
+    original_corpi: set[bytes] = set([corpus for corpus, _ in _parse_fuzz_json(original_file)])
+
+    for new_corpus_file in args.file:
+        contents = bytes(new_corpus_file.read())
+        if contents in original_corpi:
+            if args.debug:
+                print(f"skipping already existing corpus {new_corpus_file.name}")
+            continue
+        if args.debug:
+            print(f"importing new corpus {new_corpus_file.name}")
+        original_corpi.add(contents)
+        original_file.append([_sanitize_for_json(contents), False])
+
+    args.tests.seek(0)
+    args.tests.truncate()
+    dump(original_file, args.tests, indent=2)
+
+    return 0
+
 
 
 def main():
@@ -412,6 +500,27 @@ def main():
     subcmd_gen_ascii_charclasses_subcmd_test.add_argument(
         "file", type=argparse.FileType("r+")
     )
+
+    subcmd_gen_parser_fuzz_regression_tests = subcmds.add_parser(
+        "gen_parser_fuzz_regression_tests", help="generate regression tests for the fuzz parser"
+    )
+    subcmd_gen_parser_fuzz_regression_tests.set_defaults(
+        func=_cmd_gen_parser_fuzz_regression_tests
+    )
+    subcmd_gen_parser_fuzz_regression_tests.add_argument("tests", type=argparse.FileType("r"))
+    subcmd_gen_parser_fuzz_regression_tests.add_argument("file", type=argparse.FileType("r+"))
+
+    subcmd_add_parser_fuzz_regression_tests = subcmds.add_parser(
+        "add_parser_fuzz_regression_tests", help="add regression tests to json file"
+    )
+    subcmd_add_parser_fuzz_regression_tests.set_defaults(
+        func=_cmd_add_parser_fuzz_regression_tests
+    )
+    subcmd_add_parser_fuzz_regression_tests.add_argument("tests", type=argparse.FileType("r+"))
+    subcmd_add_parser_fuzz_regression_tests.add_argument(
+        "file", type=argparse.FileType("rb"), nargs='+'
+    )
+
 
     args = parse.parse_args()
     exit(args.func(args))
