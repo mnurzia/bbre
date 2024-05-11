@@ -433,6 +433,18 @@ TEST(star_ungreedy)
   PASS();
 }
 
+TEST(star_greedy_then_ungreedy)
+{
+  ASSERT_MATCH_G2_A("a*(a*?)", "aaaaaa", 0, 6, 6, 6, 'U');
+  PASS();
+}
+
+TEST(star_ungreedy_then_greedy)
+{
+  ASSERT_MATCH_G2_A("a*?(a*)", "aaaaaa", 0, 6, 0, 6, 'U');
+  PASS();
+}
+
 SUITE(star)
 {
   RUN_TEST(star_empty);
@@ -440,6 +452,8 @@ SUITE(star)
   RUN_TEST(star_two);
   RUN_TEST(star_greedy);
   RUN_TEST(star_ungreedy);
+  RUN_TEST(star_greedy_then_ungreedy);
+  RUN_TEST(star_ungreedy_then_greedy);
 }
 
 TEST(quest_empty)
@@ -1660,6 +1674,62 @@ SUITE(set)
   RUN_TEST(set_two_char_grp);
 }
 
+TEST(assert_line_begin_empty)
+{
+  ASSERT_MATCH("^", "");
+  PASS();
+}
+
+TEST(assert_line_begin_beforesome)
+{
+  ASSERT_MATCH("^abc", "abc");
+  PASS();
+}
+
+TEST(assert_line_begin_aftersome)
+{
+  ASSERT_NMATCH("abc^", "abc");
+  PASS();
+}
+
+SUITE(assert_line_begin)
+{
+  RUN_TEST(assert_line_begin_empty);
+  RUN_TEST(assert_line_begin_beforesome);
+  RUN_TEST(assert_line_begin_aftersome);
+}
+
+TEST(assert_line_end_empty)
+{
+  ASSERT_MATCH("$", "");
+  PASS();
+}
+
+TEST(assert_line_end_beforesome)
+{
+  ASSERT_NMATCH("$abc", "abc");
+  PASS();
+}
+
+TEST(assert_line_end_aftersome)
+{
+  ASSERT_MATCH("abc$", "abc");
+  PASS();
+}
+
+SUITE(assert_line_end)
+{
+  RUN_TEST(assert_line_end_empty);
+  RUN_TEST(assert_line_end_beforesome);
+  RUN_TEST(assert_line_end_aftersome);
+}
+
+SUITE(assert)
+{
+  RUN_SUITE(assert_line_begin);
+  RUN_SUITE(assert_line_end);
+}
+
 int main(int argc, const char *const *argv)
 {
   MPTEST_MAIN_BEGIN_ARGS(argc, argv);
@@ -1678,5 +1748,6 @@ int main(int argc, const char *const *argv)
   RUN_SUITE(repetition);
   RUN_SUITE(grp);
   RUN_SUITE(set);
+  RUN_SUITE(assert);
   MPTEST_MAIN_END();
 }

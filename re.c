@@ -187,7 +187,8 @@ typedef enum ast_type {
   IGROUP,  /* inline group */
   CLS,     /* character class */
   ICLS,    /* inverted character class */
-  ANYBYTE  /* any byte (\C) */
+  ANYBYTE, /* any byte (\C) */
+  AASSERT  /* epsilon assertion (^$\A\z\b\B) */
 } ast_type;
 
 const unsigned int ast_type_lens[] = {
@@ -203,6 +204,7 @@ const unsigned int ast_type_lens[] = {
     3, /* CLS */
     3, /* ICLS */
     0, /* ANYBYTE */
+    1, /* AASSERT */
 };
 
 typedef enum group_flag {
@@ -212,6 +214,15 @@ typedef enum group_flag {
   UNGREEDY = 8,     /* ungreedy quantifiers */
   NONCAPTURING = 16 /* non-capturing group (?:...) */
 } group_flag;
+
+typedef enum assert_flag {
+  LINE_BEGIN = 1,
+  LINE_END = 2,
+  TEXT_BEGIN = 4,
+  TEXT_END = 8,
+  WORD = 16,
+  NOT_WORD = 32
+} assert_flag;
 
 typedef struct byte_range {
   u8 l, h;
@@ -940,6 +951,14 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       if ((err = re_mkast(r, QUANT, stk_pop(r, &r->arg_stk), min, max, &res)) ||
           (err = stk_push(r, &r->arg_stk, res)))
         return err;
+    } else if (ch == '^' || ch == '$') { /* beginning/end of text/line */
+      if ((err = re_mkast(
+               r, AASSERT,
+               ch == '^' ? (flags & MULTILINE ? LINE_BEGIN : TEXT_BEGIN)
+                         : (flags & MULTILINE ? LINE_END : TEXT_END),
+               0, 0, &res)) ||
+          (err = stk_push(r, &r->arg_stk, res)))
+        return err;
     } else { /* char: push to the arg stk */
       /* arg_stk: | ... | */
       if ((err = re_mkast(r, CHR, ch, 0, 0, &res)) ||
@@ -1555,7 +1574,7 @@ int re_compcc(re *r, u32 root, compframe *frame)
       return err;
   }
   if (!ccsize(&r->cc_stk_b)) {
-    if ((err = re_emit(r, INST(ASSERT, 0, A_EVERYTHING))))
+    if ((err = re_emit(r, INST(AASSERT, 0, A_EVERYTHING))))
       return err;
     patch_add(r, frame, re_prog_size(r) - 1, 0);
   }
@@ -1600,6 +1619,8 @@ int re_compile(re *r, u32 root, u32 reverse)
         child_frame.patch_tail = REF_NONE;
     child_frame.idx = child_frame.pc = 0;
     type = *re_asttype(r, frame.root_ref);
+    if (frame.root_ref)
+      re_decompast(r, frame.root_ref, args);
     if (!frame.root_ref) {
       /* epsilon */
       /*  in  out  */
@@ -1608,7 +1629,6 @@ int re_compile(re *r, u32 root, u32 reverse)
       /*  in                 out (none)
        * ---> M -> [A] -> M      */
       u32 child;
-      re_decompast(r, frame.root_ref, args);
       child = args[0];
       grp_idx = 1;      /* the bounds group is matched by this REG */
       if (!frame.idx) { /* before child */
@@ -1624,7 +1644,6 @@ int re_compile(re *r, u32 root, u32 reverse)
       }
     } else if (type == CHR) {
       patch(r, &frame, my_pc);
-      re_decompast(r, frame.root_ref, args);
       if (args[0] < 128 && !(frame.flags & INSENSITIVE)) { /* ascii */
         /*  in     out
          * ---> R ----> */
@@ -1651,7 +1670,6 @@ int re_compile(re *r, u32 root, u32 reverse)
     } else if (type == CAT) {
       /*  in              out
        * ---> [A] -> [B] ----> */
-      re_decompast(r, frame.root_ref, args);
       if (frame.idx == 0) {              /* before left child */
         frame.child_ref = args[reverse]; /* push left child */
         patch_xfer(&child_frame, &frame);
@@ -1668,7 +1686,6 @@ int re_compile(re *r, u32 root, u32 reverse)
        * ---> S --> [A] ---->
        *       \         out
        *        --> [B] ----> */
-      re_decompast(r, frame.root_ref, args);
       if (frame.idx == 0) { /* before left child */
         patch(r, &frame, frame.pc);
         if ((err = re_emit(r, INST(SPLIT, 0, 0))))
@@ -1689,7 +1706,6 @@ int re_compile(re *r, u32 root, u32 reverse)
        *       \             out
        *        +-----------------> */
       u32 child, min, max, is_greedy;
-      re_decompast(r, frame.root_ref, args);
       child = args[0], min = args[1], max = args[2];
       assert((min != INFTY && max != INFTY) || min != max);
       is_greedy = !(frame.flags & UNGREEDY) ^ (type == UQUANT);
@@ -1721,7 +1737,6 @@ int re_compile(re *r, u32 root, u32 reverse)
       /*  in                 out
        * ---> M -> [A] -> M ----> */
       u32 child;
-      re_decompast(r, frame.root_ref, args);
       child = args[0];
       frame.flags = args[1];
       if (!frame.idx) { /* before child */
@@ -1746,6 +1761,12 @@ int re_compile(re *r, u32 root, u32 reverse)
       patch(r, &frame, my_pc);
       if ((err = re_compcc(r, frame.root_ref, &frame)))
         return err;
+    } else if (type == AASSERT) {
+      u32 assert_flag = args[0];
+      patch(r, &frame, my_pc);
+      if ((err = re_emit(r, INST(ASSERT, 0, assert_flag))))
+        return err;
+      patch_add(r, &frame, my_pc, 0);
     } else {
       assert(0);
     }
@@ -2072,7 +2093,7 @@ int exec_nfa_start(
 
 #define IMPLIES(subj, pred) (!(subj) || (pred))
 
-int exec_nfa_eps(re *r, exec_nfa *n, size_t pos)
+int exec_nfa_eps(re *r, exec_nfa *n, size_t pos, assert_flag ass)
 {
   int err;
   size_t i;
@@ -2121,6 +2142,15 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos)
           /* sec is pushed first because it needs to be processed after pri.
            * pri comes off the stack first because it's FIFO. */
           return err;
+        break;
+      }
+      case ASSERT: {
+        if ((INST_P(op) & ass) == INST_P(op)) {
+          top.pc = INST_N(op);
+          if ((err = thrdstk_push(r, &n->thrd_stk, top)))
+            return err;
+        } else
+          save_slots_kill(&n->slots, top.slot);
         break;
       }
       default:
@@ -2220,6 +2250,11 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
   return 0;
 }
 
+assert_flag make_assert_flag(size_t pos, int is_end)
+{
+  return (pos == 0 ? TEXT_BEGIN : 0) | (is_end ? TEXT_END : 0);
+}
+
 /* return number of sets matched, -n otherwise */
 /* 0th span is the full bounds, 1st is first group, etc. */
 /* if max_set == 0 and max_span == 0 */
@@ -2232,7 +2267,8 @@ int exec_nfa_end(
 {
   int err;
   size_t j, sets = 0, nset = 0;
-  if ((err = exec_nfa_eps(r, n, pos)) || (err = exec_nfa_chr(r, n, 256, pos)))
+  if ((err = exec_nfa_eps(r, n, pos, make_assert_flag(pos, 1))) ||
+      (err = exec_nfa_chr(r, n, 256, pos)))
     return err;
   for (sets = 0; sets < r->ast_sets && (max_set ? nset < max_set : nset < 1);
        sets++) {
@@ -2255,7 +2291,8 @@ int exec_nfa_end(
 int exec_nfa_run(re *r, exec_nfa *n, unsigned int ch, size_t pos)
 {
   int err;
-  (err = exec_nfa_eps(r, n, pos)) || (err = exec_nfa_chr(r, n, ch, pos));
+  (err = exec_nfa_eps(r, n, pos, make_assert_flag(pos, 0))) ||
+      (err = exec_nfa_chr(r, n, ch, pos));
   return err;
 }
 
