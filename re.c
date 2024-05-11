@@ -2250,9 +2250,11 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
   return 0;
 }
 
-assert_flag make_assert_flag(size_t pos, int is_end)
+assert_flag make_assert_flag(size_t pos, int is_end, int is_from_nl, u32 ch)
 {
-  return (pos == 0 ? TEXT_BEGIN : 0) | (is_end ? TEXT_END : 0);
+  return (pos == 0 ? TEXT_BEGIN : 0) | (is_end ? TEXT_END : 0) |
+         (pos == 0 ? LINE_BEGIN : is_from_nl * LINE_BEGIN) |
+         ((ch == '\n' || is_end) * LINE_END);
 }
 
 /* return number of sets matched, -n otherwise */
@@ -2263,11 +2265,12 @@ assert_flag make_assert_flag(size_t pos, int is_end)
 /* if max_set != 0 and max_span != 0 */
 int exec_nfa_end(
     re *r, size_t pos, exec_nfa *n, u32 max_span, u32 max_set, span *out_span,
-    u32 *out_set)
+    u32 *out_set, int is_from_nl)
 {
   int err;
   size_t j, sets = 0, nset = 0;
-  if ((err = exec_nfa_eps(r, n, pos, make_assert_flag(pos, 1))) ||
+  if ((err = exec_nfa_eps(
+           r, n, pos, make_assert_flag(pos, 1, is_from_nl, 256))) ||
       (err = exec_nfa_chr(r, n, 256, pos)))
     return err;
   for (sets = 0; sets < r->ast_sets && (max_set ? nset < max_set : nset < 1);
@@ -2288,10 +2291,10 @@ int exec_nfa_end(
   return nset;
 }
 
-int exec_nfa_run(re *r, exec_nfa *n, unsigned int ch, size_t pos)
+int exec_nfa_run(re *r, exec_nfa *n, u32 ch, size_t pos, int is_from_nl)
 {
   int err;
-  (err = exec_nfa_eps(r, n, pos, make_assert_flag(pos, 0))) ||
+  (err = exec_nfa_eps(r, n, pos, make_assert_flag(pos, 0, is_from_nl, ch))) ||
       (err = exec_nfa_chr(r, n, ch, pos));
   return err;
 }
@@ -2330,10 +2333,13 @@ int re_match(
            entry & ENT_DOTSTAR)))
     goto done;
   for (i = 0; i < n; i++) {
-    if ((err = exec_nfa_run(r, &nfa, ((const u8 *)s)[i], i)))
+    if ((err = exec_nfa_run(
+             r, &nfa, ((const u8 *)s)[i], i, i ? s[i - 1] == '\n' : 0)))
       goto done;
   }
-  if ((err = exec_nfa_end(r, n, &nfa, max_span, max_set, out_span, out_set)))
+  if ((err = exec_nfa_end(
+           r, n, &nfa, max_span, max_set, out_span, out_set,
+           i ? s[i - 1] == '\n' : 0)))
     goto done;
 done:
   exec_nfa_destroy(r, &nfa);

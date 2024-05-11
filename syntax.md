@@ -55,6 +55,6 @@
   [X] (?flags-flags:re)
   [ ] individual flags
     [X] i
-    [ ] m
+    [X] m
     [X] s
     [ ] U

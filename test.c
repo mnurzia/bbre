@@ -1482,6 +1482,38 @@ SUITE(grp_flag_s)
   RUN_TEST(grp_flag_s_off_nmatch);
 }
 
+TEST(grp_flag_m_match)
+{
+  ASSERT_MATCH("(?m:$\n)", "\n");
+  PASS();
+}
+
+TEST(grp_flag_m_nmatch)
+{
+  ASSERT_NMATCH("(?m:$a)", "");
+  PASS();
+}
+
+TEST(grp_flag_m_off_match)
+{
+  ASSERT_MATCH("(?m:(?-m:\n$))", "\n");
+  PASS();
+}
+
+TEST(grp_flag_m_off_nmatch)
+{
+  ASSERT_NMATCH("(?m:(?-m:$\n))", "\n");
+  PASS();
+}
+
+SUITE(grp_flag_m)
+{
+  RUN_TEST(grp_flag_m_match);
+  RUN_TEST(grp_flag_m_nmatch);
+  RUN_TEST(grp_flag_m_off_match);
+  RUN_TEST(grp_flag_m_off_nmatch);
+}
+
 TEST(grp_named_regular)
 {
   ASSERT_MATCH("(?<name>a)", "a");
@@ -1638,6 +1670,7 @@ SUITE(grp)
 {
   RUN_SUITE(grp_flag_i);
   RUN_SUITE(grp_flag_s);
+  RUN_SUITE(grp_flag_m);
   RUN_SUITE(grp_named);
   RUN_TEST(grp_unfinished);
   RUN_TEST(grp_empty);
@@ -1692,11 +1725,60 @@ TEST(assert_line_begin_aftersome)
   PASS();
 }
 
+TEST(assert_line_begin_afternl)
+{
+  ASSERT_NMATCH("\n^", "\n");
+  PASS();
+}
+
+TEST(assert_line_begin_beforenl)
+{
+  ASSERT_MATCH("^\n", "\n");
+  PASS();
+}
+
+TEST(assert_line_begin_multiline_empty)
+{
+  ASSERT_MATCH("(?m)^", "");
+  PASS();
+}
+
+TEST(assert_line_begin_multiline_beforesome)
+{
+  ASSERT_MATCH("(?m)^abc", "abc");
+  PASS();
+}
+
+TEST(assert_line_begin_multiline_aftersome)
+{
+  ASSERT_NMATCH("(?m)abc^", "abc");
+  PASS();
+}
+
+TEST(assert_line_begin_multiline_afternl)
+{
+  ASSERT_MATCH("(?m)\n^", "\n");
+  PASS();
+}
+
+TEST(assert_line_begin_multiline_beforenl)
+{
+  ASSERT_MATCH("(?m)^\n", "\n");
+  PASS();
+}
+
 SUITE(assert_line_begin)
 {
   RUN_TEST(assert_line_begin_empty);
   RUN_TEST(assert_line_begin_beforesome);
   RUN_TEST(assert_line_begin_aftersome);
+  RUN_TEST(assert_line_begin_afternl);
+  RUN_TEST(assert_line_begin_beforenl);
+  RUN_TEST(assert_line_begin_multiline_empty);
+  RUN_TEST(assert_line_begin_multiline_beforesome);
+  RUN_TEST(assert_line_begin_multiline_aftersome);
+  RUN_TEST(assert_line_begin_multiline_afternl);
+  RUN_TEST(assert_line_begin_multiline_beforenl);
 }
 
 TEST(assert_line_end_empty)
@@ -1717,11 +1799,60 @@ TEST(assert_line_end_aftersome)
   PASS();
 }
 
+TEST(assert_line_end_afternl)
+{
+  ASSERT_MATCH("\n$", "\n");
+  PASS();
+}
+
+TEST(assert_line_end_beforenl)
+{
+  ASSERT_NMATCH("$\n", "\n");
+  PASS();
+}
+
+TEST(assert_line_end_multiline_empty)
+{
+  ASSERT_MATCH("(?m)$", "");
+  PASS();
+}
+
+TEST(assert_line_end_multiline_beforesome)
+{
+  ASSERT_NMATCH("(?m)$abc", "abc");
+  PASS();
+}
+
+TEST(assert_line_end_multiline_aftersome)
+{
+  ASSERT_MATCH("(?m)abc$", "abc");
+  PASS();
+}
+
+TEST(assert_line_end_multiline_afternl)
+{
+  ASSERT_MATCH("(?m)\n$", "\n");
+  PASS();
+}
+
+TEST(assert_line_end_multiline_beforenl)
+{
+  ASSERT_MATCH("(?m)$\n", "\n");
+  PASS();
+}
+
 SUITE(assert_line_end)
 {
   RUN_TEST(assert_line_end_empty);
   RUN_TEST(assert_line_end_beforesome);
   RUN_TEST(assert_line_end_aftersome);
+  RUN_TEST(assert_line_end_afternl);
+  RUN_TEST(assert_line_end_beforenl);
+  RUN_TEST(assert_line_end_multiline_empty);
+  RUN_TEST(assert_line_end_multiline_beforesome);
+  RUN_TEST(assert_line_end_multiline_aftersome);
+  RUN_TEST(assert_line_end_multiline_afternl);
+  RUN_TEST(assert_line_end_multiline_beforenl);
 }
 
 SUITE(assert)
