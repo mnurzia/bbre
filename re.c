@@ -1917,7 +1917,7 @@ int save_slots_new(re *r, save_slots *s, u32 *next)
           r, s->slots_alloc * sizeof(size_t), new_alloc * sizeof(size_t),
           s->slots);
       if (!new_slots)
-        return 0;
+        return ERR_MEM;
       s->slots = new_slots, s->slots_alloc = new_alloc;
     }
     if (!s->slots_size) {
@@ -2019,18 +2019,20 @@ typedef struct exec_nfa {
 void exec_nfa_init(re *r, exec_nfa *n)
 {
   sset_init(r, &n->a), sset_init(r, &n->b), sset_init(r, &n->c);
-  stk_init(r, &n->thrd_stk), stk_init(r, &n->pri_stk), stk_init(r, &n->pri_bmp),
-      stk_init(r, &n->pri_bmp_tmp);
+  stk_init(r, &n->thrd_stk);
   save_slots_init(r, &n->slots);
+  stk_init(r, &n->pri_stk), stk_init(r, &n->pri_bmp),
+      stk_init(r, &n->pri_bmp_tmp);
   n->reversed = n->track = 0;
 }
 
 void exec_nfa_destroy(re *r, exec_nfa *n)
 {
   sset_destroy(r, &n->a), sset_destroy(r, &n->b), sset_destroy(r, &n->c);
-  stk_destroy(r, &n->thrd_stk), stk_destroy(r, &n->pri_stk),
-      stk_destroy(r, &n->pri_bmp), stk_destroy(r, &n->pri_bmp_tmp);
+  stk_destroy(r, &n->thrd_stk);
   save_slots_destroy(r, &n->slots);
+  stk_destroy(r, &n->pri_stk), stk_destroy(r, &n->pri_bmp),
+      stk_destroy(r, &n->pri_bmp_tmp);
 }
 
 int thrdstk_push(re *r, stk *s, thrdspec t)
