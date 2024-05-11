@@ -769,6 +769,12 @@ TEST(cls_subclass)
   PASS();
 }
 
+TEST(cls_nevermatch)
+{
+  ASSERT_NMATCH("[^\\x00-\\x{10FFFF}]", "a");
+  PASS();
+}
+
 SUITE(cls)
 {
   RUN_SUITE(cls_escape);
@@ -782,6 +788,7 @@ SUITE(cls)
   RUN_TEST(cls_named_unknown);
   RUN_TEST(cls_insensitive);
   RUN_TEST(cls_subclass);
+  RUN_TEST(cls_nevermatch);
 }
 
 TEST(escape_null)
@@ -2144,6 +2151,24 @@ SUITE(assert)
 
 SUITE(fuzz_regression); /* provided by test-gen.c */
 
+TEST(limit_program_size)
+{
+  re *r = re_init("a++++++++++++++++++++");
+  int err;
+  if (!r)
+    goto oom;
+  if ((err = re_match(r, "", 0, 0, 0, NULL, NULL, 'U')) == ERR_MEM)
+    goto oom;
+  ASSERT_EQ(err, ERR_LIMIT);
+  re_destroy(r);
+  PASS();
+oom:
+  re_destroy(r);
+  OOM();
+}
+
+SUITE(limits) { RUN_TEST(limit_program_size); }
+
 int main(int argc, const char *const *argv)
 {
   MPTEST_MAIN_BEGIN_ARGS(argc, argv);
@@ -2160,6 +2185,7 @@ int main(int argc, const char *const *argv)
   RUN_SUITE(grp);
   RUN_SUITE(set);
   RUN_SUITE(assert);
+  RUN_SUITE(limits);
 #ifndef RE_COV
   /* regression tests should not account for coverage. we should explicitly
    * write tests that fully cover our code, as they are more documentable than

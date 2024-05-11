@@ -1026,13 +1026,17 @@ inst re_prog_get(re *r, u32 pc)
 
 u32 re_prog_size(re *r) { return r->prog.size >> 1; }
 
+#define PROGMAX 100000
+
 int re_emit(re *r, inst i)
 {
   int err = 0;
+  if (re_prog_size(r) == PROGMAX)
+    return ERR_LIMIT;
   if ((err = stk_push(r, &r->prog, 0)) || (err = stk_push(r, &r->prog, 0)))
     return err;
   re_prog_set(r, re_prog_size(r) - 1, i);
-  return 0;
+  return err;
 }
 
 typedef struct compframe {
@@ -1052,8 +1056,6 @@ compframe compframe_pop(re *r)
 }
 
 enum op { RANGE, ASSERT, MATCH, SPLIT };
-
-enum asserts { A_EVERYTHING = 0xFF };
 
 #define IMATCH(s, i) ((i) << 1 | (s))
 #define IMATCH_S(m)  ((m) & 1)
@@ -1596,9 +1598,12 @@ int re_compcc(re *r, u32 root, compframe *frame)
       return err;
   }
   if (!ccsize(&r->cc_stk_b)) {
-    if ((err = re_emit(r, INST(AASSERT, 0, A_EVERYTHING))))
+    /* empty charclass */
+    if ((err =
+             re_emit(r, INST(ASSERT, 0, WORD | NOT_WORD)))) /* never matches */
       return err;
     patch_add(r, frame, re_prog_size(r) - 1, 0);
+    return err;
   }
   /* build tree */
   r->cc_stk_a.size = 0;

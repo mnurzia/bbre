@@ -75,7 +75,7 @@ corpus/artifact: corpus
 	mkdir -p corpus/artifact
 
 parser_fuzz: corpus corpus/new corpus/artifact build/parser_fuzz
-	./build/parser_fuzz -artifact_prefix=corpus/artifact/ corpus corpus/new
+	./build/parser_fuzz -artifact_prefix=corpus/artifact/ -timeout=5 corpus corpus/new
 
 parser_fuzz_import: corpus/artifact
 	python tools/unicode_data.py --debug add_parser_fuzz_regression_tests fuzz_results.json corpus/artifact/*

@@ -13,6 +13,7 @@ typedef unsigned char u8;
 
 #define ERR_MEM (-1)
 #define ERR_PARSE (-2)
+#define ERR_LIMIT (-3)
 
 typedef void *(*re_alloc)(size_t, size_t, void *);
 
