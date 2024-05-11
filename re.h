@@ -17,11 +17,11 @@ typedef unsigned char u8;
 typedef void *(*re_alloc)(size_t, size_t, void *);
 
 /* return NULL on parse error or mem error */
-re *re_init(const char *regex);
+re *re_init(const char *regex_null_terminated);
 
-int re_init_full(re **r, const char *s, re_alloc alloc);
+int re_init_full(re **r, const char *s, size_t n, re_alloc alloc);
 
-int re_union(re *r, const char *s);
+int re_union(re *r, const char *s, size_t n);
 void re_destroy(re *r);
 
 typedef struct span {

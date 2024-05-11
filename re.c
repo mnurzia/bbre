@@ -133,12 +133,12 @@ int re_parse(re *r, const u8 *s, size_t sz, u32 *root);
 re *re_init(const char *regex)
 {
   re *r;
-  if (re_init_full(&r, regex, NULL) == ERR_MEM)
+  if (re_init_full(&r, regex, strlen(regex), NULL) == ERR_MEM)
     return NULL;
   return r;
 }
 
-int re_init_full(re **pr, const char *regex, re_alloc alloc)
+int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
 {
   int err = 0;
   re *r;
@@ -156,7 +156,7 @@ int re_init_full(re **pr, const char *regex, re_alloc alloc)
   stk_init(r, &r->prog);
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
-    if ((err = re_parse(r, (const u8 *)regex, strlen(regex), &r->ast_root))) {
+    if ((err = re_parse(r, (const u8 *)regex, n, &r->ast_root))) {
       re_destroy(r);
       return err;
     } else {
@@ -276,15 +276,14 @@ u32 *re_astarg(re *re, u32 root, u32 n)
 
 u32 *re_asttype(re *re, u32 root) { return re->ast.ptr + root; }
 
-int re_union(re *r, const char *regex)
+int re_union(re *r, const char *regex, size_t n)
 { /* add an ALT here */
   int err = 0;
-  if (!r->ast_sets &&
-      (err = re_parse(r, (const u8 *)regex, strlen(regex), &r->ast_root))) {
+  if (!r->ast_sets && (err = re_parse(r, (const u8 *)regex, n, &r->ast_root))) {
     return err;
   } else if (!r->ast_sets) {
     u32 next_reg, next_root;
-    if ((err = re_parse(r, (const u8 *)regex, strlen(regex), &next_reg)) ||
+    if ((err = re_parse(r, (const u8 *)regex, n, &next_reg)) ||
         (err = re_mkast(r, ALT, r->ast_root, next_reg, 0, &next_root)))
       return err;
     r->ast_root = next_root;
@@ -1703,10 +1702,9 @@ int re_compile(re *r, u32 root, u32 reverse)
        * ---> S -> [A] ---+
        *       \             out
        *        +-----------------> */
-      u32 child, min, max, is_greedy;
-      child = args[0], min = args[1], max = args[2];
+      u32 child = args[0], min = args[1], max = args[2],
+          is_greedy = !(frame.flags & UNGREEDY) ^ (type == UQUANT);
       assert((min != INFTY && max != INFTY) || min != max);
-      is_greedy = !(frame.flags & UNGREEDY) ^ (type == UQUANT);
       if (frame.idx < min) { /* before minimum bound */
         patch_xfer(&child_frame, frame.idx ? &returned_frame : &frame);
         frame.child_ref = child;

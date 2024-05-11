@@ -74,11 +74,12 @@ int check_matches(
   found_set = test_alloc(0, sizeof(u32) * max_set, NULL);
   if (max_set && !found_set)
     goto oom_set;
-  if ((err = re_init_full(&r, nregex == 1 ? *regexes : NULL, test_alloc)) ==
-      ERR_MEM)
+  if ((err = re_init_full(
+           &r, nregex == 1 ? *regexes : NULL,
+           nregex == 1 ? strlen(*regexes) : 0, test_alloc)) == ERR_MEM)
     goto oom_set;
   for (i = 0; i < nregex && nregex != 1; i++) {
-    if ((err = re_union(r, regexes[i])) == ERR_MEM)
+    if ((err = re_union(r, regexes[i], strlen(regexes[i]))) == ERR_MEM)
       goto oom_re;
     ASSERT_EQ(err, 0);
   }
@@ -226,7 +227,7 @@ int check_noparse(const char *regex)
 {
   re *r;
   int err;
-  if ((err = re_init_full(&r, regex, test_alloc)) == ERR_MEM)
+  if ((err = re_init_full(&r, regex, strlen(regex), test_alloc)) == ERR_MEM)
     OOM();
   ASSERT_EQ(err, ERR_PARSE);
   PASS();
@@ -283,7 +284,7 @@ int assert_cc_match(const char *regex, const char *spec)
   char utf8[16];
   rrange ranges[64];
   u32 num_ranges = matchspec(spec, ranges), range_idx;
-  if ((err = re_init_full(&r, regex, test_alloc)) == ERR_MEM)
+  if ((err = re_init_full(&r, regex, strlen(regex), test_alloc)) == ERR_MEM)
     OOM();
   ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
