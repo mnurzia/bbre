@@ -177,8 +177,7 @@ void re_destroy(re *r)
 }
 
 typedef enum ast_type {
-  REG = 1, /* entire subexpression */
-  CHR,     /* single character */
+  CHR = 1, /* single character */
   CAT,     /* concatenation */
   ALT,     /* alternation */
   QUANT,   /* quantifier */
@@ -193,7 +192,6 @@ typedef enum ast_type {
 
 const unsigned int ast_type_lens[] = {
     0, /* eps */
-    1, /* REG */
     1, /* CHR */
     2, /* CAT */
     2, /* ALT */
@@ -208,11 +206,12 @@ const unsigned int ast_type_lens[] = {
 };
 
 typedef enum group_flag {
-  INSENSITIVE = 1,  /* case-insensitive matching */
-  MULTILINE = 2,    /* ^$ match beginning/end of each line */
-  DOTNEWLINE = 4,   /* . matches \n */
-  UNGREEDY = 8,     /* ungreedy quantifiers */
-  NONCAPTURING = 16 /* non-capturing group (?:...) */
+  INSENSITIVE = 1,   /* case-insensitive matching */
+  MULTILINE = 2,     /* ^$ match beginning/end of each line */
+  DOTNEWLINE = 4,    /* . matches \n */
+  UNGREEDY = 8,      /* ungreedy quantifiers */
+  NONCAPTURING = 16, /* non-capturing group (?:...) */
+  SUBEXPRESSION = 32 /* set-match component */
 } group_flag;
 
 typedef enum assert_flag {
@@ -986,7 +985,8 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
     return err;
   if (r->op_stk.size)
     return re_parse_err(r, "unmatched open parenthesis");
-  if ((err = re_mkast(r, REG, stk_pop(r, &r->arg_stk), 0, 0, root)))
+  if ((err =
+           re_mkast(r, GROUP, stk_pop(r, &r->arg_stk), SUBEXPRESSION, 0, root)))
     return err;
   return 0;
 }
@@ -1640,23 +1640,6 @@ int re_compile(re *r, u32 root, u32 reverse)
       /* epsilon */
       /*  in  out  */
       /* --------> */
-    } else if (type == REG) {
-      /*  in                 out (none)
-       * ---> M -> [A] -> M      */
-      u32 child;
-      child = args[0];
-      grp_idx = 1;      /* the bounds group is matched by this REG */
-      if (!frame.idx) { /* before child */
-        patch(r, &frame, my_pc);
-        if ((err = re_emit(r, INST(MATCH, 0, IMATCH(0, 1 + set_idx++)))))
-          return err;
-        patch_add(r, &child_frame, my_pc, 0);
-        frame.child_ref = child, frame.idx++;
-      } else if (frame.idx) { /* after child */
-        patch(r, &returned_frame, my_pc);
-        if ((err = re_emit(r, INST(MATCH, 0, IMATCH(1, reverse)))))
-          return err;
-      }
     } else if (type == CHR) {
       patch(r, &frame, my_pc);
       if (args[0] < 128 && !(frame.flags & INSENSITIVE)) { /* ascii */
@@ -1751,26 +1734,41 @@ int re_compile(re *r, u32 root, u32 reverse)
     } else if (type == GROUP || type == IGROUP) {
       /*  in                 out
        * ---> M -> [A] -> M ----> */
-      u32 child;
-      child = args[0];
-      frame.flags = args[1];
-      if (!frame.idx) { /* before child */
+      u32 child = args[0], flags = args[1];
+      frame.flags = flags & ~SUBEXPRESSION; /* we shouldn't propagate this */
+      if (!frame.idx) {                     /* before child */
         patch(r, &frame, my_pc);
-        if ((err = re_emit(
-                 r, INST(MATCH, 0, IMATCH(1, 2 * grp_idx++ + reverse)))))
+        if (flags & SUBEXPRESSION) {
+          /* for subexpressions: generate an initial match instruction */
+          grp_idx = 1;
+          if ((err = re_emit(r, INST(MATCH, 0, IMATCH(0, 1 + set_idx++)))))
+            return err;
+        } else if
+            /* for regular groups: generate a save instruction corresponding to
+               the start of the group */
+            ((err = re_emit(
+                  r, INST(MATCH, 0, IMATCH(1, 2 * grp_idx++ + reverse)))))
           return err;
         patch_add(r, &child_frame, my_pc, 0);
         frame.child_ref = child, frame.idx++;
       } else if (frame.idx) { /* after child */
         patch(r, &returned_frame, my_pc);
-        if ((err = re_emit(
-                 r, INST(
-                        MATCH, 0,
-                        IMATCH(
-                            1, IMATCH_I(INST_P(re_prog_get(r, frame.pc))) +
-                                   (reverse ? -1 : 1))))))
-          return err;
-        patch_add(r, &frame, my_pc, 0);
+        if ((flags & SUBEXPRESSION)) {
+          /* for subexpressions: generate the final match instruction */
+          if ((err = re_emit(r, INST(MATCH, 0, IMATCH(1, reverse)))))
+            return err;
+        } else {
+          /* for regular groups: generate a save instruction corresponding to
+           * the end of the group */
+          if ((err = re_emit(
+                   r, INST(
+                          MATCH, 0,
+                          IMATCH(
+                              1, IMATCH_I(INST_P(re_prog_get(r, frame.pc))) +
+                                     (reverse ? -1 : 1))))))
+            return err;
+          patch_add(r, &frame, my_pc, 0);
+        }
       }
     } else if (type == CLS || type == ICLS) {
       patch(r, &frame, my_pc);
@@ -2344,9 +2342,9 @@ int re_match(
 {
   exec_nfa nfa;
   int err = 0;
-  u32 entry = entry = anchor == A_END          ? ENT_REV
-                      : anchor == A_UNANCHORED ? ENT_FWD | ENT_DOTSTAR
-                                               : ENT_FWD;
+  u32 entry = anchor == A_END          ? ENT_REV
+              : anchor == A_UNANCHORED ? ENT_FWD | ENT_DOTSTAR
+                                       : ENT_FWD;
   size_t i;
   u32 prev_ch = SENT_CH;
   if (!re_prog_size(r) && ((err = re_compile(r, r->ast_root, ENT_FWD)) ||
@@ -2379,9 +2377,6 @@ void astdump_i(re *r, u32 root, u32 ilvl)
     printf(" ");
   if (root == REF_NONE) {
     printf("<eps>\n");
-  } else if (first == REG) {
-    printf("REG\n");
-    astdump_i(r, *re_astarg(r, root, 0), ilvl + 1);
   } else if (first == CHR) {
     printf("CHR %02X\n", rest);
   } else if (first == CAT) {

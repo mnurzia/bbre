@@ -2,7 +2,7 @@
   [X] ascii characters
   [X] unicode characters
 [X] .
-[ ] escapes
+[X] escapes
   [X] \0
   [X] \a
   [X] \f
@@ -42,9 +42,15 @@
   [X] {n}
   [X] {n,}
   [X] {m,n}
-[ ] ungreedy ?
-[ ] empty asserts
-[ ] group syntax
+[X] ungreedy ?
+[X] empty asserts
+  [X] ^
+  [X] $
+  [X] \A
+  [X] \z
+  [X] \B
+  [X] \b
+[X] group syntax
   [X] ()
   [X] (?P<name>...)
   [X] (?<name>...)
@@ -53,8 +59,8 @@
   [X] (?flags:re)
   [X] (?-flags:re)
   [X] (?flags-flags:re)
-  [ ] individual flags
+  [X] individual flags
     [X] i
     [X] m
     [X] s
-    [ ] U
+    [X] U

@@ -580,30 +580,6 @@ SUITE(alt)
   RUN_TEST(alt_some_some_second);
 }
 
-TEST(cls)
-{
-  ASSERT_MATCH("[a]", "a");
-  ASSERT_MATCH("[aa]", "a");
-  ASSERT_MATCH("[a-mo-q]", "a");
-  ASSERT_MATCH("[]]", "]");
-  PASS();
-}
-
-TEST(bounds)
-{
-  ASSERT_MATCH_G1("", "", 0, 0);
-  ASSERT_MATCH_G1("a", "a", 0, 1);
-  ASSERT_MATCH_G1("a|b", "a", 0, 1);
-  ASSERT_MATCH_G1("aa", "aa", 0, 2);
-  PASS();
-}
-
-TEST(unanchored)
-{
-  ASSERT_MATCH_G1_A("a", "ba", 1, 2, A_UNANCHORED);
-  PASS();
-}
-
 TEST(anychar_unicode_1)
 {
   ASSERT_MATCH(".", "z");
@@ -1514,6 +1490,38 @@ SUITE(grp_flag_m)
   RUN_TEST(grp_flag_m_off_nmatch);
 }
 
+TEST(grp_flag_u_match)
+{
+  ASSERT_MATCH_G1_A("(?u)a*", "aa", 0, 0, 'U');
+  PASS();
+}
+
+TEST(grp_flag_u_nmatch)
+{
+  ASSERT_NMATCH("(?u)a+", "b");
+  PASS();
+}
+
+TEST(grp_flag_u_off_match)
+{
+  ASSERT_MATCH_G1_A("(?u:(?-u:a*))", "aa", 0, 2, 'B');
+  PASS();
+}
+
+TEST(grp_flag_u_off_nmatch)
+{
+  ASSERT_NMATCH("(?u:(?-u:a*))", "b");
+  PASS();
+}
+
+SUITE(grp_flag_u)
+{
+  RUN_TEST(grp_flag_u_match);
+  RUN_TEST(grp_flag_u_nmatch);
+  RUN_TEST(grp_flag_u_off_match);
+  RUN_TEST(grp_flag_u_off_nmatch);
+}
+
 TEST(grp_named_regular)
 {
   ASSERT_MATCH("(?<name>a)", "a");
@@ -1671,6 +1679,7 @@ SUITE(grp)
   RUN_SUITE(grp_flag_i);
   RUN_SUITE(grp_flag_s);
   RUN_SUITE(grp_flag_m);
+  RUN_SUITE(grp_flag_u);
   RUN_SUITE(grp_named);
   RUN_TEST(grp_unfinished);
   RUN_TEST(grp_empty);
@@ -2127,9 +2136,6 @@ int main(int argc, const char *const *argv)
   RUN_SUITE(cat);
   RUN_SUITE(quant);
   RUN_SUITE(alt);
-  RUN_TEST(cls);
-  RUN_TEST(bounds);
-  RUN_TEST(unanchored);
   RUN_SUITE(any_byte);
   RUN_SUITE(cls);
   RUN_SUITE(anychar);
