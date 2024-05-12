@@ -4,6 +4,7 @@ COVCFLAGS=--coverage
 SRCS=re.c test.c test-gen.c
 GDB=lldb --
 
+## run target `test`
 all: test
 
 build:
@@ -23,28 +24,36 @@ test-gen.c: build tools/unicode_data.py fuzz_results.json
 build/compile_commands.json: build $(SRCS) 
 	bear --output $@ -- make -B build/re
 
+## run tests
 test: build/re
 	./build/re
 
-debug_test: build/re
+## run tests in a debugger
+testdbg: build/re
 	$(GDB) ./build/re
 
+## run tests with OOM checking
 testoom: build/re
 	./build/re --leak-check --fault-check
 
-debug_testoom: build/re
+## run tests with OOM checking in a debugger
+testdbgoom: build/re
 	$(GDB) ./build/re --leak-check --fault-check
 
+## run the given test
 test_%: build/re
 	./build/re -t $(subst test_,,$@)
 
-debug_test_%: build/re
+## run the given test in a debugger
+testdbg_%: build/re
 	$(GDB) ./build/re -t $(subst debug_test_,,$@)
 
+## run the given test with OOM checking
 testoom_%: build/re
 	./build/re -t $(subst testoom_,,$@) --leak-check --fault-check
 
-debug_testoom_%: build/re
+## run the given test with OOM checking in a debugger
+testdbgoom_%: build/re
 	$(GDB) ./build/re -t $(subst debug_testoom_,,$@) --leak-check --fault-check
 
 build/cov/re-cov: build $(SRCS)
@@ -59,6 +68,7 @@ build/cov/lcov.info: build/cov build/cov/re-cov
 build/cov/index.html: build/cov/lcov.info
 	genhtml build/cov/lcov.info --branch-coverage --output-directory build/cov
 
+## build and open a coverage report
 cov: build/cov/index.html
 	open build/cov/reee/re.c.gcov.html
 
@@ -74,23 +84,33 @@ corpus/new: corpus
 corpus/artifact: corpus
 	mkdir -p corpus/artifact
 
+## run the LLVM fuzzer on the parser
 parser_fuzz: corpus corpus/new corpus/artifact build/parser_fuzz
 	./build/parser_fuzz -artifact_prefix=corpus/artifact/ -timeout=5 corpus corpus/new
 
+## import generated LLVM fuzzer artifacts as tests
 parser_fuzz_import: corpus/artifact
 	python tools/unicode_data.py --debug add_parser_fuzz_regression_tests fuzz_results.json corpus/artifact/*
 
 tools/.ucd.zip:
 	python tools/unicode_data.py --debug --db tools/.ucd.zip fetch
 
+## generate data tables for re.c
 tables: tools/.ucd.zip
 	python tools/unicode_data.py --debug --db tools/.ucd.zip gen_casefold re.c
 	python tools/unicode_data.py --debug --db tools/.ucd.zip gen_ascii_charclasses impl re.c
 	clang-format -i re.c
 
+## run clang-format on all sources
 format:
-	clang-format -i $(SRCS) test-gen.c
+	clang-format -i $(SRCS) parser_fuzz.c
 
-
+## remove build files
 clean:
 	rm -rf build corpus
+
+.SILENT: targets
+
+## print a list of targets and their descriptions
+targets:
+	awk 'BEGIN {print "TARGET,DESCRIPTION"} {if ($$0 ~ /^##/) {getline target; split(target,a,":"); print a[1]","substr($$0,4)}}' Makefile | column -t -s ',' | sort
