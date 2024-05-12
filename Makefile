@@ -14,10 +14,7 @@ clean:
 	rm -rf build
 
 build:
-	mkdir -p build
-
-build/cov:
-	mkdir -p build/cov
+	mkdir -p build/{cov,fuzz/{artifact,new}}
 
 build/re: build $(SRCS)
 	$(CC) $(CFLAGS) -DRE_TEST $(SRCS) -o $@
@@ -74,23 +71,20 @@ build/cov/lcov.info: build/cov build/cov/re-cov
 build/cov/index.html: build/cov/lcov.info
 	genhtml build/cov/lcov.info --branch-coverage --output-directory build/cov
 
-## build and open a coverage report
+## run coverage and show a coverage report
 cov: build/cov/index.html
-	open build/cov/reee/re.c.gcov.html
+	python -m webbrowser file://$(realpath build/cov/reee/re.c.gcov.html)
 
 build/parser_fuzz: build parser_fuzz.c re.c re.h
 	$(CC) $(CFLAGS) -fsanitize=fuzzer,address re.c parser_fuzz.c -o $@
 
-build/corpus:
-	mkdir -p build/corpus/{artifact,new}
-
 ## run the LLVM fuzzer on the parser
-parser_fuzz: build/corpus build/parser_fuzz
-	./build/parser_fuzz -artifact_prefix=build/corpus/artifact/ -timeout=5 build/corpus build/corpus/new
+parser_fuzz: build build/parser_fuzz
+	./build/parser_fuzz -artifact_prefix=build/fuzz/artifact/ -timeout=5 build/fuzz build/fuzz/new
 
 ## import generated LLVM fuzzer artifacts as tests
-parser_fuzz_import: build/corpus
-	$(UDATA) add_parser_fuzz_regression_tests fuzz_results.json build/corpus/artifact/*
+parser_fuzz_import: build
+	$(UDATA) add_parser_fuzz_regression_tests fuzz_results.json build/fuzz/artifact/*
 
 ## generate data tables for re.c
 tables:
@@ -102,8 +96,8 @@ tables:
 format:
 	$(FORMAT) $(SRCS) parser_fuzz.c
 
-.SILENT: targets
+.SILENT: help_targets
 
 ## print a list of targets and their descriptions
-targets:
+help_targets:
 	awk 'BEGIN {print "TARGET,DESCRIPTION"} {if ($$0 ~ /^##/) {getline target; split(target,a,":"); print a[1]","substr($$0,4)}}' Makefile | column -t -s ',' | sort
