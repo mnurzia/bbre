@@ -7,8 +7,8 @@ from pathlib import Path
 from sys import stderr
 from typing import IO, Callable, Iterator
 import shutil
+from urllib.request import urlopen
 import zipfile
-import urllib3
 
 from squish_casefold import (
     calculate_masks,
@@ -24,11 +24,29 @@ CLEAR_TERM = "\x1b[0K"
 
 UTF_MAX = 0x10FFFF
 
+def _fetch_ucd(db: Path, version: str, debug: bool = False):
+    url = UCD_URL + "/" + version + "/UCD.zip"
+    if debug:
+        print(f"fetching {url} into {db}... ", end="", flush=True)
+    with urlopen(url) as req, open(db, "wb") as out_file:
+        shutil.copyfileobj(req, out_file)
+        if debug:
+            print(f"{out_file.tell()} bytes")
+
+def cmd_fetch(args):
+    """Fetch the UCD."""
+    _fetch_ucd(args.db, args.version, args.debug)
+    return 0
 
 class UnicodeData:
     """Manages a UCD and performs simple file retrieval/parsing."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, db_version: str, debug: bool = False):
+        if not path.exists():
+            if debug:
+                print(f"UCD file {path} does not exist, downloading...")
+            _fetch_ucd(path, db_version, debug)
+
         self.source: zipfile.ZipFile | Path = (
             zipfile.ZipFile(path) if path.name.endswith(".zip") else path
         )
@@ -56,20 +74,9 @@ class UnicodeData:
             if (result := line_filter(line)) is not None:
                 yield result
 
-
-def cmd_fetch(args):
-    """Fetch the UCD."""
-    http = urllib3.PoolManager()
-    with http.request(
-        "GET", UCD_URL + "/" + args.version + "/UCD.zip", preload_content=False
-    ) as req, open(args.db, "wb") as out_file:
-        shutil.copyfileobj(req, out_file)
-    return 0
-
-
 def _casefold_load(args) -> list[int]:
     # Load casefold data into a deltas array.
-    udata = UnicodeData(args.db)
+    udata = UnicodeData(args.db, args.version, args.debug)
     equivalence_classes: dict[int, set[int]] = {}
     if args.debug:
         print("loading casefold data...", file=stderr)
@@ -461,11 +468,11 @@ def main():
         default=False,
         help="show debug info",
     )
+    parse.add_argument("--version", type=str, default="latest", help="UCD version to use")
 
     subcmds = parse.add_subparsers(help="subcommands", required=True)
     subcmd_fetch = subcmds.add_parser("fetch", help="fetch unicode database")
     subcmd_fetch.set_defaults(func=cmd_fetch)
-    subcmd_fetch.add_argument("--version", type=str, default="latest")
 
     subcmd_casefold_search = subcmds.add_parser(
         "casefold_search", help="search for an optimal casefold compression scheme"
