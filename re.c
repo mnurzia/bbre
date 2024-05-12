@@ -2783,7 +2783,7 @@ char *dump_quant(char *buf, u32 quantval)
 
 void astdump_i(re *r, u32 root, u32 ilvl, enum dumpformat format)
 {
-  const char *colors[] = {"1", "2", "3", "4", "5", "6"};
+  const char *colors[] = {"1", "2", "3", "4"};
   u32 i, first = root ? r->ast.ptr[root] : 0;
   u32 sub[2] = {0xFF, 0xFF};
   char buf[32] = {0}, buf2[32] = {0};
@@ -2823,7 +2823,7 @@ void astdump_i(re *r, u32 root, u32 ilvl, enum dumpformat format)
   if (format == GRAPHVIZ)
     printf(
         "\"]\nsubgraph cluster_%04X { "
-        "label=\"\";style=filled;colorscheme=pastel16;fillcolor=%s;",
+        "label=\"\";style=filled;colorscheme=greys7;fillcolor=%s;",
         root, colors[ilvl % (sizeof(colors) / sizeof(*colors))]);
   for (i = 0; i < sizeof(sub) / sizeof(*sub); i++)
     if (sub[i] != 0xFF) {
@@ -2908,7 +2908,10 @@ void progdump_r(re *r)
 
 void progdump_whole(re *r) { progdump_range(r, 0, re_prog_size(r), TERM); }
 
-void progdump_gv(re *r) { progdump_range(r, 1, r->entry[ENT_REV], GRAPHVIZ); }
+void progdump_gv(re *r)
+{
+  progdump_range(r, 1, r->entry[ENT_FWD | ENT_DOTSTAR], GRAPHVIZ);
+}
 
 void cctreedump_i(stk *cc_tree, u32 ref, u32 lvl)
 {

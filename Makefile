@@ -14,7 +14,7 @@ clean:
 	rm -rf build
 
 build:
-	mkdir -p build/{cov,fuzz/{artifact,new},docs}
+	mkdir -p build/{cov,fuzz/{artifact,new}}
 
 build/test: build $(SRCS)
 	$(CC) $(CFLAGS) -DRE_TEST $(SRCS) -o $@
@@ -122,4 +122,4 @@ help_targets:
 
 ## build documentation
 docs: build build/viz
-	python tools/make_docs.py --folder build/docs --debug re.c internals/AST.md
+	python tools/make_docs.py --folder docs --debug re.c internals/AST.md

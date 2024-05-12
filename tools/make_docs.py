@@ -2,13 +2,14 @@
 
 from argparse import ArgumentParser, FileType
 from contextlib import redirect_stdout
+from io import StringIO
 from logging import DEBUG, basicConfig, getLogger
 from pathlib import Path
 from re import match
 from subprocess import run
 from typing import BinaryIO
 
-from util import extract_between_tags
+from util import extract_between_tags, insert_file
 
 logger = getLogger(__name__)
 
@@ -59,32 +60,42 @@ def _generate_visualization(args, regex: str, viz_type: str, output: BinaryIO):
 def _doc_ast(args, lines: list[str]) -> int:
     my_path: Path = args.file
     ast_contents = extract_between_tags(lines, "typedef enum ast_type {", "} ast_type;")
-    svgs_path = my_path.parent / "assets" / my_path.stem.lower()
+    svgs_path = my_path.parent / "generated" / my_path.stem.lower()
     svgs_path.mkdir(parents=True, exist_ok=True)
-    with redirect_stdout(open(my_path, "w", encoding="utf-8")):
+    output = StringIO()
+    with redirect_stdout(output):
         while len(ast_contents):
             comment = _pop_comment(ast_contents)
             assert (m := match(AST_ENUM_REGEX, ast_contents.pop(0))) is not None
             name = m.group(1)
             brief, example = comment[0].split(": ")
             example = _parse_regex(example)
-            print(f"## {name}")
+            print(f"### {name}")
             print(f"{brief}.")
             if len(comment) > 1:
-                print("### Arguments:")
+                print("#### Arguments:")
                 print(*[f"  - {argument}" for argument in comment[1:]], sep="\n")
             print()
-            print(f"### Example: `{example}`")
+            print(f"#### Example: `{example}`")
             ast_path = svgs_path / f"{name.lower()}_ast.svg"
             prog_path = svgs_path / f"{name.lower()}_prog.svg"
             with open(ast_path, "wb") as svg:
                 _generate_visualization(args, example, "ast", svg)
                 print(f"![{name} AST example]({ast_path.relative_to(my_path.parent)})")
+            print()
             with open(prog_path, "wb") as svg:
                 _generate_visualization(args, example, "prog", svg)
                 print(
                     f"![{name} program example]({prog_path.relative_to(my_path.parent)})"
                 )
+            print()
+    with open(my_path, "r+", encoding="utf-8") as my_file:
+        insert_file(
+            my_file,
+            output.getvalue().splitlines(keepends=True),
+            "## AST Node Types",
+            None,
+        )
     return 0
 
 
