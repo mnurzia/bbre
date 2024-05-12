@@ -147,6 +147,8 @@ def _cmd_gen_casefold(args) -> int:
     # Generate C code for casefolding.
     deltas = _casefold_load(args)
     array_sizes = tuple(map(int, args.sizes.split(",")))
+    if args.debug:
+        print("building casefold arrays...")
     arrays = build_arrays(deltas, array_sizes)
     shifts = calculate_shifts(array_sizes)
     masks = calculate_masks(array_sizes, UTF_MAX)
@@ -324,10 +326,11 @@ def _cmd_gen_ascii_charclasses_test(args) -> int:
         regex = '"' + regex.replace("\\", "\\\\") + '"'
         return f"""
         TEST({test_name}) {{
-            return assert_cc_match(
+            PROPAGATE(assert_cc_match(
                 {regex},
                 "{','.join(f"0x{lo:X} 0x{hi:X}"
-                           for lo, hi in _nranges_normalize(list(_ranges_expand(cc))))}", {invert});
+                           for lo, hi in _nranges_normalize(list(_ranges_expand(cc))))}", {invert}));
+            PASS();
         }}
         """
 
@@ -405,19 +408,10 @@ def _cmd_gen_parser_fuzz_regression_tests(args) -> int:
         test_names.append(test_name)
 
         out(f"TEST({test_name}) {{")
-        out("   re *r;")
-        out(f"  int err = re_init_full(&r, {_sanitize_for_c_string(corpus)}, {len(corpus)}, NULL);")
-        out("   if (err == ERR_MEM)")
-        out("     goto oom;")
-        out(f"  ASSERT_EQ(err, {0 if should_parse else "ERR_PARSE"});")
-        if should_parse:
-            out("  if ((err = re_match(r, \"\", 0, 0, 0, NULL, NULL, 'U')) == ERR_MEM)")
-            out("    goto oom;")
-        out("   re_destroy(r);")
+        out(f"  PROPAGATE({
+            "check_compiles_n" if should_parse else "check_noparse_n"
+            }({_sanitize_for_c_string(corpus)}, {len(corpus)}));")
         out("   PASS();")
-        out("oom:")
-        out("   re_destroy(r);")
-        out("   OOM();")
         out(" }")
 
     out("SUITE(fuzz_regression) {")

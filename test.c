@@ -223,11 +223,11 @@ int check_match_s2_g2_a(
 
 #define ASSERT_MATCH_ONLY(regex, str) ASSERT_MATCH(regex, str)
 
-int check_noparse(const char *regex)
+int check_noparse_n(const char *regex, size_t n)
 {
   re *r;
   int err;
-  if ((err = re_init_full(&r, regex, strlen(regex), test_alloc)) == ERR_MEM)
+  if ((err = re_init_full(&r, regex, n, test_alloc)) == ERR_MEM)
     goto oom;
   ASSERT_EQ(err, ERR_PARSE);
   re_destroy(r);
@@ -237,7 +237,35 @@ oom:
   OOM();
 }
 
+int check_noparse(const char *regex)
+{
+  PROPAGATE(check_noparse_n(regex, strlen(regex)));
+  PASS();
+}
+
 #define ASSERT_NOPARSE(regex) PROPAGATE(check_noparse(regex))
+
+int check_compiles_n(const char *regex, size_t n)
+{
+  re *r;
+  int err;
+  if ((err = re_init_full(&r, regex, n, test_alloc)) == ERR_MEM)
+    goto oom;
+  ASSERT_EQ(err, 0);
+  if ((err = re_match(r, "", 0, 0, 0, NULL, NULL, 'U')) == ERR_MEM)
+    goto oom;
+  re_destroy(r);
+  PASS();
+oom:
+  re_destroy(r);
+  OOM();
+}
+
+int check_compiles(const char *regex)
+{
+  PROPAGATE(check_compiles_n(regex, strlen(regex)));
+  PASS();
+}
 
 typedef struct rrange {
   u32 lo, hi;
@@ -1682,11 +1710,19 @@ TEST(grp_after_cat)
   PASS();
 }
 
+TEST(grp_inline_flag_no_spans)
+{
+  /* inline flags shouldn't cause groups to be set */
+  ASSERT_MATCH_G2("(?u)abc", "abc", 0, 3, 0, 0);
+  PASS();
+}
+
 SUITE(grp_inline_flag)
 {
   RUN_TEST(grp_inline_flag_set_match);
   RUN_TEST(grp_inline_flag_reset_match);
   RUN_TEST(grp_inline_flag_reset_nmatch);
+  RUN_TEST(grp_inline_flag_no_spans);
 }
 
 TEST(grp_flag_set_then_reset)

@@ -16,7 +16,7 @@ clean:
 build:
 	mkdir -p build/{cov,fuzz/{artifact,new}}
 
-build/re: build $(SRCS)
+build/test: build $(SRCS)
 	$(CC) $(CFLAGS) -DRE_TEST $(SRCS) -o $@
 
 test-gen.c: build fuzz_results.json
@@ -25,39 +25,42 @@ test-gen.c: build fuzz_results.json
 	$(FORMAT) $@
 
 build/compile_commands.json: build $(SRCS) 
-	bear --output $@ -- make -B build/re build/parser_fuzz
+	bear --output $@ -- make -B build/test build/parser_fuzz
+
+## generate compile_commands.json for language servers (alias for build/compile_commands.json)
+compile_commands: build/compile_commands.json
 
 ## run tests
-test: build/re
-	./build/re
+test: build/test
+	./build/test
 
 ## run tests in a debugger
-testdbg: build/re
-	$(GDB) ./build/re
+testdbg: build/test
+	$(GDB) ./build/test
 
 ## run tests with OOM checking
-testoom: build/re
-	./build/re --leak-check --fault-check
+testoom: build/test
+	./build/test --leak-check --fault-check
 
 ## run tests with OOM checking in a debugger
-testdbgoom: build/re
-	$(GDB) ./build/re --leak-check --fault-check
+testdbgoom: build/test
+	$(GDB) ./build/test --leak-check --fault-check
 
 ## run the given test
-test_%: build/re
-	./build/re -t $(subst test_,,$@)
+test_%: build/test
+	./build/test -t $(subst test_,,$@)
 
 ## run the given test in a debugger
-testdbg_%: build/re
-	$(GDB) ./build/re -t $(subst debug_test_,,$@)
+testdbg_%: build/test
+	$(GDB) ./build/test -t $(subst testdbg_,,$@)
 
 ## run the given test with OOM checking
-testoom_%: build/re
-	./build/re -t $(subst testoom_,,$@) --leak-check --fault-check
+testoom_%: build/test
+	./build/test -t $(subst testoom_,,$@) --leak-check --fault-check
 
 ## run the given test with OOM checking in a debugger
-testdbgoom_%: build/re
-	$(GDB) ./build/re -t $(subst debug_testoom_,,$@) --leak-check --fault-check
+testdbgoom_%: build/test
+	$(GDB) ./build/test -t $(subst testdbgoom_,,$@) --leak-check --fault-check
 
 build/cov/re-cov: build $(SRCS)
 	rm -rf build/*.gcda build/*.gcno
@@ -71,8 +74,11 @@ build/cov/lcov.info: build/cov build/cov/re-cov
 build/cov/index.html: build/cov/lcov.info
 	genhtml build/cov/lcov.info --branch-coverage --output-directory build/cov
 
-## run coverage and show a coverage report
-cov: build/cov/index.html
+## run coverage tests (alias for build/cov/lcov.info)
+cov: build/cov/lcov.info
+
+## generate coverage html report and open in browser
+cov_html: build/cov/index.html
 	python -m webbrowser file://$(realpath build/cov/reee/re.c.gcov.html)
 
 build/parser_fuzz: build parser_fuzz.c re.c re.h
@@ -96,8 +102,20 @@ tables:
 format:
 	$(FORMAT) $(SRCS) parser_fuzz.c
 
+build/viz: build viz.c re.c
+	$(CC) $(CFLAGS) viz.c re.c -o $@
+
+viz_gv_%:
+	TVIZ=$$(mktemp); ./build/viz $(subst viz_gv_,,$@) | dot -Tsvg > "$$TVIZ"; python -m webbrowser file://$$(realpath $$TVIZ); sleep 0.5; rm -rf $$TVIZ
+
+## visualize a regex's compiled program (use `echo "regex" | make viz_prog`)
+viz_prog: build/viz viz_gv_prog
+
+## visualize a regex's AST (use `echo "regex" | make viz_ast`)
+viz_ast: build/viz viz_gv_ast
+
 .SILENT: help_targets
 
 ## print a list of targets and their descriptions
 help_targets:
-	awk 'BEGIN {print "TARGET,DESCRIPTION"} {if ($$0 ~ /^##/) {getline target; split(target,a,":"); print a[1]","substr($$0,4)}}' Makefile | column -t -s ',' | sort
+	awk 'BEGIN {print "TARGET,DESCRIPTION"} {if ($$0 ~ /^##/) {getline target; split(target,a,":"); print a[1]","substr($$0,4)}}' Makefile | sort | column -t -s ','
