@@ -2387,215 +2387,6 @@ done:
   return err;
 }
 
-#ifndef RE_COV
-
-enum dumpformat { TERM, GRAPHVIZ };
-
-char dump_hex(u8 d)
-{
-  d &= 0xF;
-  if (d < 10)
-    return '0' + d;
-  else
-    return 'A' + d - 10;
-}
-
-char *dump_chr(char *buf, u8 ch, int ascii)
-{
-  if (ch >= ' ' && ch < 0x7F)
-    buf[0] = ch, buf[1] = 0;
-  else if (
-      (ch == '\a' && ch == 'a') || (ch == '\b' && ch == 'b') ||
-      (ch == '\t' && ch == 't') || (ch == '\n' && ch == 'n') ||
-      (ch == '\v' && ch == 'v') || (ch == '\f' && ch == 'f') ||
-      (ch == '\r' && ch == 'r'))
-    buf[0] = '\\', buf[1] = '\\', buf[2] = ch, buf[3] = 0;
-  else if (ascii || (ch < 0x80))
-    buf[0] = '\\', buf[1] = '\\', buf[2] = 'x', buf[3] = dump_hex(ch >> 4),
-    buf[4] = dump_hex(ch), buf[5] = 0;
-  else
-    buf[0] = '\\', buf[1] = '\\', buf[2] = 'u', buf[3] = dump_hex(ch >> 20),
-    buf[4] = dump_hex(ch >> 16), buf[5] = dump_hex(ch >> 12),
-    buf[6] = dump_hex(ch >> 8), buf[7] = dump_hex(ch >> 4),
-    buf[8] = dump_hex(ch), buf[9] = 0;
-  return buf;
-}
-
-char *dump_chr_ascii(char *buf, u8 ch) { return dump_chr(buf, ch, 1); }
-
-char *dump_chr_unicode(char *buf, u8 ch) { return dump_chr(buf, ch, 0); }
-
-char *dump_assert(char *buf, assert_flag af)
-{
-  snprintf(
-      buf, 32, "%s%s%s%s%s%s", af & LINE_BEGIN ? "^" : "",
-      af & LINE_END ? "$" : "", af & TEXT_BEGIN ? "\\\\A" : "",
-      af & TEXT_END ? "\\\\z" : "", af & WORD ? "\\\\b" : "",
-      af & NOT_WORD ? "\\\\B" : "");
-  return buf;
-}
-
-char *dump_group_flag(char *buf, group_flag gf)
-{
-  snprintf(
-      buf, 32, "%s%s%s%s%s%s", gf & INSENSITIVE ? "i" : "",
-      gf & MULTILINE ? "m" : "", gf & DOTNEWLINE ? "s" : "",
-      gf & UNGREEDY ? "U" : "", gf & NONCAPTURING ? ":" : "",
-      gf & SUBEXPRESSION ? "R" : "");
-  return buf;
-}
-
-char *dump_quant(char *buf, u32 quantval)
-{
-  if (quantval >= INFTY)
-    snprintf(buf, 32, "\xe2\x88\x9e"); /* infinity symbol */
-  else
-    snprintf(buf, 32, "%u", quantval);
-  return buf;
-}
-
-void astdump_i(re *r, u32 root, u32 ilvl, enum dumpformat format)
-{
-  u32 i, first = root ? r->ast.ptr[root] : 0;
-  u32 sub[2] = {0xFF, 0xFF};
-  char buf[32] = {0}, buf2[32] = {0};
-  const char *node_name = root == REF_NONE     ? "<eps>"
-                          : (first == CHR)     ? "CHR"
-                          : (first == CAT)     ? (sub[0] = 0, sub[1] = 1, "CAT")
-                          : (first == ALT)     ? (sub[0] = 0, sub[1] = 1, "ALT")
-                          : (first == QUANT)   ? (sub[0] = 0, "QUANT")
-                          : (first == UQUANT)  ? (sub[0] = 0, "UQUANT")
-                          : (first == GROUP)   ? (sub[0] = 0, "GROUP")
-                          : (first == IGROUP)  ? (sub[0] = 0, "IGROUP")
-                          : (first == CLS)     ? (sub[0] = 2, "CLS")
-                          : (first == ICLS)    ? (sub[0] = 2, "ICLS")
-                          : (first == ANYBYTE) ? "ANYBYTE"
-                          : (first == AASSERT) ? "AASSERT"
-                                               : NULL;
-  if (format == TERM) {
-    printf("%04u ", root);
-    for (i = 0; i < ilvl; i++)
-      printf(" ");
-    printf("%s ", node_name);
-  } else if (format == GRAPHVIZ) {
-    if (!ilvl) {
-      printf("digraph D {\n");
-    }
-    printf("A%04X [label=\"%s\\n", root, node_name);
-  }
-  if (first == CHR)
-    printf("%s", dump_chr_unicode(buf, *re_astarg(r, root, 0)));
-  else if (first == GROUP || first == IGROUP)
-    printf("%s", dump_group_flag(buf, *re_astarg(r, root, 1)));
-  else if (first == QUANT || first == UQUANT)
-    printf(
-        "%s-%s", dump_quant(buf, *re_astarg(r, root, 1)),
-        dump_quant(buf2, *re_astarg(r, root, 2)));
-  else if (first == CLS || first == ICLS)
-    printf(
-        "%s-%s", dump_chr_unicode(buf, *re_astarg(r, root, 0)),
-        dump_chr_unicode(buf2, *re_astarg(r, root, 1)));
-  if (format == GRAPHVIZ)
-    printf("\"]\n");
-  for (i = 0; i < sizeof(sub) / sizeof(*sub); i++)
-    if (sub[i] != 0xFF) {
-      u32 child = *re_astarg(r, root, sub[i]);
-      astdump_i(r, child, ilvl + 1, format);
-      if (format == GRAPHVIZ)
-        printf(
-            "A%04X -> A%04X [style=%s]\n", root, child, i ? "dashed" : "solid");
-    }
-  if (format == TERM) {
-    printf("\n");
-  } else if (format == GRAPHVIZ && !ilvl)
-    printf("}\n");
-}
-
-void astdump(re *r, u32 root) { astdump_i(r, root, 0, TERM); }
-
-void astdump_gv(re *r) { astdump_i(r, r->ast_root, 0, GRAPHVIZ); }
-
-void progdump_range(re *r, u32 start, u32 end, enum dumpformat format)
-{
-  u32 j, k;
-  assert(end <= re_prog_size(r));
-  if (format == GRAPHVIZ)
-    printf("digraph D {\nnode [colorscheme=pastel16]\n");
-  for (start = 0; start < end; start++) {
-    inst ins = re_prog_get(r, start);
-    static const char *ops[] = {"RANGE", "ASSRT", "MATCH", "SPLIT"};
-    static const char *labels[] = {"F  ", "R  ", "F.*", "R.*", "   ", "+  "};
-    char start_buf[10] = {0}, end_buf[10] = {0}, assert_buf[32] = {0};
-    k = 4;
-    for (j = 0; j < 4; j++)
-      if (start == r->entry[j])
-        k = k == 4 ? j : 5;
-    if (format == TERM) {
-      static const int colors[] = {91, 92, 93, 94};
-      printf(
-          "%04X \x1b[%im%s\x1b[0m \x1b[%im%04X\x1b[0m %04X %s", start,
-          colors[INST_OP(ins)], ops[INST_OP(ins)],
-          INST_N(ins) ? (INST_N(ins) == start + 1 ? 90 : 0) : 91, INST_N(ins),
-          INST_P(ins), labels[k]);
-      if (INST_OP(ins) == MATCH)
-        printf(
-            " %c/%u", IMATCH_S(INST_P(ins)) ? 'G' : 'E', IMATCH_I(INST_P(ins)));
-      printf("\n");
-    } else {
-      static const char *shapes[] = {"box", "diamond", "pentagon", "oval"};
-      static const int colors[] = {1, 3, 6, 2};
-      printf(
-          "I%04X "
-          "[shape=%s,fillcolor=%i,style=filled,regular=false,label=\"%s\\n",
-          start, shapes[INST_OP(ins)], colors[INST_OP(ins)], ops[INST_OP(ins)]);
-      if (INST_OP(ins) == RANGE)
-        printf(
-            "%s-%s", dump_chr_ascii(start_buf, u2br(INST_P(ins)).l),
-            dump_chr_ascii(end_buf, u2br(INST_P(ins)).h));
-      else if (INST_OP(ins) == MATCH)
-        printf(
-            "%s %u", IMATCH_S(INST_P(ins)) ? "slot" : "set",
-            IMATCH_I(INST_P(ins)));
-      else if (INST_OP(ins) == ASSERT)
-        printf("%s", dump_assert(assert_buf, INST_P(ins)));
-      printf("\"]\n");
-      printf("I%04X -> I%04X\n", start, INST_N(ins));
-      if (INST_OP(ins) == SPLIT)
-        printf("I%04X -> I%04X [style=dashed]\n", start, INST_P(ins));
-    }
-  }
-  if (format == GRAPHVIZ)
-    printf("}\n");
-}
-
-void progdump(re *r) { progdump_range(r, 1, r->entry[ENT_REV], TERM); }
-
-void progdump_r(re *r)
-{
-  progdump_range(r, r->entry[ENT_REV], re_prog_size(r), TERM);
-}
-
-void progdump_whole(re *r) { progdump_range(r, 0, re_prog_size(r), TERM); }
-
-void progdump_gv(re *r) { progdump_range(r, 1, r->entry[ENT_REV], GRAPHVIZ); }
-
-void cctreedump_i(stk *cc_tree, u32 ref, u32 lvl)
-{
-  u32 i;
-  compcc_node *node = cc_treeref(cc_tree, ref);
-  printf("%04X [%08X] ", ref, node->hash);
-  for (i = 0; i < lvl; i++)
-    printf("  ");
-  printf("%02X-%02X\n", u2br(node->range).l, u2br(node->range).h);
-  if (node->child_ref)
-    cctreedump_i(cc_tree, node->child_ref, lvl + 1);
-  if (node->sibling_ref)
-    cctreedump_i(cc_tree, node->sibling_ref, lvl);
-}
-
-void cctreedump(stk *cc_tree, u32 ref) { cctreedump_i(cc_tree, ref, 0); }
-#endif
-
 /*T Generated by `unicode_data.py gen_casefold` */
 static const s32 casefold_array_0[] = {
     -0x0040, +0x0000, -0x0022, -0x0022, +0x0022, +0x0022, -0x0040, -0x0040,
@@ -2887,3 +2678,205 @@ const ccdef builtin_cc[] = {
     {0},
 };
 /*t Generated by `unicode_data.py gen_ascii_charclasses impl` */
+
+#ifndef RE_COV
+
+enum dumpformat { TERM, GRAPHVIZ };
+
+char dump_hex(u8 d)
+{
+  d &= 0xF;
+  if (d < 10)
+    return '0' + d;
+  else
+    return 'A' + d - 10;
+}
+
+char *dump_chr(char *buf, u32 ch, int ascii)
+{
+  if (ch >= ' ' && ch < 0x7F)
+    buf[0] = ch, buf[1] = 0;
+  else if (
+      (ch == '\a' && ch == 'a') || (ch == '\b' && ch == 'b') ||
+      (ch == '\t' && ch == 't') || (ch == '\n' && ch == 'n') ||
+      (ch == '\v' && ch == 'v') || (ch == '\f' && ch == 'f') ||
+      (ch == '\r' && ch == 'r'))
+    buf[0] = '\\', buf[1] = '\\', buf[2] = ch, buf[3] = 0;
+  else if (ascii || (ch < 0x80))
+    buf[0] = '\\', buf[1] = '\\', buf[2] = 'x', buf[3] = dump_hex(ch >> 4),
+    buf[4] = dump_hex(ch), buf[5] = 0;
+  else
+    buf[0] = '\\', buf[1] = '\\', buf[2] = 'u', buf[3] = dump_hex(ch >> 20),
+    buf[4] = dump_hex(ch >> 16), buf[5] = dump_hex(ch >> 12),
+    buf[6] = dump_hex(ch >> 8), buf[7] = dump_hex(ch >> 4),
+    buf[8] = dump_hex(ch), buf[9] = 0;
+  return buf;
+}
+
+char *dump_chr_ascii(char *buf, u32 ch) { return dump_chr(buf, ch, 1); }
+
+char *dump_chr_unicode(char *buf, u32 ch) { return dump_chr(buf, ch, 0); }
+
+char *dump_assert(char *buf, assert_flag af)
+{
+  snprintf(
+      buf, 32, "%s%s%s%s%s%s", af & LINE_BEGIN ? "^" : "",
+      af & LINE_END ? "$" : "", af & TEXT_BEGIN ? "\\\\A" : "",
+      af & TEXT_END ? "\\\\z" : "", af & WORD ? "\\\\b" : "",
+      af & NOT_WORD ? "\\\\B" : "");
+  return buf;
+}
+
+char *dump_group_flag(char *buf, group_flag gf)
+{
+  snprintf(
+      buf, 32, "%s%s%s%s%s%s", gf & INSENSITIVE ? "i" : "",
+      gf & MULTILINE ? "m" : "", gf & DOTNEWLINE ? "s" : "",
+      gf & UNGREEDY ? "U" : "", gf & NONCAPTURING ? ":" : "",
+      gf & SUBEXPRESSION ? "R" : "");
+  return buf;
+}
+
+char *dump_quant(char *buf, u32 quantval)
+{
+  if (quantval >= INFTY)
+    snprintf(buf, 32, "\xe2\x88\x9e"); /* infinity symbol */
+  else
+    snprintf(buf, 32, "%u", quantval);
+  return buf;
+}
+
+void astdump_i(re *r, u32 root, u32 ilvl, enum dumpformat format)
+{
+  u32 i, first = root ? r->ast.ptr[root] : 0;
+  u32 sub[2] = {0xFF, 0xFF};
+  char buf[32] = {0}, buf2[32] = {0};
+  const char *node_name = root == REF_NONE     ? "<eps>"
+                          : (first == CHR)     ? "CHR"
+                          : (first == CAT)     ? (sub[0] = 0, sub[1] = 1, "CAT")
+                          : (first == ALT)     ? (sub[0] = 0, sub[1] = 1, "ALT")
+                          : (first == QUANT)   ? (sub[0] = 0, "QUANT")
+                          : (first == UQUANT)  ? (sub[0] = 0, "UQUANT")
+                          : (first == GROUP)   ? (sub[0] = 0, "GROUP")
+                          : (first == IGROUP)  ? (sub[0] = 0, "IGROUP")
+                          : (first == CLS)     ? (sub[0] = 2, "CLS")
+                          : (first == ICLS)    ? (sub[0] = 2, "ICLS")
+                          : (first == ANYBYTE) ? "ANYBYTE"
+                          : (first == AASSERT) ? "AASSERT"
+                                               : NULL;
+  if (format == TERM) {
+    printf("%04u ", root);
+    for (i = 0; i < ilvl; i++)
+      printf(" ");
+    printf("%s ", node_name);
+  } else if (format == GRAPHVIZ) {
+    printf("A%04X [label=\"%s\\n", root, node_name);
+  }
+  if (first == CHR)
+    printf("%s", dump_chr_unicode(buf, *re_astarg(r, root, 0)));
+  else if (first == GROUP || first == IGROUP)
+    printf("%s", dump_group_flag(buf, *re_astarg(r, root, 1)));
+  else if (first == QUANT || first == UQUANT)
+    printf(
+        "%s-%s", dump_quant(buf, *re_astarg(r, root, 1)),
+        dump_quant(buf2, *re_astarg(r, root, 2)));
+  else if (first == CLS || first == ICLS)
+    printf(
+        "%s-%s", dump_chr_unicode(buf, *re_astarg(r, root, 0)),
+        dump_chr_unicode(buf2, *re_astarg(r, root, 1)));
+  if (format == GRAPHVIZ)
+    printf("\"]\n");
+  for (i = 0; i < sizeof(sub) / sizeof(*sub); i++)
+    if (sub[i] != 0xFF) {
+      u32 child = *re_astarg(r, root, sub[i]);
+      astdump_i(r, child, ilvl + 1, format);
+      if (format == GRAPHVIZ)
+        printf(
+            "A%04X -> A%04X [style=%s]\n", root, child, i ? "dashed" : "solid");
+    }
+  if (format == TERM)
+    printf("\n");
+}
+
+void astdump(re *r, u32 root) { astdump_i(r, root, 0, TERM); }
+
+void astdump_gv(re *r) { astdump_i(r, r->ast_root, 0, GRAPHVIZ); }
+
+void progdump_range(re *r, u32 start, u32 end, enum dumpformat format)
+{
+  u32 j, k;
+  assert(end <= re_prog_size(r));
+  if (format == GRAPHVIZ)
+    printf("node [colorscheme=pastel16]\n");
+  for (start = 0; start < end; start++) {
+    inst ins = re_prog_get(r, start);
+    static const char *ops[] = {"RANGE", "ASSRT", "MATCH", "SPLIT"};
+    static const char *labels[] = {"F  ", "R  ", "F.*", "R.*", "   ", "+  "};
+    char start_buf[10] = {0}, end_buf[10] = {0}, assert_buf[32] = {0};
+    k = 4;
+    for (j = 0; j < 4; j++)
+      if (start == r->entry[j])
+        k = k == 4 ? j : 5;
+    if (format == TERM) {
+      static const int colors[] = {91, 92, 93, 94};
+      printf(
+          "%04X \x1b[%im%s\x1b[0m \x1b[%im%04X\x1b[0m %04X %s", start,
+          colors[INST_OP(ins)], ops[INST_OP(ins)],
+          INST_N(ins) ? (INST_N(ins) == start + 1 ? 90 : 0) : 91, INST_N(ins),
+          INST_P(ins), labels[k]);
+      if (INST_OP(ins) == MATCH)
+        printf(
+            " %c/%u", IMATCH_S(INST_P(ins)) ? 'G' : 'E', IMATCH_I(INST_P(ins)));
+      printf("\n");
+    } else {
+      static const char *shapes[] = {"box", "diamond", "pentagon", "oval"};
+      static const int colors[] = {1, 3, 6, 2};
+      printf(
+          "I%04X "
+          "[shape=%s,fillcolor=%i,style=filled,regular=false,label=\"%s\\n",
+          start, shapes[INST_OP(ins)], colors[INST_OP(ins)], ops[INST_OP(ins)]);
+      if (INST_OP(ins) == RANGE)
+        printf(
+            "%s-%s", dump_chr_ascii(start_buf, u2br(INST_P(ins)).l),
+            dump_chr_ascii(end_buf, u2br(INST_P(ins)).h));
+      else if (INST_OP(ins) == MATCH)
+        printf(
+            "%s %u", IMATCH_S(INST_P(ins)) ? "slot" : "set",
+            IMATCH_I(INST_P(ins)));
+      else if (INST_OP(ins) == ASSERT)
+        printf("%s", dump_assert(assert_buf, INST_P(ins)));
+      printf("\"]\n");
+      printf("I%04X -> I%04X\n", start, INST_N(ins));
+      if (INST_OP(ins) == SPLIT)
+        printf("I%04X -> I%04X [style=dashed]\n", start, INST_P(ins));
+    }
+  }
+}
+
+void progdump(re *r) { progdump_range(r, 1, r->entry[ENT_REV], TERM); }
+
+void progdump_r(re *r)
+{
+  progdump_range(r, r->entry[ENT_REV], re_prog_size(r), TERM);
+}
+
+void progdump_whole(re *r) { progdump_range(r, 0, re_prog_size(r), TERM); }
+
+void progdump_gv(re *r) { progdump_range(r, 1, r->entry[ENT_REV], GRAPHVIZ); }
+
+void cctreedump_i(stk *cc_tree, u32 ref, u32 lvl)
+{
+  u32 i;
+  compcc_node *node = cc_treeref(cc_tree, ref);
+  printf("%04X [%08X] ", ref, node->hash);
+  for (i = 0; i < lvl; i++)
+    printf("  ");
+  printf("%02X-%02X\n", u2br(node->range).l, u2br(node->range).h);
+  if (node->child_ref)
+    cctreedump_i(cc_tree, node->child_ref, lvl + 1);
+  if (node->sibling_ref)
+    cctreedump_i(cc_tree, node->sibling_ref, lvl);
+}
+
+void cctreedump(stk *cc_tree, u32 ref) { cctreedump_i(cc_tree, ref, 0); }
+#endif
