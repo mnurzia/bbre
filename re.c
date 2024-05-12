@@ -181,17 +181,51 @@ void re_destroy(re *r)
 }
 
 typedef enum ast_type {
-  CHR = 1, /* single character */
-  CAT,     /* concatenation */
-  ALT,     /* alternation */
-  QUANT,   /* quantifier */
-  UQUANT,  /* ungreedy quantifier */
-  GROUP,   /* group */
-  IGROUP,  /* inline group */
-  CLS,     /* character class */
-  ICLS,    /* inverted character class */
-  ANYBYTE, /* any byte (\C) */
-  AASSERT  /* epsilon assertion (^$\A\z\b\B) */
+  /* A single character: /a/ */
+  CHR = 1,
+  /* The concatenation of two regular expressions: /lr/
+   *   Argument 0: left child tree (AST)
+   *   Argument 1: right child tree (AST) */
+  CAT,
+  /* The alternation of two regular expressions: /l|r/
+   *   Argument 0: primary alternation tree (AST)
+   *   Argument 1: secondary alternation tree (AST) */
+  ALT,
+  /* A repeated regular expression: /a+/
+   *   Argument 0: child tree (AST)
+   *   Argument 1: lower bound, always <= upper bound (number)
+   *   Argument 2: upper bound, might be the constant `INFTY` (number) */
+  QUANT,
+  /* Like `QUANT`, but not greedy: /(a*?)/
+   *   Argument 0: child tree (AST)
+   *   Argument 1: lower bound, always <= upper bound (number)
+   *   Argument 2: upper bound, might be the constant `INFTY` (number) */
+  UQUANT,
+  /* A matching group: /(a)/
+   *   Argument 0: child tree (AST)
+   *   Argument 1: group flags, bitset of `enum group_flag` (number)
+   *   Argument 2: scratch used by the parser to store old flags (number) */
+  GROUP,
+  /* An inline group: /(?i)a/
+   *   Argument 0: child tree (AST)
+   *   Argument 1: group flags, bitset of `enum group_flag` (number)
+   *   Argument 2: scratch used by the parser to store old flags (number) */
+  IGROUP,
+  /* A character class: /[a-z]/
+   *   Argument 0: character range begin (number)
+   *   Argument 1: character range end (number)
+   *   Argument 2: REF_NONE or another CLS node in the charclass (AST) */
+  CLS,
+  /* An inverted character class: /[^a-z]/
+   *   Argument 0: character range begin (number)
+   *   Argument 1: character range end (number)
+   *   Argument 2: REF_NONE or another CLS node in the charclass (AST) */
+  ICLS,
+  /* Matches any byte: /\C/ */
+  ANYBYTE,
+  /* Empty assertion: /\b/
+   *   Argument 0: assertion flags, bitset of `enum assert_flag` (number) */
+  AASSERT
 } ast_type;
 
 const unsigned int ast_type_lens[] = {
@@ -2856,7 +2890,7 @@ void progdump_range(re *r, u32 start, u32 end, enum dumpformat format)
       else if (INST_OP(ins) == ASSERT)
         printf("%s", dump_assert(assert_buf, INST_P(ins)));
       printf("\"]\n");
-      if ((INST_OP(ins) != MATCH || !IMATCH_S(INST_P(ins))) && INST_N(ins)) {
+      if (!(INST_OP(ins) == MATCH && IMATCH_S(INST_P(ins)) && !INST_N(ins))) {
         printf("I%04X -> I%04X\n", start, INST_N(ins));
         if (INST_OP(ins) == SPLIT)
           printf("I%04X -> I%04X [style=dashed]\n", start, INST_P(ins));

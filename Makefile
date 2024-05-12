@@ -14,7 +14,7 @@ clean:
 	rm -rf build
 
 build:
-	mkdir -p build/{cov,fuzz/{artifact,new}}
+	mkdir -p build/{cov,fuzz/{artifact,new},docs}
 
 build/test: build $(SRCS)
 	$(CC) $(CFLAGS) -DRE_TEST $(SRCS) -o $@
@@ -66,7 +66,7 @@ build/cov/re-cov: build $(SRCS)
 	rm -rf build/*.gcda build/*.gcno
 	$(CC) $(CFLAGS) -DRE_COV -DRE_TEST -DNDEBUG $(CFLAGS_COV) $(SRCS) -o $@
 
-build/cov/lcov.info: build/cov build/cov/re-cov
+build/cov/lcov.info: build build/cov/re-cov
 	rm -rf $@ build/cov/*.gcda
 	cd build/cov; ./re-cov --leak-check --fault-check
 	lcov --rc lcov_branch_coverage=1 --directory build/cov --base-directory . --capture --exclude test -o $@
@@ -119,3 +119,7 @@ viz_ast: build/viz viz_gv_ast
 ## print a list of targets and their descriptions
 help_targets:
 	awk 'BEGIN {print "TARGET,DESCRIPTION"} {if ($$0 ~ /^##/) {getline target; split(target,a,":"); print a[1]","substr($$0,4)}}' Makefile | sort | column -t -s ','
+
+## build documentation
+docs: build build/viz
+	python tools/make_docs.py --folder build/docs --debug re.c internals/AST.md

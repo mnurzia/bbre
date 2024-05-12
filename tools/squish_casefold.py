@@ -2,11 +2,14 @@
 
 from functools import cache
 from itertools import accumulate, pairwise
+from logging import getLogger
 from math import log2
 from sys import stderr
 from typing import Callable, Iterator, NamedTuple
 
 from util import DataType
+
+logger = getLogger(__name__)
 
 # A list of block sizes.
 _Sizes = tuple[int, ...]
@@ -343,8 +346,6 @@ def check_arrays(
     array_sizes: _Sizes,
     arrays: list[_SquishedArray],
     max_rune: int,
-    *,
-    show_progress: bool = False,
 ):
     """
     Given base casefold deltas, array sizes, and the resulting arrays, ensure
@@ -359,8 +360,6 @@ def check_arrays(
         return lookup(next_index, rune, level - 1) if level != 0 else next_index
 
     for rune in range(max_rune + 1):
-        if show_progress:
-            print(f"\x1b[0Kchecking 0x{rune:06X}...", end="\r", file=stderr)
+        if rune % 0x10000 == 0:
+            logger.debug("checking rune %i/%i...", rune, max_rune)
         assert lookup(0, rune) == deltas[rune]
-    if show_progress:
-        print(file=stderr)
