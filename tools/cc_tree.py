@@ -108,14 +108,20 @@ class TreeNode(CCTree):
     left: CCTree | None
     right: CCTree | None
 
-    def _key(self) -> tuple: ...
+    def key(self) -> tuple:
+        """Return a unique key describing this tree."""
+        return (
+            self.range,
+            self.left.key() if isinstance(self.left, TreeNode) else None,
+            self.right.key()  if isinstance(self.right, TreeNode) else None
+        )
 
     def __hash__(self) -> int:
-        return hash(self._key())
+        return hash(self.key())
 
     def __eq__(self, other) -> bool:
         assert isinstance(other, TreeNode)
-        return self._key() == other._key()
+        return self.key() == other.key()
 
     def graphviz_properties(self) -> str:
         return f'shape=rect,label="0x{self.range[0]:02X}-0x{self.range[1]:02X}"'

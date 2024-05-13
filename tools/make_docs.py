@@ -48,27 +48,28 @@ def _parse_regex(regex: str) -> str:
 
 def _generate_dot(
     dot: str,
-    output: BinaryIO,
+    output: BinaryIO | Path,
     *,
     output_format: str = "svg",
     args: list[str] | None = None,
 ):
-    svg = run(
-        [
-            "dot",
-            f"-T{output_format}",
-            "-Gfontname=sans-serif",
-            "-Nfontname=monospace",
-        ]
-        + (args if args is not None else []),
-        capture_output=True,
-        input=dot.encode(),
-        check=True,
-    ).stdout
-    output.write(svg)
+    with open(output, "wb") if isinstance(output, Path) else output as file:
+        svg = run(
+            [
+                "dot",
+                f"-T{output_format}",
+                "-Gfontname=sans-serif",
+                "-Nfontname=monospace",
+            ]
+            + (args if args is not None else []),
+            capture_output=True,
+            input=dot.encode(),
+            check=True,
+        ).stdout
+        file.write(svg)
 
 
-def _generate_visualization(args, regex: str, viz_type: str, output: BinaryIO):
+def _generate_visualization(args, regex: str, viz_type: str, output: BinaryIO | Path):
     logger.debug("generating %s...", output.name)
     _generate_dot(
         run(
@@ -106,15 +107,11 @@ def _doc_ast(args, lines: list[str]) -> int:
             print(f"#### Example: `{example}`")
             ast_path = svgs_path / f"{name.lower()}_ast.svg"
             prog_path = svgs_path / f"{name.lower()}_prog.svg"
-            with open(ast_path, "wb") as svg:
-                _generate_visualization(args, example, "ast", svg)
-                print(f"![{name} AST example]({ast_path.relative_to(my_path.parent)})")
+            _generate_visualization(args, example, "ast", ast_path)
+            print(f"![{name} AST example]({ast_path.relative_to(my_path.parent)})")
             print()
-            with open(prog_path, "wb") as svg:
-                _generate_visualization(args, example, "prog", svg)
-                print(
-                    f"![{name} program example]({prog_path.relative_to(my_path.parent)})"
-                )
+            _generate_visualization(args, example, "prog", prog_path)
+            print(f"![{name} program example]({prog_path.relative_to(my_path.parent)})")
             print()
     with open(my_path, "r+", encoding="utf-8") as my_file:
         insert_file(
@@ -144,82 +141,85 @@ def _doc_cccomp(args, _: list[str]) -> int:
     my_path: Path = args.file
     generated_path = my_path.parent / "generated" / my_path.stem.lower()
     generated_path.mkdir(parents=True, exist_ok=True)
-    with open(generated_path / "ast.svg", "wb") as out_ast:
-        _generate_visualization(args, CC_EXAMPLE_REGEX, "ast", out_ast)
-    with open(generated_path / "array.svg", "wb") as out_array:
-        _generate_dot(cc_array(CC_EXAMPLE_REGEX_RANGES), out_array)
-    with open(generated_path / "array_normalized.svg", "wb") as out_array:
-        _generate_dot(cc_array(sorted(CC_EXAMPLE_REGEX_RANGES)), out_array)
-    with open(generated_path / "array_normalized_inverted.svg", "wb") as out_array:
-        if CC_EXAMPLE_REGEX_INVERTED:
-            _generate_dot(
-                cc_array(
-                    norm_arr := list(nranges_invert(sorted(CC_EXAMPLE_REGEX_RANGES)))
-                ),
-                out_array,
-            )
-        else:
-            _generate_dot(
-                cc_array(norm_arr := list(sorted(CC_EXAMPLE_REGEX_RANGES))), out_array
-            )
+    _generate_visualization(args, CC_EXAMPLE_REGEX, "ast", generated_path / "ast.svg")
+    array = CC_EXAMPLE_REGEX_RANGES
+    _generate_dot(cc_array(CC_EXAMPLE_REGEX_RANGES), generated_path / "array.svg")
+    array = sorted(array)
+    _generate_dot(cc_array(array), generated_path / "array_normalized.svg")
+    array = (
+        list(nranges_invert(sorted(CC_EXAMPLE_REGEX_RANGES)))
+        if CC_EXAMPLE_REGEX_INVERTED
+        else array
+    )
+    _generate_dot(cc_array(array), generated_path / "array_normalized_inverted.svg")
 
-    byte_lengths_array: list[tuple[NRRange, int]]
-    with open(generated_path / "array_split.svg", "wb") as out_array:
-        byte_lengths_array = list(split_ranges_utf8(norm_arr))
-        _generate_dot(
-            dot_array(
-                [
-                    f"{lo:0{byte_length_digits(l)}X}-{hi:0{byte_length_digits(l)}X} [{l} byte]"
-                    for (lo, hi), l in byte_lengths_array
-                ]
-            ),
-            out_array,
-        )
+    byte_lengths_array: list[tuple[NRRange, int]] = list(split_ranges_utf8(array))
+    _generate_dot(
+        dot_array(
+            [
+                f"{lo:0{byte_length_digits(l)}X}-{hi:0{byte_length_digits(l)}X} [{l} byte]"
+                for (lo, hi), l in byte_lengths_array
+            ]
+        ),
+        generated_path / "array_split.svg",
+    )
 
-    first, first_num_bytes = byte_lengths_array.pop(0)
+    def make_dump_tree():
+        frames = []
+
+        def _dump_tree(label: str):
+            _generate_dot(
+                tree.as_graphviz(label),
+                generated_path / f"tree_{len(frames):02}.svg",
+            )
+            frames.append(label)
+
+        return _dump_tree
+
+    dump_tree = make_dump_tree()
+
+    first_range, first_num_bytes = byte_lengths_array.pop(0)
     tree = Tree()
-    tree.add(first, X_BITS[first_num_bytes], Y_BITS[first_num_bytes])
+    tree.add(first_range, X_BITS[first_num_bytes], Y_BITS[first_num_bytes])
 
-    with open(generated_path / "tree_00.svg", "wb") as out_tree_00:
-        _generate_dot(tree.as_graphviz("initial front"), out_tree_00)
+    dump_tree("initial front")
 
-    with open(generated_path / "tree_01.svg", "wb") as out_tree_01:
-        while tree.step_build():
-            continue
-        _generate_dot(tree.as_graphviz("front exhausted"), out_tree_01)
+    while tree.step_build():
+        continue
+
+    dump_tree("front exhausted")
 
     next_range, next_num_bytes = byte_lengths_array.pop(0)
     tree.add(next_range, X_BITS[next_num_bytes], Y_BITS[next_num_bytes])
 
-    with open(generated_path / "tree_02.svg", "wb") as out_tree_02:
-        _generate_dot(tree.as_graphviz("front of second range"), out_tree_02)
+    dump_tree("front of second range")
 
-    with open(generated_path / "tree_03.svg", "wb") as out_tree_03:
-        while tree.step_build():
-            continue
-        _generate_dot(tree.as_graphviz("front of second range exhausted"), out_tree_03)
+    while tree.step_build():
+        continue
 
-    with open(generated_path / "tree_04.svg", "wb") as out_tree_04:
-        while len(byte_lengths_array) and byte_lengths_array[0][1] == 1:
-            next_range, next_num_bytes = byte_lengths_array.pop(0)
-            tree.add(next_range, X_BITS[next_num_bytes], Y_BITS[next_num_bytes])
-            while tree.step_build():
-                continue
-        _generate_dot(tree.as_graphviz("all 1-byte sequences done"), out_tree_04)
+    dump_tree("front of second range exhausted")
 
-    with open(generated_path / "tree_05.svg", "wb") as out_tree_05:
+    while len(byte_lengths_array) > 0 and byte_lengths_array[0][1] == 1:
         next_range, next_num_bytes = byte_lengths_array.pop(0)
         tree.add(next_range, X_BITS[next_num_bytes], Y_BITS[next_num_bytes])
-        _generate_dot(tree.as_graphviz("initial 2-byte front"), out_tree_05)
-
-    with open(generated_path / "tree_06.svg", "wb") as out_tree_06:
-        tree.step_build()
-        _generate_dot(tree.as_graphviz("2-byte front expanded"), out_tree_06)
-
-    with open(generated_path / "tree_07.svg", "wb") as out_tree_07:
         while tree.step_build():
             continue
-        _generate_dot(tree.as_graphviz("2-byte front done"), out_tree_07)
+
+    dump_tree("all 1-byte sequences done")
+
+    next_range, next_num_bytes = byte_lengths_array.pop(0)
+    tree.add(next_range, X_BITS[next_num_bytes], Y_BITS[next_num_bytes])
+
+    dump_tree("initial 2-byte front")
+
+    tree.step_build()
+
+    dump_tree("2-byte front expanded")
+
+    while tree.step_build():
+        continue
+
+    dump_tree("2-byte front done")
 
     with open(generated_path / "tree_08.svg", "wb") as out_tree_08:
         while len(byte_lengths_array):
