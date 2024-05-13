@@ -123,3 +123,4 @@ help_targets:
 ## build documentation
 docs: build build/viz
 	python tools/make_docs.py --folder docs --debug re.c internals/AST.md
+	python tools/make_docs.py --folder docs --debug re.c internals/Charclass_Compiler.md
