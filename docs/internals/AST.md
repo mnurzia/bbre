@@ -6,7 +6,7 @@ The engine builds an AST from the input regexp. The AST is analyzed and then com
 
 Each node in the AST has a type. Nodes have children and associated data depending on their type.
 
-## AST Node Types
+## AST Reference
 ### CHR
 A single character.
 
@@ -92,7 +92,7 @@ A character class.
   -   Argument 1: character range end (number)
   -   Argument 2: REF_NONE or another CLS node in the charclass (AST)
 
-#### Example: `[a-z]`
+#### Example: `[a-zA-Z]`
 ![CLS AST example](generated/ast/cls_ast.svg)
 
 ![CLS program example](generated/ast/cls_prog.svg)
@@ -104,7 +104,7 @@ An inverted character class.
   -   Argument 1: character range end (number)
   -   Argument 2: REF_NONE or another CLS node in the charclass (AST)
 
-#### Example: `[^a-z]`
+#### Example: `[^a-zA-Z]`
 ![ICLS AST example](generated/ast/icls_ast.svg)
 
 ![ICLS program example](generated/ast/icls_prog.svg)

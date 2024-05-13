@@ -5,7 +5,6 @@ import io
 from json import dump, load
 from logging import DEBUG, basicConfig, getLogger
 from pathlib import Path
-from sys import stderr
 from typing import IO, Callable, Iterator
 import shutil
 from urllib.request import urlopen
@@ -18,12 +17,10 @@ from squish_casefold import (
     find_best_arrays,
     build_arrays,
 )
-from util import DataType, insert_c_file
+from util import UTF_MAX, DataType, RRanges, insert_c_file, nranges_invert, nranges_normalize, ranges_expand
 
 UCD_URL = "https://www.unicode.org/Public/zipped"
 CLEAR_TERM = "\x1b[0K"
-
-UTF_MAX = 0x10FFFF
 
 logger = getLogger(__name__)
 
@@ -211,13 +208,9 @@ def _cmd_gen_casefold(args) -> int:
     return 0
 
 
-_Range = tuple[str | int, str | int] | str | int
-_NRange = tuple[int, int]
 
-_Ranges = tuple[_Range, ...]
-_NRanges = list[_NRange]
 
-ASCII_CHARCLASSES: dict[str, _Ranges] = {
+ASCII_CHARCLASSES: dict[str, RRanges] = {
     "alnum": (("0", "9"), ("A", "Z"), ("a", "z")),
     "alpha": (("A", "Z"), ("a", "z")),
     "ascii": ((0, 0x7F),),
@@ -245,53 +238,11 @@ PERL_CHARCLASSES = {
 }
 
 
-def _ranges_expand(r: _Ranges) -> Iterator[_NRange]:
-    for range_expr in r:
-        if isinstance(range_expr, int):
-            yield (range_expr, range_expr)
-        elif isinstance(range_expr, str):
-            yield (ord(range_expr), ord(range_expr))
-        else:
-            start, end = range_expr
-            if isinstance(start, str):
-                start = ord(start)
-            if isinstance(end, str):
-                end = ord(end)
-            yield (start, end)
-
-
-def _nranges_normalize(r: _NRanges) -> Iterator[_NRange]:
-    local_min: int | None = None
-    local_max: int | None = None
-    for i, (cur_min, cur_max) in enumerate(r):
-        if i == 0:
-            local_min, local_max = cur_min, cur_max
-            continue
-        assert local_min is not None and local_max is not None
-        if cur_min <= local_max + 1:
-            local_max = cur_max if cur_max > local_max else local_max
-        else:
-            yield local_min, local_max
-            local_min, local_max = cur_min, cur_max
-    if local_min is not None and local_max is not None:
-        yield local_min, local_max
-
-
-def _nranges_invert(r: _NRanges, max_rune: int) -> Iterator[_NRange]:
-    local_max = 0
-    cur_max = -1
-    for cur_min, cur_max in r:
-        if cur_min > local_max:
-            yield local_max, cur_min - 1
-            local_max = cur_max + 1
-    if cur_max < max_rune:
-        yield cur_max + 1, max_rune
-
 
 def _cmd_gen_ascii_charclasses_impl(args) -> int:
     out_lines = ["const ccdef builtin_cc[] = {\n"]
     for name, cc in ASCII_CHARCLASSES.items():
-        normalized = list((_nranges_normalize(list(_ranges_expand(cc)))))
+        normalized = list((nranges_normalize(list(ranges_expand(cc)))))
         serialized = "".join(f"\\x{lo:02X}\\x{hi:02X}" for lo, hi in normalized)
         out_lines.append(
             f'{{{len(name)}, {len(normalized)}, "{name}", "{serialized}"}},\n'
@@ -307,14 +258,14 @@ def _cmd_gen_ascii_charclasses_test(args) -> int:
     tests = {}
     output, out = _make_appender_func()
 
-    def make_test(test_name: str, cc: _Ranges, regex: str, invert: int) -> str:
+    def make_test(test_name: str, cc: RRanges, regex: str, invert: int) -> str:
         regex = '"' + regex.replace("\\", "\\\\") + '"'
         return f"""
         TEST({test_name}) {{
             PROPAGATE(assert_cc_match(
                 {regex},
                 "{','.join(f"0x{lo:X} 0x{hi:X}"
-                           for lo, hi in _nranges_normalize(list(_ranges_expand(cc))))}", {invert}));
+                           for lo, hi in nranges_normalize(list(ranges_expand(cc))))}", {invert}));
             PASS();
         }}
         """
@@ -339,9 +290,9 @@ def _cmd_gen_ascii_charclasses_test(args) -> int:
     for ch, (name, inverted) in PERL_CHARCLASSES.items():
         test_name = f"escape_perlclass_{ch}"
         regex = f"\\{ch}"
-        cc = _nranges_normalize(list(_ranges_expand(ASCII_CHARCLASSES[name])))
+        cc = nranges_normalize(list(ranges_expand(ASCII_CHARCLASSES[name])))
         if inverted:
-            cc = _nranges_invert(list(cc), UTF_MAX)
+            cc = nranges_invert(list(cc), UTF_MAX)
         tests[test_name] = make_test(test_name, tuple(cc), regex, 0)
     out("\n".join(tests.values()))
     out(make_suite("escape_perlclass", tests))
@@ -415,9 +366,9 @@ def _cmd_add_parser_fuzz_regression_tests(args) -> int:
     for new_corpus_file in args.file:
         contents = bytes(new_corpus_file.read())
         if contents in original_corpi:
-            logger.debug(f"skipping already existing corpus {new_corpus_file.name}")
+            logger.debug("skipping already existing corpus %s", new_corpus_file.name)
             continue
-        logger.debug(f"importing new corpus {new_corpus_file.name}")
+        logger.debug("importing new corpus %s", new_corpus_file.name)
         original_corpi.add(contents)
         original_file.append([_sanitize_for_json(contents), False])
 

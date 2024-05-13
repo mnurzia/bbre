@@ -211,12 +211,12 @@ typedef enum ast_type {
    *   Argument 1: group flags, bitset of `enum group_flag` (number)
    *   Argument 2: scratch used by the parser to store old flags (number) */
   IGROUP,
-  /* A character class: /[a-z]/
+  /* A character class: /[a-zA-Z]/
    *   Argument 0: character range begin (number)
    *   Argument 1: character range end (number)
    *   Argument 2: REF_NONE or another CLS node in the charclass (AST) */
   CLS,
-  /* An inverted character class: /[^a-z]/
+  /* An inverted character class: /[^a-zA-Z]/
    *   Argument 0: character range begin (number)
    *   Argument 1: character range end (number)
    *   Argument 2: REF_NONE or another CLS node in the charclass (AST) */
@@ -1322,7 +1322,6 @@ int re_compcc_buildtree_split(
       assert(parent);
       parent_node = cc_treeref(cc_out, parent);
       if (parent_node->sibling_ref &&
-
           br_isect(
               u2br(cc_treeref(cc_out, parent_node->sibling_ref)->range),
               u2br(brs[i]))) {
@@ -2787,7 +2786,7 @@ void astdump_i(re *r, u32 root, u32 ilvl, enum dumpformat format)
   u32 i, first = root ? r->ast.ptr[root] : 0;
   u32 sub[2] = {0xFF, 0xFF};
   char buf[32] = {0}, buf2[32] = {0};
-  const char *node_name = root == REF_NONE     ? "<eps>"
+  const char *node_name = root == REF_NONE     ? "\xc9\x9b" /* epsilon */
                           : (first == CHR)     ? "CHR"
                           : (first == CAT)     ? (sub[0] = 0, sub[1] = 1, "CAT")
                           : (first == ALT)     ? (sub[0] = 0, sub[1] = 1, "ALT")
