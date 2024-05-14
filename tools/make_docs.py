@@ -221,29 +221,29 @@ def _doc_cccomp(args, _: list[str]) -> int:
 
     dump_tree("2-byte front done")
 
-    with open(generated_path / "tree_08.svg", "wb") as out_tree_08:
-        while len(byte_lengths_array):
-            next_range, next_num_bytes = byte_lengths_array.pop(0)
-            tree.add(next_range, X_BITS[next_num_bytes], Y_BITS[next_num_bytes])
-            while tree.step_build():
-                continue
-        tree.step_build()
-        _generate_dot(tree.as_graphviz("completed tree"), out_tree_08)
+    while len(byte_lengths_array) > 0:
+        next_range, next_num_bytes = byte_lengths_array.pop(0)
+        tree.add(next_range, X_BITS[next_num_bytes], Y_BITS[next_num_bytes])
+        while tree.step_build():
+            continue
+
+    tree.step_build()
+
+    dump_tree("completed tree")
 
     tree.build_cache()
     tree.step_reduce()
 
-    with open(generated_path / "tree_09.svg", "wb") as out_tree_09:
-        _generate_dot(tree.as_graphviz("after first reduce"), out_tree_09)
+    dump_tree("after first reduce")
 
     while tree.step_reduce() is True:
         continue
 
-    with open(generated_path / "tree_10.svg", "wb") as out_tree_10:
-        _generate_dot(tree.as_graphviz("after all reductions"), out_tree_10)
+    dump_tree("after all reductions")
 
-    with open(generated_path / "program.svg", "wb") as out_program:
-        _generate_visualization(args, CC_EXAMPLE_REGEX, "prog", out_program)
+    _generate_visualization(
+        args, CC_EXAMPLE_REGEX, "prog", generated_path / "program.svg"
+    )
 
     return 0
 

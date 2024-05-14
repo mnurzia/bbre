@@ -1,5 +1,6 @@
 """Utilities for the tools folder."""
 
+from subprocess import run
 from typing import IO, Iterator, NamedTuple
 
 UTF_MAX = 0x10FFFF
@@ -132,3 +133,10 @@ def nrange_isect(r1: NRRange, r2: NRRange) -> bool:
     Check if two ranges intersect.
     """
     return r1[0] <= r2[1] and r2[0] <= r1[1]
+
+
+def get_commit_hash() -> str:
+    """Get the commit hash of the current Git repository."""
+    return run(
+        ["git", "rev-parse", "HEAD"], capture_output=True, encoding="utf-8", check=True
+    ).stdout.strip()

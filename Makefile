@@ -25,7 +25,7 @@ test-gen.c: build fuzz_results.json
 	$(FORMAT) $@
 
 build/compile_commands.json: build $(SRCS) 
-	bear --output $@ -- make -B build/test build/parser_fuzz
+	bear --output $@ -- make -B build/test build/parser_fuzz build/fuzzington_harness
 
 ## generate compile_commands.json for language servers (alias for build/compile_commands.json)
 compile_commands: build/compile_commands.json
@@ -91,6 +91,18 @@ parser_fuzz: build build/parser_fuzz
 ## import generated LLVM fuzzer artifacts as tests
 parser_fuzz_import: build
 	$(UDATA) add_parser_fuzz_regression_tests fuzz_results.json build/fuzz/artifact/*
+
+build/fuzzington_harness: build fuzzington_harness.c re.c re.h
+	$(CC) $(CFLAGS) -fsanitize=address fuzzington_harness.c re.c -o $@
+
+fuzzington/target/debug/fuzzington: fuzzington/src/main.rs
+	cd fuzzington; cargo build
+
+fuzzington_run: build/fuzzington_harness fuzzington/target/debug/fuzzington
+	./fuzzington/target/debug/fuzzington -f binary | ./build/fuzzington_harness
+
+fuzzington_run_many: build/fuzzington_harness fuzzington/target/debug/fuzzington
+	./fuzzington/target/debug/fuzzington -f binary -n 1000 | ./build/fuzzington_harness
 
 ## generate data tables for re.c
 tables:
