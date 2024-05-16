@@ -88,9 +88,9 @@ An inline group.
 ### CLS
 A character class.
 #### Arguments:
-  -   Argument 0: character range begin (number)
-  -   Argument 1: character range end (number)
-  -   Argument 2: REF_NONE or another CLS node in the charclass (AST)
+  -   Argument 0: REF_NONE or another CLS node in the charclass (AST)
+  -   Argument 1: character range begin (number)
+  -   Argument 2: character range end (number)
 
 #### Example: `[a-zA-Z]`
 ![CLS AST example](generated/ast/cls_ast.svg)

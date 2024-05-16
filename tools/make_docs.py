@@ -54,6 +54,7 @@ def _generate_dot(
     output_format: str = "svg",
     args: list[str] | None = None,
 ):
+    logger.debug("generating %s...", output.name)
     with open(output, "wb") if isinstance(output, Path) else output as file:
         svg = run(
             [
@@ -71,7 +72,6 @@ def _generate_dot(
 
 
 def _generate_visualization(args, regex: str, viz_type: str, output: BinaryIO | Path):
-    logger.debug("generating %s...", output.name)
     _generate_dot(
         run(
             [str(args.viz), viz_type],

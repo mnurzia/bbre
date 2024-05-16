@@ -212,9 +212,9 @@ typedef enum ast_type {
    *   Argument 2: scratch used by the parser to store old flags (number) */
   IGROUP,
   /* A character class: /[a-zA-Z]/
-   *   Argument 0: character range begin (number)
-   *   Argument 1: character range end (number)
-   *   Argument 2: REF_NONE or another CLS node in the charclass (AST) */
+   *   Argument 0: REF_NONE or another CLS node in the charclass (AST)
+   *   Argument 1: character range begin (number)
+   *   Argument 2: character range end (number) */
   CLS,
   /* An inverted character class: /[^a-zA-Z]/
    *   Argument 0: character range begin (number)
@@ -491,7 +491,7 @@ u32 re_uncc(re *r, u32 rest, u32 first)
 {
   u32 cur = first, *next;
   assert(first);
-  while (*(next = re_astarg(r, cur, 2)))
+  while (*(next = re_astarg(r, cur, 0)))
     cur = *next;
   *next = rest;
   return first;
@@ -549,19 +549,19 @@ int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert)
     return re_parse_err(r, "unknown builtin character class name");
   for (i = 0; i < named->cc_len; i++) {
     cur_min = named->chars[i * 2], cur_max = named->chars[i * 2 + 1];
-    if (!invert && (err = re_mkast(r, CLS, cur_min, cur_max, res, &res)))
+    if (!invert && (err = re_mkast(r, CLS, res, cur_min, cur_max, &res)))
       return err;
     else if (invert) {
       assert(cur_min >= max); /* builtin charclasses are ordered. */
       if (max != cur_min &&
-          (err = re_mkast(r, CLS, max, cur_min - 1, res, &res)))
+          (err = re_mkast(r, CLS, res, max, cur_min - 1, &res)))
         return err;
       else
         max = cur_max + 1;
     }
   }
   assert(cur_max < UTFMAX); /* builtin charclasses never reach UTFMAX */
-  if (invert && i && (err = re_mkast(r, CLS, cur_max + 1, UTFMAX, res, &res)))
+  if (invert && i && (err = re_mkast(r, CLS, res, cur_max + 1, UTFMAX, &res)))
     return err;
   if ((err = stk_push(r, &r->arg_stk, res)))
     return err;
@@ -870,10 +870,10 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
     } else if (ch == '.') { /* any char */
       /* arg_stk: | ... | */
       if (((flags & DOTNEWLINE) &&
-           (err = re_mkast(r, CLS, 0, UTFMAX, REF_NONE, &res))) ||
+           (err = re_mkast(r, CLS, REF_NONE, 0, UTFMAX, &res))) ||
           (!(flags & DOTNEWLINE) &&
-           ((err = re_mkast(r, CLS, 0, '\n' - 1, REF_NONE, &res)) ||
-            (err = re_mkast(r, CLS, '\n' + 1, UTFMAX, res, &res)))) ||
+           ((err = re_mkast(r, CLS, REF_NONE, 0, '\n' - 1, &res)) ||
+            (err = re_mkast(r, CLS, res, '\n' + 1, UTFMAX, &res)))) ||
           (err = stk_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... |  .  | */
@@ -963,7 +963,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
             max = ch; /* non-escaped character */
           }
         }
-        if ((err = re_mkast(r, CLS, min, max, res, &res)))
+        if ((err = re_mkast(r, CLS, res, min, max, &res)))
           return err;
       }
       assert(res);  /* charclass cannot be empty */
@@ -1573,7 +1573,7 @@ int re_compcc(re *r, u32 root, compframe *frame)
   while (root) {
     u32 args[3], min, max;
     re_decompast(r, root, args);
-    min = args[0], max = args[1], root = args[2];
+    root = args[0], min = args[1], max = args[2];
     /* handle out-of-order ranges (min > max) */
     if ((err = stk_push(r, &r->cc_stk_a, min > max ? max : min)) ||
         (err = stk_push(r, &r->cc_stk_a, min > max ? min : max)))
@@ -1699,9 +1699,9 @@ int re_compile(re *r, u32 root, u32 reverse)
       } else { /* unicode */
         /* create temp ast */
         if (!tmp_cc_ast &&
-            (err = re_mkast(r, CLS, 0, 0, REF_NONE, &tmp_cc_ast)))
+            (err = re_mkast(r, CLS, REF_NONE, 0, 0, &tmp_cc_ast)))
           return err;
-        *re_astarg(r, tmp_cc_ast, 0) = *re_astarg(r, tmp_cc_ast, 1) = args[0];
+        *re_astarg(r, tmp_cc_ast, 1) = *re_astarg(r, tmp_cc_ast, 2) = args[0];
         if ((err = re_compcc(r, tmp_cc_ast, &frame)))
           return err;
       }
@@ -2801,8 +2801,8 @@ void astdump_i(re *r, u32 root, u32 ilvl, int format)
                           : (first == UQUANT)  ? (sub[0] = 0, "UQUANT")
                           : (first == GROUP)   ? (sub[0] = 0, "GROUP")
                           : (first == IGROUP)  ? (sub[0] = 0, "IGROUP")
-                          : (first == CLS)     ? (sub[0] = 2, "CLS")
-                          : (first == ICLS)    ? (sub[0] = 2, "ICLS")
+                          : (first == CLS)     ? (sub[0] = 0, "CLS")
+                          : (first == ICLS)    ? (sub[0] = 0, "ICLS")
                           : (first == ANYBYTE) ? "ANYBYTE"
                           : (first == AASSERT) ? "AASSERT"
                                                : NULL;

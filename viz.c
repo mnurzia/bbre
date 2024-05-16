@@ -6,16 +6,23 @@
 void progdump_gv(re *r);
 void astdump_gv(re *r);
 
+/* these Graphviz escaping rules are really confusing... */
 const char *escape(const char *regex, char *buf)
 {
   const char *out = buf;
   while (*regex) {
-    char esc_ch = *(regex++);
-    if (*regex == '\\' || *regex == '"' || *regex == '(' || *regex == ')' ||
-        (*regex == '\n' && (esc_ch = 'n')))
-      *(buf++) = '\\', *(buf++) = esc_ch;
-    else
-      *(buf++) = esc_ch;
+    if (strchr("\\\"\n\r\v\t[]", *regex)) {
+      *(buf++) = '&';
+      *(buf++) = '#';
+      if (*regex > 100)
+        *(buf++) = '0' + *regex / 100;
+      *(buf++) = '0' + (*regex / 10) % 10;
+      *(buf++) = '0' + *regex % 10;
+      *(buf++) = ';';
+      regex++;
+    } else {
+      *(buf++) = *(regex++);
+    }
   }
   *(buf++) = '\0';
   return out;
@@ -24,12 +31,14 @@ const char *escape(const char *regex, char *buf)
 int main(int argc, const char *const *argv)
 {
   re *r;
-  char buf[BUFSIZ] = {0}, esc_buf[BUFSIZ] = {0};
-  int ast;
+  char buf[BUFSIZ] = {0}, esc_buf[BUFSIZ] = {0}, *res;
+  int ast, err;
   assert(argc > 1);
   ast = !strcmp(argv[1], "ast");
-  fgets(buf, sizeof(buf), stdin);
-  assert(!re_init_full(&r, buf, strlen(buf), NULL));
+  res = fgets(buf, sizeof(buf), stdin);
+  assert(res);
+  err = re_init_full(&r, buf, strlen(buf), NULL);
+  assert(!err);
   printf(
       "digraph D { label=\"%s for \\\"%s\\\"\"; labelloc=\"t\";\n",
       ast ? "ast" : "program", escape(buf, esc_buf));
