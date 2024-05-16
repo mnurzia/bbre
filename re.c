@@ -631,6 +631,7 @@ int re_parse_escape(re *r, u32 allowed_outputs)
       (ch == '|') ||                /* pipe */
       (ch == '^') ||                /* caret */
       (ch == '$') ||                /* dolla */
+      (ch == '-') ||                /* dash */
       (ch == '\\') /* escaped slash */) {
     return re_parse_escape_addchr(r, ch, allowed_outputs);
   } else if (ch >= '0' && ch <= '7') { /* octal escape */

@@ -11,7 +11,7 @@ from selectors import EVENT_READ, DefaultSelector
 from subprocess import PIPE, Popen
 import sys
 from typing import Any, BinaryIO
-from json import JSONDecodeError, load, dump, loads
+from json import JSONDecodeError, dumps, load, dump, loads
 from util import get_commit_hash, insert_c_file, make_appender_func
 
 C_SPECIALS = {
@@ -37,7 +37,7 @@ logger = getLogger(__name__)
 def _escape_char_for_cstr(c: int) -> str:
     # Escape a character so that it can be used in a C string.
     assert 0 <= c <= 255
-    return C_SPECIALS.get(c, chr(c) if 0x20 >= c < 0x7F else f"\\x{c:02X}")
+    return C_SPECIALS.get(c, chr(c) if 0x20 <= c < 0x7F else f"\\{c:03o}")
 
 
 def _escape_cstr(a: bytes) -> str:
@@ -342,6 +342,8 @@ def _cmd_run_fuzzington(args) -> int:
                 # done
                 return 0
             i += 1
+            if i % 100000 == 0:
+                logger.info("status: %i iterations", i)
             current_output = proc.stdout.readline()
             try:
                 current_test = loads(current_output)
@@ -351,7 +353,8 @@ def _cmd_run_fuzzington(args) -> int:
                     i,
                     repr(current_output),
                 )
-                raise
+                logger.debug("logging previous test")
+                break
     assert current_test is not None
 
     _import_tests(args, [FuzzTest.from_dict(current_test)])

@@ -9,6 +9,7 @@ FORMAT=clang-format -i
 UDATA=python tools/unicode_data.py --debug --db tools/.ucd.zip
 
 FUZZINGTON=build/fuzzington/release/fuzzington
+FUZZINGTON_ITERS=10000000
 OPEN_URL=python -m webbrowser
 
 ## run target `test`
@@ -102,7 +103,7 @@ build/fuzzington/release/fuzzington: tools/fuzzington/src/main.rs tools/fuzzingt
 
 ## run fuzzington, the semantic regex fuzz tester
 fuzzington_run: build build/fuzzington/release/fuzzington
-	python tools/fuzz_tool.py --debug fuzz_db.json run_fuzzington --num-iterations 1000000
+	python tools/fuzz_tool.py --debug fuzz_db.json run_fuzzington --num-iterations $(FUZZINGTON_ITERS)
 
 ## generate data tables for re.c
 tables:

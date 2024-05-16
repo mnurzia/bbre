@@ -993,6 +993,12 @@ TEST(escape_dollar)
   PASS();
 }
 
+TEST(escape_dash)
+{
+  ASSERT_MATCH("\\-", "-");
+  PASS();
+}
+
 TEST(escape_slash)
 {
   ASSERT_MATCH_G1("\\\\", "\\", 0, 1);
@@ -1279,6 +1285,7 @@ SUITE(escape)
   RUN_TEST(escape_pipe);
   RUN_TEST(escape_caret);
   RUN_TEST(escape_dollar);
+  RUN_TEST(escape_dash);
   RUN_SUITE(escape_octal);
   RUN_SUITE(escape_hex);
   RUN_SUITE(escape_hex_long);
