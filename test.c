@@ -59,6 +59,51 @@ size_t utf_encode(char *out_buf, u32 codep)
   }
 }
 
+#define TEST_MAX_SPAN 10
+#define TEST_MAX_SET  10
+
+int check_match_results(
+    re *r, const char *s, size_t n, u32 max_span, u32 max_set,
+    anchor_type anchor, span *check_span, u32 *check_set, u32 check_nsets)
+{
+  int err;
+  /* memory for found spans and found sets */
+  span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
+  u32 found_set[TEST_MAX_SET], sets_to_check;
+  u32 i, j;
+  /* perform the match */
+  if ((err = re_match(
+           r, s, n, max_span, max_set, found_span, found_set, anchor)) ==
+      ERR_MEM)
+    goto oom_re;
+  ASSERT_GTEm(err, 0, "re_match() returned an error");
+  ASSERT_EQm(
+      (u32)err, check_nsets,
+      "re_match() didn't match the correct number of sets");
+  /* we only actually need to check a subset of the sets matched, according to
+   * the `check_nsets` parameter. also, in the case of boolean matches, max_set
+   * will be zero and check_nsets will be 1. */
+  sets_to_check = (check_nsets > max_set ? max_set : check_nsets);
+  /* check all output spans and sets for agreement with the test case */
+  for (i = 0; i < sets_to_check; i++) {
+    if (check_set)
+      ASSERT_EQm(check_set[i], found_set[i], "found unexpected set index");
+    for (j = 0; j < max_span; j++) {
+      ASSERT_EQm(
+          check_span[i * max_span + j].begin,
+          found_span[i * max_span + j].begin,
+          "found unexpected span beginning");
+      ASSERT_EQm(
+          check_span[i * max_span + j].end, found_span[i * max_span + j].end,
+          "found unexpected span end");
+    }
+  }
+  PASS();
+oom_re:
+  re_destroy(r);
+  OOM();
+}
+
 int check_matches_n(
     const char **regexes, size_t *regex_n, u32 nregex, const char *s, size_t n,
     u32 max_span, u32 max_set, anchor_type anchor, span *check_span,
@@ -66,50 +111,41 @@ int check_matches_n(
 {
   re *r;
   int err;
-  span *found_span;
-  u32 *found_set, i, j;
-  found_span = test_alloc(0, sizeof(span) * max_span * max_set, NULL);
-  if (max_span * max_set && !found_span)
-    goto oom_span;
-  found_set = test_alloc(0, sizeof(u32) * max_set, NULL);
-  if (max_set && !found_set)
-    goto oom_set;
+  u32 i;
+  ASSERT_LTEm(max_span, TEST_MAX_SPAN, "too many spans to match");
+  ASSERT_LTEm(max_set, TEST_MAX_SET, "too many sets to match");
+  /* initialize the regex: use argument to init_full() if there's only one
+   * regex, otherwise union all input regexes */
   if ((err = re_init_full(
            &r, nregex == 1 ? *regexes : NULL, nregex == 1 ? regex_n[0] : 0,
            test_alloc)) == ERR_MEM)
     goto oom_re;
+  ASSERT_EQm(err, 0, "re_init_full() returned a nonzero value");
   for (i = 0; i < nregex && nregex != 1; i++) {
     if ((err = re_union(r, regexes[i], regex_n[i])) == ERR_MEM)
       goto oom_re;
-    ASSERT_EQ(err, 0);
+    ASSERT_EQm(err, 0, "re_union() returned a nonzero value");
   }
-  ASSERT_EQ(err, 0);
-  if ((err = re_match(
-           r, s, n, max_span, max_set, found_span, found_set, anchor)) ==
-      ERR_MEM)
-    goto oom_re;
-  ASSERT_EQ((u32)err, check_nsets);
-  for (i = 0; i < (check_nsets > max_set ? max_set : check_nsets); i++) {
-    if (check_set)
-      ASSERT_EQ(check_set[i], found_set[i]);
-    for (j = 0; j < max_span; j++) {
-      ASSERT_EQ(
-          check_span[i * max_span + j].begin,
-          found_span[i * max_span + j].begin);
-      ASSERT_EQ(
-          check_span[i * max_span + j].end, found_span[i * max_span + j].end);
-    }
+  PROPAGATE(check_match_results(
+      r, s, n, max_span, max_set, anchor, check_span, check_set, check_nsets));
+  /* check to make sure that all match modes agree */
+  if (anchor == 'B' && !max_span) {
+    /* if we're fully anchored, group 0 *must* be the bounds of the match */
+    span check_span_anchored[TEST_MAX_SET];
+    for (i = 0; i < check_nsets; i++)
+      check_span_anchored[i].begin = 0, check_span_anchored[i].end = n;
+    PROPAGATE(check_match_results(
+        r, s, n, 1, max_set, anchor, check_span_anchored, check_set,
+        check_nsets));
   }
+  /* if `check_nsets` > 0, then a boolean match *must* return 1.
+   * if `check_nsets` == 0, then a boolean match *must* return 0. */
+  PROPAGATE(
+      check_match_results(r, s, n, 0, 0, anchor, NULL, NULL, !!check_nsets));
   re_destroy(r);
-  test_alloc(sizeof(span) * max_span * max_set, 0, found_span);
-  test_alloc(sizeof(u32) * max_set, 0, found_set);
   PASS();
 oom_re:
   re_destroy(r);
-oom_set:
-  test_alloc(sizeof(u32) * max_set, 0, found_set);
-oom_span:
-  test_alloc(sizeof(span) * max_span * max_set, 0, found_span);
   OOM();
 }
 
