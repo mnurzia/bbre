@@ -1,7 +1,7 @@
 """Utilities for the tools folder."""
 
 from subprocess import run
-from typing import IO, Callable, Iterator, NamedTuple, Protocol
+from typing import IO, Iterator, NamedTuple, Protocol
 
 UTF_MAX = 0x10FFFF
 
@@ -23,7 +23,7 @@ class DataType(NamedTuple):
     @staticmethod
     def from_list(l: list[int]) -> "DataType":
         """Given an array of integers, determine the minimum-sized data type required."""
-        return DataType.from_int(max([abs(x) for x in l]), any(x < 0 for x in l))
+        return DataType.from_int(max(abs(x) for x in l), any(x < 0 for x in l))
 
     def to_ctype(self) -> str:
         """Return the C type name for this datatype."""

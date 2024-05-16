@@ -4,14 +4,14 @@ from argparse import ArgumentParser, FileType
 from binascii import hexlify, unhexlify
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from itertools import starmap
 from logging import DEBUG, basicConfig, getLogger
 from os import set_blocking
 from pathlib import Path
 from selectors import EVENT_READ, DefaultSelector
 from subprocess import PIPE, Popen
+import sys
 from typing import Any, BinaryIO
-from json import load, dump, loads
+from json import JSONDecodeError, load, dump, loads
 from util import get_commit_hash, insert_c_file, make_appender_func
 
 C_SPECIALS = {
@@ -34,17 +34,15 @@ JSON_SPECIALS = {
 logger = getLogger(__name__)
 
 
-def _sanitize_char_for_c_string(c: int) -> str:
+def _escape_char_for_cstr(c: int) -> str:
+    # Escape a character so that it can be used in a C string.
     assert 0 <= c <= 255
-    return C_SPECIALS.get(c, chr(c) if c >= 0x20 and c < 0x7F else f"\\x{c:02X}")
+    return C_SPECIALS.get(c, chr(c) if 0x20 >= c < 0x7F else f"\\x{c:02X}")
 
 
-def _sanitize_for_c_string(a: bytes) -> str:
-    return '"' + "".join(map(_sanitize_char_for_c_string, a)) + '"'
-
-
-def _sanitize_for_json(a: bytes) -> str:
-    return a.decode()
+def _escape_cstr(a: bytes) -> str:
+    # Return escaped bytes as a C string.
+    return '"' + "".join(map(_escape_char_for_cstr, a)) + '"'
 
 
 @dataclass
@@ -120,7 +118,7 @@ class FuzzTest:
             obj["num_spans"],
             obj["num_sets"],
             decoder_func(obj["match_string"]),
-            tuple([tuple(x) for x in obj["match_spans"]]),
+            tuple(tuple(x) for x in obj["match_spans"]),
             tuple(obj["match_sets"]),
             obj.get("match_anchor"),
             identifier,
@@ -132,11 +130,9 @@ class FuzzTest:
         """Convert this FuzzTest into a JSON object."""
         try:
             encoding = "utf-8"
-            encoded_regexes = [_sanitize_for_json(r) for r in self.regexes]
+            encoded_regexes = [r.decode() for r in self.regexes]
             encoded_match = (
-                _sanitize_for_json(self.match_string)
-                if self.match_string is not None
-                else None
+                self.match_string.decode() if self.match_string is not None else None
             )
         except UnicodeDecodeError:
             encoding = "binascii"
@@ -174,59 +170,56 @@ class FuzzTest:
         if not self.parses():
             return [
                 "PROPAGATE(check_noparse_n(",
-                _sanitize_for_c_string(self.regexes[0]) + ",",
+                _escape_cstr(self.regexes[0]) + ",",
                 str(len(self.regexes[0])),
                 "));",
                 "PASS();",
             ]
-        else:
-            assert self.match_spans is not None
-            assert self.match_sets is not None
-            assert self.match_string is not None
-            output, out = make_appender_func()
-            out("const char *regexes[] = {")
-            out(*[_sanitize_for_c_string(r) + "," for r in self.regexes])
-            out("};")
-            out("size_t regexes_n[] = {")
-            out(*[str(len(r)) + "," for r in self.regexes])
-            out("};")
-            if self.num_spans != 0:
-                out("span spans[] = {")
-                out(",".join(f"{{{s[0]}, {s[1]}}}" for s in self.match_spans) + "};")
-            if self.num_sets != 0:
-                out("u32 sets[] = {")
-                out(",".join([str(s) for s in self.match_sets]) + ";")
-            out("PROPAGATE(check_matches_n(")
-            out(
-                ",".join(
-                    [
-                        "regexes",
-                        "regexes_n",
-                        f"{len(self.regexes)}",
-                        _sanitize_for_c_string(self.match_string),
-                        f"{len(self.match_string)}",
-                        f"{self.num_spans}",
-                        f"{self.num_sets}",
-                        f"'{self.match_anchor}'",
-                        "spans" if self.num_spans != 0 else "NULL",
-                        "sets" if self.num_sets != 0 else "NULL",
-                        f"{len(self.match_sets) if len(self.match_sets) != 0 else 1}",
-                    ]
-                ),
-            )
-            out("));")
-            out("PASS();")
-            return output
+        assert self.match_spans is not None
+        assert self.match_sets is not None
+        assert self.match_string is not None
+        output, out = make_appender_func()
+        out("const char *regexes[] = {")
+        out(*[_escape_cstr(r) + "," for r in self.regexes])
+        out("};")
+        out("size_t regexes_n[] = {")
+        out(*[str(len(r)) + "," for r in self.regexes])
+        out("};")
+        if self.num_spans != 0:
+            out("span spans[] = {")
+            out(",".join(f"{{{s[0]}, {s[1]}}}" for s in self.match_spans) + "};")
+        if self.num_sets != 0:
+            out("u32 sets[] = {")
+            out(",".join([str(s) for s in self.match_sets]) + ";")
+        out("PROPAGATE(check_matches_n(")
+        out(
+            ",".join(
+                [
+                    "regexes",
+                    "regexes_n",
+                    f"{len(self.regexes)}",
+                    _escape_cstr(self.match_string),
+                    f"{len(self.match_string)}",
+                    f"{self.num_spans}",
+                    f"{self.num_sets}",
+                    f"'{self.match_anchor}'",
+                    "spans" if self.num_spans != 0 else "NULL",
+                    "sets" if self.num_sets != 0 else "NULL",
+                    f"{len(self.match_sets) if len(self.match_sets) != 0 else 1}",
+                ]
+            ),
+        )
+        out("));")
+        out("PASS();")
+        return output
 
     def dump(self):
         """Dump test info to stdout."""
         print(f"{self.identifier}: {len(self.regexes)} regexes")
         for regex, parse in zip(self.regexes, self.should_parse):
-            print(
-                f"  {_sanitize_for_c_string(regex)}: {["parses", "doesn't parse"][parse]}"
-            )
+            print(f"  {_escape_cstr(regex)}: {["parses", "doesn't parse"][parse]}")
         if all(self.should_parse) and self.match_string is not None:
-            print(f"  match with {_sanitize_for_c_string(self.match_string)}:")
+            print(f"  match with {_escape_cstr(self.match_string)}:")
             assert self.match_spans is not None and self.num_spans is not None
             assert self.match_sets is not None and self.num_sets is not None
             print(
@@ -256,9 +249,7 @@ class FuzzTest:
 def _read_tests(json: BinaryIO) -> tuple[dict, list[FuzzTest]]:
     return (
         doc := load(json),
-        list(
-            [FuzzTest.from_dict(test, identifier) for identifier, test in doc.items()]
-        ),
+        list(FuzzTest.from_dict(test, identifier) for identifier, test in doc.items()),
     )
 
 
@@ -320,8 +311,15 @@ def _cmd_import_parser(args) -> int:
 def _cmd_run_fuzzington(args) -> int:
     selector = DefaultSelector()
     current_test: dict | None = None
+    commit_hash = int(get_commit_hash()[: 64 // 4], 16)  # 64 bits worth of hash
     with Popen(
-        [args.fuzzington.resolve(), "-n", str(args.num_iterations)],
+        [
+            args.fuzzington.resolve(),
+            "-n",
+            str(args.num_iterations),
+            "-s",
+            str(commit_hash),
+        ],
         encoding="utf-8",
         stdout=PIPE,
     ) as proc:
@@ -332,16 +330,28 @@ def _cmd_run_fuzzington(args) -> int:
         while True:
             events = selector.select(timeout=args.timeout)
             if len(events) == 0:
+                if proc.poll() is not None:
+                    if i == args.num_iterations:
+                        # done
+                        return 0
+                    logger.debug("process died after %i iterations", i)
+                    break
                 logger.debug("test timed out after %i iterations", i)
                 break
             if i == args.num_iterations:
                 # done
                 return 0
-            if proc.poll() is not None:
-                logger.debug("process died after %i iterations", i)
-                break
             i += 1
-            current_test = loads(proc.stdout.readline())
+            current_output = proc.stdout.readline()
+            try:
+                current_test = loads(current_output)
+            except JSONDecodeError:
+                logger.debug(
+                    "invalid JSON received after %i iterations: %s",
+                    i,
+                    repr(current_output),
+                )
+                raise
     assert current_test is not None
 
     _import_tests(args, [FuzzTest.from_dict(current_test)])
@@ -403,7 +413,7 @@ def main() -> int:
 
     ap_run_fuzzington = subcmds.add_parser("run_fuzzington", help="run fuzzington")
     ap_run_fuzzington.add_argument(
-        "--fuzzington", type=Path, default="tools/fuzzington/target/debug/fuzzington"
+        "--fuzzington", type=Path, default="build/fuzzington/release/fuzzington"
     )
     ap_run_fuzzington.add_argument("--timeout", type=float, default=2)
     ap_run_fuzzington.add_argument("--num-iterations", type=int, default=1)
@@ -422,4 +432,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())

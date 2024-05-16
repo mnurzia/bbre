@@ -20,8 +20,7 @@ class CCTree:
     """A tree node."""
 
     def __hash__(self) -> int:
-        assert False
-        return 0
+        return super().__hash__() and NotImplemented
 
     def __eq__(self, other) -> bool:
         assert isinstance(other, TreeNode)
@@ -31,10 +30,9 @@ class CCTree:
         """Return Graphviz properties of this tree."""
         return NotImplemented
 
-    def build(self, parent: Self) -> bool:
+    def build(self, _: Self) -> bool:
         """Run a step of the build process."""
-        assert False and parent
-
+        return NotImplemented
 
 
 @dataclass
@@ -89,9 +87,7 @@ class TreeFront(CCTree):
         child: TreeNode | None = None
         if parent.right is not None:
             assert isinstance(parent.right, TreeNode)
-            if nrange_isect(
-                (parent.right.range[0], parent.right.range[1]), byte_range
-            ):
+            if nrange_isect((parent.right.range[0], parent.right.range[1]), byte_range):
                 child = parent.right
         if child is None:
             parent.right = (child := TreeNode(byte_range, parent.right, None))
@@ -99,6 +95,7 @@ class TreeFront(CCTree):
         if leftover is not None:
             parent.right = TreeFront(leftover, self.x_bits, self.y_bits, parent.right)
         return True
+
 
 @dataclass
 class TreeNode(CCTree):
@@ -113,7 +110,7 @@ class TreeNode(CCTree):
         return (
             self.range,
             self.left.key() if isinstance(self.left, TreeNode) else None,
-            self.right.key()  if isinstance(self.right, TreeNode) else None
+            self.right.key() if isinstance(self.right, TreeNode) else None,
         )
 
     def __hash__(self) -> int:
@@ -126,23 +123,36 @@ class TreeNode(CCTree):
     def graphviz_properties(self) -> str:
         return f'shape=rect,label="0x{self.range[0]:02X}-0x{self.range[1]:02X}"'
 
-    def build(self, parent: CCTree) -> bool:
-        return (self.left is not None and self.left.build(self)
-                or self.right is not None and self.right.build(self))
+    def build(self, _: CCTree) -> bool:
+        return (
+            self.left is not None
+            and self.left.build(self)
+            or self.right is not None
+            and self.right.build(self)
+        )
 
-    def reduce(self, cache: dict['TreeNode', 'TreeNode']) -> bool:
+    def reduce(self, cache: dict["TreeNode", "TreeNode"]) -> bool:
         """Run a reduce step"""
         if self.left is not None:
             assert isinstance(self.left, TreeNode)
         if self.right is not None:
             assert isinstance(self.right, TreeNode)
-        if (self.left is not None and self.left.reduce(cache)) \
-            or (self.right is not None and self.right.reduce(cache)):
+        if (self.left is not None and self.left.reduce(cache)) or (
+            self.right is not None and self.right.reduce(cache)
+        ):
             return True
-        if self.left is not None and (found := cache.get(self.left)) and found is not self.left:
+        if (
+            self.left is not None
+            and (found := cache.get(self.left))
+            and found is not self.left
+        ):
             self.left = found
             return True
-        if self.right is not None and (found := cache.get(self.right)) and found is not self.right:
+        if (
+            self.right is not None
+            and (found := cache.get(self.right))
+            and found is not self.right
+        ):
             self.right = found
             return True
         return False
@@ -150,6 +160,7 @@ class TreeNode(CCTree):
 
 class Tree(TreeNode):
     """The root node for the tree. This is a dummy node and never gets considered."""
+
     cache: dict[TreeNode, TreeNode] = {}
 
     def __init__(self):
@@ -187,7 +198,7 @@ class Tree(TreeNode):
         stack: list[CCTree | None] = [self.right]
         edges: list[tuple[int, int]] = []
         lines = ["digraph D {"]
-        lines.append(f" label=\"{title}\";")
+        lines.append(f' label="{title}";')
 
         while len(stack) > 0:
             top = stack.pop()
@@ -215,7 +226,8 @@ class Tree(TreeNode):
             lines.append(f"{names[v1]} -> {names[v2]}")
 
         lines = lines + ["}"]
-        return '\n'.join(lines)
+        return "\n".join(lines)
+
 
 def split_ranges_utf8(ranges: NRRanges) -> Iterator[tuple[NRRange, int]]:
     """Split a list of ranges among UTF-8 byte length boundaries."""

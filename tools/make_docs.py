@@ -7,6 +7,7 @@ from logging import DEBUG, basicConfig, getLogger
 from pathlib import Path
 from re import match
 from subprocess import run
+import sys
 from typing import BinaryIO
 
 from cc_tree import X_BITS, Y_BITS, Tree, byte_length_digits, split_ranges_utf8
@@ -276,4 +277,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())

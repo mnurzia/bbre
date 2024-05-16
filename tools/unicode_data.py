@@ -2,9 +2,9 @@
 
 import argparse
 import io
-from json import dump, load
 from logging import DEBUG, basicConfig, getLogger
 from pathlib import Path
+import sys
 from typing import IO, Callable, Iterator
 import shutil
 from urllib.request import urlopen
@@ -56,8 +56,12 @@ class UnicodeData:
             logger.debug("UCD file %s does not exist, downloading...", path)
             _fetch_ucd(path, db_version)
 
+        def open_zip() -> zipfile.ZipFile:
+            # suppresses 'consider-using-with'
+            return zipfile.ZipFile(path)
+
         self.source: zipfile.ZipFile | Path = (
-            zipfile.ZipFile(path) if path.name.endswith(".zip") else path
+            open_zip() if path.name.endswith(".zip") else path
         )
 
     @staticmethod
@@ -78,7 +82,12 @@ class UnicodeData:
         if isinstance(self.source, zipfile.ZipFile):
             file = io.TextIOWrapper(self.source.open(str(relpath)), "utf-8")
         else:
-            file = open(self.source / relpath, "r", encoding="utf-8")
+
+            def open_file():
+                assert isinstance(self.source, Path)
+                return open(self.source / relpath, "r", encoding="utf-8")
+
+            file = open_file()
         for line in file:
             if (result := line_filter(line)) is not None:
                 yield result
@@ -92,7 +101,7 @@ def _casefold_load(args) -> list[int]:
     for code_str, status, mapped_codepoints_str, *_ in udata.load_file(
         Path("CaseFolding.txt")
     ):
-        if status == "C" or status == "S":
+        if status in ("C", "S"):
             # We currently only support simple casefolding
             mapped_codepoints = [int(s, 16) for s in mapped_codepoints_str.split(" ")]
             codepoint = int(code_str, 16)
@@ -307,97 +316,6 @@ def _cmd_gen_ascii_charclasses_test(args) -> int:
     return 0
 
 
-C_SPECIALS = {
-    ord("\n"): "\\n",
-    ord("\r"): "\\r",
-    ord("\t"): "\\t",
-    ord('"'): '\\"',
-    ord("\\"): "\\\\",
-}
-
-JSON_SPECIALS = {
-    ord("\n"): "\\n",
-    ord("\r"): "\\r",
-    ord("\t"): "\\t",
-    ord('"'): '\\"',
-    ord("\\"): "\\\\",
-}
-
-
-def _sanitize_char_for_c_string(c: int) -> str:
-    assert 0 <= c <= 255
-    return C_SPECIALS.get(c, chr(c) if c >= 0x20 and c < 0x7F else f"\\x{c:02X}")
-
-
-def _sanitize_for_c_string(a: bytes) -> str:
-    return '"' + "".join(map(_sanitize_char_for_c_string, a)) + '"'
-
-
-def _sanitize_for_json(a: bytes) -> str | list[int]:
-    if 0 in a:
-        return list(a)
-    try:
-        return a.decode().translate(JSON_SPECIALS)
-    except UnicodeDecodeError:
-        return list(a)
-
-
-def _parse_fuzz_json(tests: list) -> Iterator[tuple[bytes, bool]]:
-    for corpus, should_parse in tests:
-        yield bytes(
-            map(ord, corpus) if isinstance(corpus, str) else corpus
-        ), should_parse
-
-
-def _cmd_gen_parser_fuzz_regression_tests(args) -> int:
-    output, out = make_appender_func()
-    test_names = []
-
-    for i, (corpus, should_parse) in enumerate(_parse_fuzz_json(load(args.tests))):
-        test_name = f"fuzz_regression_{i:04X}"
-        test_names.append(test_name)
-
-        out(f"TEST({test_name}) {{")
-        out(
-            f"  PROPAGATE({
-            "check_compiles_n" if should_parse else "check_noparse_n"
-            }({_sanitize_for_c_string(corpus)}, {len(corpus)}));"
-        )
-        out("   PASS();")
-        out(" }")
-
-    out("SUITE(fuzz_regression) {")
-    for test_name in test_names:
-        out(f"  RUN_TEST({test_name});")
-    out("}")
-
-    insert_c_file(args.file, output, "gen_parser_fuzz_regression_tests")
-
-    return 0
-
-
-def _cmd_add_parser_fuzz_regression_tests(args) -> int:
-    original_file = load(args.tests)
-    original_corpi: set[bytes] = set(
-        [corpus for corpus, _ in _parse_fuzz_json(original_file)]
-    )
-
-    for new_corpus_file in args.file:
-        contents = bytes(new_corpus_file.read())
-        if contents in original_corpi:
-            logger.debug("skipping already existing corpus %s", new_corpus_file.name)
-            continue
-        logger.debug("importing new corpus %s", new_corpus_file.name)
-        original_corpi.add(contents)
-        original_file.append([_sanitize_for_json(contents), False])
-
-    args.tests.seek(0)
-    args.tests.truncate()
-    dump(original_file, args.tests, indent=2)
-
-    return 0
-
-
 def main() -> int:
     """Main method."""
     parse = argparse.ArgumentParser()
@@ -461,33 +379,6 @@ def main() -> int:
         "file", type=argparse.FileType("r+")
     )
 
-    subcmd_gen_parser_fuzz_regression_tests = subcmds.add_parser(
-        "gen_parser_fuzz_regression_tests",
-        help="generate regression tests for the fuzz parser",
-    )
-    subcmd_gen_parser_fuzz_regression_tests.set_defaults(
-        func=_cmd_gen_parser_fuzz_regression_tests
-    )
-    subcmd_gen_parser_fuzz_regression_tests.add_argument(
-        "tests", type=argparse.FileType("r")
-    )
-    subcmd_gen_parser_fuzz_regression_tests.add_argument(
-        "file", type=argparse.FileType("r+")
-    )
-
-    subcmd_add_parser_fuzz_regression_tests = subcmds.add_parser(
-        "add_parser_fuzz_regression_tests", help="add regression tests to json file"
-    )
-    subcmd_add_parser_fuzz_regression_tests.set_defaults(
-        func=_cmd_add_parser_fuzz_regression_tests
-    )
-    subcmd_add_parser_fuzz_regression_tests.add_argument(
-        "tests", type=argparse.FileType("r+")
-    )
-    subcmd_add_parser_fuzz_regression_tests.add_argument(
-        "file", type=argparse.FileType("rb"), nargs="+"
-    )
-
     args = parse.parse_args()
 
     if args.debug:
@@ -497,4 +388,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())

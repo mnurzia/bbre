@@ -127,12 +127,11 @@ def _heuristic_squish_loop(fix: _FixSpec, spec: _SquishSpec) -> _SquishSpec:
     if len(spec.arrangement) == 0:
         # initial block, find the two blocks that fit best
         return _find_start_indices(fix)
-    else:
-        # check whether to prepend or append
-        return max(
-            _find_best_prepend(fix, spec),
-            _find_best_append(fix, spec),
-        )
+    # check whether to prepend or append
+    return max(
+        _find_best_prepend(fix, spec),
+        _find_best_append(fix, spec),
+    )
 
 
 def _heuristic_squish_slice(fix: _FixSpec, spec: _SquishSpec) -> _SquishSpec:
@@ -246,7 +245,7 @@ def _cached_make_arrays(deltas: list[int]) -> Callable[[_Sizes], list[_SquishedA
             block_refs.append(index)
         assert zero_block_ref is not None
         my_array, my_locs = _heuristic_squish(list(map(list, unique_blocks.keys())))
-        prev_refs = list([my_locs[x] for x in block_refs])
+        prev_refs = list(my_locs[x] for x in block_refs)
         result = arrays[:-1] + [
             _SquishedArray(previous_zero, my_array),
             _SquishedArray(my_locs[zero_block_ref], prev_refs),
