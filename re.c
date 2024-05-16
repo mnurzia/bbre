@@ -1057,6 +1057,16 @@ inst inst_make(opcode op, u32 next, u32 param)
   return out;
 }
 
+u32 inst_match_param_make(u32 slot_or_set, u32 slot_idx_or_set_idx)
+{
+  assert(slot_or_set == 0 || slot_or_set == 1);
+  return slot_or_set | (slot_idx_or_set_idx << 1);
+}
+
+u32 inst_match_param_slot(u32 param) { return param & 1; }
+
+u32 inst_match_param_idx(u32 param) { return param >> 1; }
+
 void re_prog_set(re *r, u32 pc, inst i)
 {
   r->prog.ptr[pc * 2 + 0] = i.l, r->prog.ptr[pc * 2 + 1] = i.h;
@@ -1099,10 +1109,6 @@ compframe compframe_pop(re *r)
   stk_popn(r, &r->comp_stk, &v, sizeof(v));
   return v;
 }
-
-#define IMATCH(s, i) ((i) << 1 | (s))
-#define IMATCH_S(m)  ((m) & 1)
-#define IMATCH_I(m)  ((m) >> 1)
 
 inst patch_set(re *r, u32 pc, u32 val)
 {
@@ -1800,15 +1806,18 @@ int re_compile(re *r, u32 root, u32 reverse)
           if (flags & SUBEXPRESSION) {
             /* for subexpressions: generate an initial match instruction */
             grp_idx = 1;
-            if ((err =
-                     re_emit(r, inst_make(MATCH, 0, IMATCH(0, 1 + set_idx++)))))
+            if ((err = re_emit(
+                     r,
+                     inst_make(
+                         MATCH, 0, inst_match_param_make(0, 1 + set_idx++)))))
               return err;
           } else if
               /* for regular groups: generate a save instruction corresponding
                  to the start of the group */
               ((err = re_emit(
-                    r,
-                    inst_make(MATCH, 0, IMATCH(1, 2 * grp_idx++ + reverse)))))
+                    r, inst_make(
+                           MATCH, 0,
+                           inst_match_param_make(1, 2 * grp_idx++ + reverse)))))
             return err;
           patch_add(r, &child_frame, my_pc, 0);
         } else
@@ -1819,18 +1828,20 @@ int re_compile(re *r, u32 root, u32 reverse)
           patch(r, &returned_frame, my_pc);
           if ((flags & SUBEXPRESSION)) {
             /* for subexpressions: generate the final match instruction */
-            if ((err = re_emit(r, inst_make(MATCH, 0, IMATCH(1, reverse)))))
+            if ((err = re_emit(
+                     r,
+                     inst_make(MATCH, 0, inst_match_param_make(1, reverse)))))
               return err;
           } else {
             /* for regular groups: generate a save instruction corresponding to
              * the end of the group */
             if ((err = re_emit(
-                     r,
-                     inst_make(
-                         MATCH, 0,
-                         IMATCH(
-                             1, IMATCH_I(inst_param(re_prog_get(r, frame.pc))) +
-                                    (reverse ? -1 : 1))))))
+                     r, inst_make(
+                            MATCH, 0,
+                            inst_match_param_make(
+                                1, inst_match_param_idx(
+                                       inst_param(re_prog_get(r, frame.pc))) +
+                                       (reverse ? -1 : 1))))))
               return err;
             patch_add(r, &frame, my_pc, 0);
           }
@@ -2194,12 +2205,13 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos, assert_flag ass)
       switch (inst_opcode(re_prog_get(r, top.pc))) {
       case MATCH:
         if (inst_next(op)) {
-          u32 idx = IMATCH_S(inst_param(op))
-                        ? IMATCH_I(inst_param(op)) /* this is a save */
-                        : n->reversed /* this is a set index marker */;
-          if (!IMATCH_S(inst_param(op)) &&
+          u32 idx =
+              inst_match_param_slot(inst_param(op))
+                  ? inst_match_param_idx(inst_param(op)) /* this is a save */
+                  : n->reversed /* this is a set index marker */;
+          if (!inst_match_param_slot(inst_param(op)) &&
               (err = save_slots_set_setidx(
-                   r, &n->slots, top.slot, IMATCH_I(inst_param(op)),
+                   r, &n->slots, top.slot, inst_match_param_idx(inst_param(op)),
                    &top.slot)))
             return err;
           if (idx < save_slots_perthrd(&n->slots) &&
@@ -2884,8 +2896,8 @@ void progdump_range(re *r, u32 start, u32 end, int format)
           inst_next(ins), inst_param(ins), labels[k]);
       if (inst_opcode(ins) == MATCH)
         printf(
-            " %c/%u", IMATCH_S(inst_param(ins)) ? 'G' : 'E',
-            IMATCH_I(inst_param(ins)));
+            " %c/%u", inst_match_param_slot(inst_param(ins)) ? 'G' : 'E',
+            inst_match_param_idx(inst_param(ins)));
       printf("\n");
     } else {
       static const char *shapes[] = {"box", "diamond", "pentagon", "oval"};
@@ -2903,13 +2915,13 @@ void progdump_range(re *r, u32 start, u32 end, int format)
             dump_chr_ascii(end_buf, u2br(inst_param(ins)).h));
       else if (inst_opcode(ins) == MATCH)
         printf(
-            "%s %u", IMATCH_S(inst_param(ins)) ? "slot" : "set",
-            IMATCH_I(inst_param(ins)));
+            "%s %u", inst_match_param_slot(inst_param(ins)) ? "slot" : "set",
+            inst_match_param_idx(inst_param(ins)));
       else if (inst_opcode(ins) == ASSERT)
         printf("%s", dump_assert(assert_buf, inst_param(ins)));
       printf("\"]\n");
-      if (!(inst_opcode(ins) == MATCH && IMATCH_S(inst_param(ins)) &&
-            !inst_next(ins))) {
+      if (!(inst_opcode(ins) == MATCH &&
+            inst_match_param_slot(inst_param(ins)) && !inst_next(ins))) {
         printf("I%04X -> I%04X\n", start, inst_next(ins));
         if (inst_opcode(ins) == SPLIT)
           printf("I%04X -> I%04X [style=dashed]\n", start, inst_param(ins));
