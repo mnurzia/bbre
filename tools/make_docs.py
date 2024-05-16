@@ -10,7 +10,7 @@ from subprocess import run
 import sys
 from typing import BinaryIO
 
-from cc_tree import X_BITS, Y_BITS, Tree, byte_length_digits, split_ranges_utf8
+from charclass_tree import X_BITS, Y_BITS, Tree, byte_length_digits, split_ranges_utf8
 from util import (
     NRRange,
     NRRanges,

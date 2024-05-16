@@ -1,3 +1,5 @@
+.SILENT: help_targets
+
 CFLAGS=-Wall -Werror -Wextra -Wshadow -pedantic -Wuninitialized -std=c89 -fsanitize=address -O0 -g
 CFLAGS_COV=--coverage
 
@@ -7,6 +9,7 @@ FORMAT=clang-format -i
 UDATA=python tools/unicode_data.py --debug --db tools/.ucd.zip
 
 FUZZINGTON=build/fuzzington/release/fuzzington
+OPEN_URL=python -m webbrowser
 
 ## run target `test`
 all: test
@@ -81,7 +84,7 @@ cov: build/cov/lcov.info
 
 ## generate coverage html report and open in browser
 cov_html: build/cov/index.html
-	python -m webbrowser file://$(realpath build/cov/reee/re.c.gcov.html)
+	$(OPEN_URL) file://$(realpath build/cov/reee/re.c.gcov.html)
 
 build/parser_fuzz: build parser_fuzz.c re.c re.h
 	$(CC) $(CFLAGS) -fsanitize=fuzzer,address re.c parser_fuzz.c -o $@
@@ -116,15 +119,13 @@ build/viz: build viz.c re.c
 	$(CC) $(CFLAGS) viz.c re.c -o $@
 
 viz_gv_%:
-	TVIZ=$$(mktemp); ./build/viz $(subst viz_gv_,,$@) | dot -Tsvg > "$$TVIZ"; python -m webbrowser file://$$(realpath $$TVIZ); sleep 0.5; rm -rf $$TVIZ
+	TVIZ=$$(mktemp); ./build/viz $(subst viz_gv_,,$@) | dot -Tsvg > "$$TVIZ"; $(OPEN_URL) file://$$(realpath $$TVIZ); sleep 0.5; rm -rf $$TVIZ
 
 ## visualize a regex's compiled program (use `echo "regex" | make viz_prog`)
 viz_prog: build/viz viz_gv_prog
 
 ## visualize a regex's AST (use `echo "regex" | make viz_ast`)
 viz_ast: build/viz viz_gv_ast
-
-.SILENT: help_targets
 
 ## print a list of targets and their descriptions
 help_targets:
