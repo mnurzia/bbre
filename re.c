@@ -1040,15 +1040,20 @@ typedef struct inst {
   u32 l, h;
 } inst;
 
-#define INST_OP(i)     ((i).l & 3)
-#define INST_N(i)      ((i).l >> 2)
-#define INST_P(i)      ((i).h)
-#define INST(op, n, p) mkinst((op) | ((n) << 2), (p))
+#define OPCODE_BITS 2
 
-inst mkinst(u32 l, u32 h)
+typedef enum opcode { RANGE, ASSERT, MATCH, SPLIT } opcode;
+
+opcode inst_opcode(inst i) { return i.l & (1 << OPCODE_BITS) - 1; }
+
+u32 inst_next(inst i) { return i.l >> OPCODE_BITS; }
+
+u32 inst_param(inst i) { return i.h; }
+
+inst inst_make(opcode op, u32 next, u32 param)
 {
   inst out;
-  out.l = l, out.h = h;
+  out.l = op | next << OPCODE_BITS, out.h = param;
   return out;
 }
 
@@ -1059,17 +1064,19 @@ void re_prog_set(re *r, u32 pc, inst i)
 
 inst re_prog_get(re *r, u32 pc)
 {
-  return mkinst(r->prog.ptr[pc * 2 + 0], r->prog.ptr[pc * 2 + 1]);
+  inst out;
+  out.l = r->prog.ptr[pc * 2 + 0], out.h = r->prog.ptr[pc * 2 + 1];
+  return out;
 }
 
 u32 re_prog_size(re *r) { return r->prog.size >> 1; }
 
-#define PROGMAX 100000
+#define RE_PROG_MAX_INSTS 100000
 
 int re_emit(re *r, inst i)
 {
   int err = 0;
-  if (re_prog_size(r) == PROGMAX)
+  if (re_prog_size(r) == RE_PROG_MAX_INSTS)
     return ERR_LIMIT;
   if ((err = stk_push(r, &r->prog, 0)) || (err = stk_push(r, &r->prog, 0)))
     return err;
@@ -1093,8 +1100,6 @@ compframe compframe_pop(re *r)
   return v;
 }
 
-enum op { RANGE, ASSERT, MATCH, SPLIT };
-
 #define IMATCH(s, i) ((i) << 1 | (s))
 #define IMATCH_S(m)  ((m) & 1)
 #define IMATCH_I(m)  ((m) >> 1)
@@ -1105,9 +1110,9 @@ inst patch_set(re *r, u32 pc, u32 val)
   assert(pc);
   re_prog_set(
       r, pc >> 1,
-      INST(
-          INST_OP(prev), pc & 1 ? INST_N(prev) : val,
-          pc & 1 ? val : INST_P(prev)));
+      inst_make(
+          inst_opcode(prev), pc & 1 ? inst_next(prev) : val,
+          pc & 1 ? val : inst_param(prev)));
   return prev;
 }
 
@@ -1146,7 +1151,7 @@ void patch(re *r, compframe *p, u32 dest_pc)
   u32 i = p->patch_head;
   while (i) {
     inst prev = patch_set(r, i, dest_pc);
-    i = i & 1 ? INST_P(prev) : INST_N(prev);
+    i = i & 1 ? inst_param(prev) : inst_next(prev);
   }
   p->patch_head = p->patch_tail = REF_NONE;
 }
@@ -1510,8 +1515,9 @@ int re_compcc_rendertree(
           if (split_from) {
             inst i = re_prog_get(r, split_from);
             /* found our child, patch into it */
-            i = INST(
-                INST_OP(i), INST_N(i), cc_ht->ptr[(probe % cc_ht->size) + 1]);
+            i = inst_make(
+                inst_opcode(i), inst_next(i),
+                cc_ht->ptr[(probe % cc_ht->size) + 1]);
             re_prog_set(r, split_from, i);
           } else if (!*my_out_pc)
             *my_out_pc = cc_ht->ptr[(probe % cc_ht->size) + 1];
@@ -1524,13 +1530,13 @@ int re_compcc_rendertree(
     if (split_from) {
       inst i = re_prog_get(r, split_from);
       /* patch into it */
-      i = INST(INST_OP(i), INST_N(i), my_pc);
+      i = inst_make(inst_opcode(i), inst_next(i), my_pc);
       re_prog_set(r, split_from, i);
     }
     if (node->sibling_ref) {
       /* need a split */
       split_from = my_pc;
-      if ((err = re_emit(r, INST(SPLIT, my_pc + 1, 0))))
+      if ((err = re_emit(r, inst_make(SPLIT, my_pc + 1, 0))))
         return err;
     }
     if (!*my_out_pc)
@@ -1538,7 +1544,7 @@ int re_compcc_rendertree(
     range_pc = re_prog_size(r);
     if ((err = re_emit(
              r,
-             INST(
+             inst_make(
                  RANGE, 0,
                  br2u(BYTE_RANGE(u2br(node->range).l, u2br(node->range).h))))))
       return err;
@@ -1549,7 +1555,7 @@ int re_compcc_rendertree(
       if ((err = re_compcc_rendertree(
                r, cc_tree_in, cc_ht, node->child_ref, &their_pc, frame)))
         return err;
-      i = INST(INST_OP(i), their_pc, INST_P(i));
+      i = inst_make(inst_opcode(i), their_pc, inst_param(i));
       re_prog_set(r, range_pc, i);
     } else {
       /* terminal: patch out */
@@ -1636,8 +1642,8 @@ int re_compcc(re *r, u32 root, compframe *frame)
   }
   if (!ccsize(&r->cc_stk_b)) {
     /* empty charclass */
-    if ((err =
-             re_emit(r, INST(ASSERT, 0, WORD | NOT_WORD)))) /* never matches */
+    if ((err = re_emit(
+             r, inst_make(ASSERT, 0, WORD | NOT_WORD)))) /* never matches */
       return err;
     patch_add(r, frame, re_prog_size(r) - 1, 0);
     return err;
@@ -1695,7 +1701,7 @@ int re_compile(re *r, u32 root, u32 reverse)
         /*  in     out
          * ---> R ----> */
         if ((err = re_emit(
-                 r, INST(RANGE, 0, br2u(BYTE_RANGE(args[0], args[0]))))))
+                 r, inst_make(RANGE, 0, br2u(BYTE_RANGE(args[0], args[0]))))))
           return err;
         patch_add(r, &frame, my_pc, 0);
       } else { /* unicode */
@@ -1711,7 +1717,7 @@ int re_compile(re *r, u32 root, u32 reverse)
       /*  in     out
        * ---> R ----> */
       patch(r, &frame, my_pc);
-      if ((err = re_emit(r, INST(RANGE, 0, br2u(BYTE_RANGE(0x00, 0xFF))))))
+      if ((err = re_emit(r, inst_make(RANGE, 0, br2u(BYTE_RANGE(0x00, 0xFF))))))
         return err;
       patch_add(r, &frame, my_pc, 0);
     } else if (type == CAT) {
@@ -1735,7 +1741,7 @@ int re_compile(re *r, u32 root, u32 reverse)
        *        --> [B] ----> */
       if (frame.idx == 0) { /* before left child */
         patch(r, &frame, frame.pc);
-        if ((err = re_emit(r, INST(SPLIT, 0, 0))))
+        if ((err = re_emit(r, inst_make(SPLIT, 0, 0))))
           return err;
         patch_add(r, &child_frame, frame.pc, 0);
         frame.child_ref = args[0], frame.idx++;
@@ -1760,7 +1766,7 @@ int re_compile(re *r, u32 root, u32 reverse)
         frame.child_ref = child;
       } else if (max == INFTY && frame.idx == min) { /* before inf. bound */
         patch(r, frame.idx ? &returned_frame : &frame, my_pc);
-        if ((err = re_emit(r, INST(SPLIT, 0, 0))))
+        if ((err = re_emit(r, inst_make(SPLIT, 0, 0))))
           return err;
         frame.pc = my_pc;
         patch_add(r, &child_frame, my_pc, !is_greedy);
@@ -1770,7 +1776,7 @@ int re_compile(re *r, u32 root, u32 reverse)
         patch(r, &returned_frame, frame.pc);
       } else if (frame.idx < max) { /* before maximum bound */
         patch(r, frame.idx ? &returned_frame : &frame, my_pc);
-        if ((err = re_emit(r, INST(SPLIT, 0, 0))))
+        if ((err = re_emit(r, inst_make(SPLIT, 0, 0))))
           return err;
         patch_add(r, &child_frame, my_pc, !is_greedy);
         patch_add(r, &frame, my_pc, is_greedy);
@@ -1794,13 +1800,15 @@ int re_compile(re *r, u32 root, u32 reverse)
           if (flags & SUBEXPRESSION) {
             /* for subexpressions: generate an initial match instruction */
             grp_idx = 1;
-            if ((err = re_emit(r, INST(MATCH, 0, IMATCH(0, 1 + set_idx++)))))
+            if ((err =
+                     re_emit(r, inst_make(MATCH, 0, IMATCH(0, 1 + set_idx++)))))
               return err;
           } else if
               /* for regular groups: generate a save instruction corresponding
                  to the start of the group */
               ((err = re_emit(
-                    r, INST(MATCH, 0, IMATCH(1, 2 * grp_idx++ + reverse)))))
+                    r,
+                    inst_make(MATCH, 0, IMATCH(1, 2 * grp_idx++ + reverse)))))
             return err;
           patch_add(r, &child_frame, my_pc, 0);
         } else
@@ -1811,17 +1819,18 @@ int re_compile(re *r, u32 root, u32 reverse)
           patch(r, &returned_frame, my_pc);
           if ((flags & SUBEXPRESSION)) {
             /* for subexpressions: generate the final match instruction */
-            if ((err = re_emit(r, INST(MATCH, 0, IMATCH(1, reverse)))))
+            if ((err = re_emit(r, inst_make(MATCH, 0, IMATCH(1, reverse)))))
               return err;
           } else {
             /* for regular groups: generate a save instruction corresponding to
              * the end of the group */
             if ((err = re_emit(
-                     r, INST(
-                            MATCH, 0,
-                            IMATCH(
-                                1, IMATCH_I(INST_P(re_prog_get(r, frame.pc))) +
-                                       (reverse ? -1 : 1))))))
+                     r,
+                     inst_make(
+                         MATCH, 0,
+                         IMATCH(
+                             1, IMATCH_I(inst_param(re_prog_get(r, frame.pc))) +
+                                    (reverse ? -1 : 1))))))
               return err;
             patch_add(r, &frame, my_pc, 0);
           }
@@ -1835,7 +1844,7 @@ int re_compile(re *r, u32 root, u32 reverse)
     } else if (type == AASSERT) {
       u32 assert_flag = args[0];
       patch(r, &frame, my_pc);
-      if ((err = re_emit(r, INST(ASSERT, 0, assert_flag))))
+      if ((err = re_emit(r, inst_make(ASSERT, 0, assert_flag))))
         return err;
       patch_add(r, &frame, my_pc, 0);
     } else {
@@ -1861,11 +1870,11 @@ int re_compile(re *r, u32 root, u32 reverse)
         re_prog_size(r);
     if ((err = re_emit(
              r,
-             INST(
+             inst_make(
                  SPLIT, r->entry[ENT_ONESHOT | (reverse ? ENT_REV : ENT_FWD)],
                  dstar + 1))))
       return err;
-    if ((err = re_emit(r, INST(RANGE, dstar, br2u(mkbr(0, 255))))))
+    if ((err = re_emit(r, inst_make(RANGE, dstar, br2u(mkbr(0, 255))))))
       return err;
   }
   return 0;
@@ -2182,21 +2191,22 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos, assert_flag ass)
         /* we already processed this thread */
         continue;
       sset_add(&n->c, top);
-      switch (INST_OP(re_prog_get(r, top.pc))) {
+      switch (inst_opcode(re_prog_get(r, top.pc))) {
       case MATCH:
-        if (INST_N(op)) {
-          u32 idx = IMATCH_S(INST_P(op))
-                        ? IMATCH_I(INST_P(op)) /* this is a save */
+        if (inst_next(op)) {
+          u32 idx = IMATCH_S(inst_param(op))
+                        ? IMATCH_I(inst_param(op)) /* this is a save */
                         : n->reversed /* this is a set index marker */;
-          if (!IMATCH_S(INST_P(op)) &&
+          if (!IMATCH_S(inst_param(op)) &&
               (err = save_slots_set_setidx(
-                   r, &n->slots, top.slot, IMATCH_I(INST_P(op)), &top.slot)))
+                   r, &n->slots, top.slot, IMATCH_I(inst_param(op)),
+                   &top.slot)))
             return err;
           if (idx < save_slots_perthrd(&n->slots) &&
               (err =
                    save_slots_set(r, &n->slots, top.slot, idx, pos, &top.slot)))
             return err;
-          top.pc = INST_N(op);
+          top.pc = inst_next(op);
           if ((err = thrdstk_push(r, &n->thrd_stk, top)))
             return err;
           break;
@@ -2206,8 +2216,9 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos, assert_flag ass)
         break;
       case SPLIT: {
         thrdspec pri, sec;
-        pri.pc = INST_N(op), pri.slot = top.slot;
-        sec.pc = INST_P(op), sec.slot = save_slots_fork(&n->slots, top.slot);
+        pri.pc = inst_next(op), pri.slot = top.slot;
+        sec.pc = inst_param(op),
+        sec.slot = save_slots_fork(&n->slots, top.slot);
         if ((err = thrdstk_push(r, &n->thrd_stk, sec)) ||
             (err = thrdstk_push(r, &n->thrd_stk, pri)))
           /* sec is pushed first because it needs to be processed after pri.
@@ -2217,8 +2228,8 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos, assert_flag ass)
       }
       case ASSERT: {
         assert(!!(ass & WORD) ^ !!(ass & NOT_WORD));
-        if ((INST_P(op) & ass) == INST_P(op)) {
-          top.pc = INST_N(op);
+        if ((inst_param(op) & ass) == inst_param(op)) {
+          top.pc = inst_next(op);
           if ((err = thrdstk_push(r, &n->thrd_stk, top)))
             return err;
         } else
@@ -2299,18 +2310,18 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
             : 0;
     if (pri)
       bmp_set(&n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot));
-    switch (INST_OP(op)) {
+    switch (inst_opcode(op)) {
     case RANGE: {
-      byte_range br = u2br(INST_P(op));
+      byte_range br = u2br(inst_param(op));
       if (ch >= br.l && ch <= br.h) {
-        thrd.pc = INST_N(op);
+        thrd.pc = inst_next(op);
         sset_add(&n->a, thrd);
       } else
         save_slots_kill(&n->slots, thrd.slot);
       break;
     }
     case MATCH: {
-      assert(!INST_N(op));
+      assert(!inst_next(op));
       if ((err = exec_nfa_matchend(r, n, thrd, pos, ch, pri)))
         return err;
       break;
@@ -2868,12 +2879,13 @@ void progdump_range(re *r, u32 start, u32 end, int format)
       static const int colors[] = {91, 92, 93, 94};
       printf(
           "%04X \x1b[%im%s\x1b[0m \x1b[%im%04X\x1b[0m %04X %s", start,
-          colors[INST_OP(ins)], ops[INST_OP(ins)],
-          INST_N(ins) ? (INST_N(ins) == start + 1 ? 90 : 0) : 91, INST_N(ins),
-          INST_P(ins), labels[k]);
-      if (INST_OP(ins) == MATCH)
+          colors[inst_opcode(ins)], ops[inst_opcode(ins)],
+          inst_next(ins) ? (inst_next(ins) == start + 1 ? 90 : 0) : 91,
+          inst_next(ins), inst_param(ins), labels[k]);
+      if (inst_opcode(ins) == MATCH)
         printf(
-            " %c/%u", IMATCH_S(INST_P(ins)) ? 'G' : 'E', IMATCH_I(INST_P(ins)));
+            " %c/%u", IMATCH_S(inst_param(ins)) ? 'G' : 'E',
+            IMATCH_I(inst_param(ins)));
       printf("\n");
     } else {
       static const char *shapes[] = {"box", "diamond", "pentagon", "oval"};
@@ -2883,23 +2895,24 @@ void progdump_range(re *r, u32 start, u32 end, int format)
           "[shape=%s,fillcolor=%i,style=filled,regular=false,forcelabels=true,"
           "xlabel=\"%u\","
           "label=\"%s\\n",
-          start, shapes[INST_OP(ins)], colors[INST_OP(ins)], start,
-          ops[INST_OP(ins)]);
-      if (INST_OP(ins) == RANGE)
+          start, shapes[inst_opcode(ins)], colors[inst_opcode(ins)], start,
+          ops[inst_opcode(ins)]);
+      if (inst_opcode(ins) == RANGE)
         printf(
-            "%s-%s", dump_chr_ascii(start_buf, u2br(INST_P(ins)).l),
-            dump_chr_ascii(end_buf, u2br(INST_P(ins)).h));
-      else if (INST_OP(ins) == MATCH)
+            "%s-%s", dump_chr_ascii(start_buf, u2br(inst_param(ins)).l),
+            dump_chr_ascii(end_buf, u2br(inst_param(ins)).h));
+      else if (inst_opcode(ins) == MATCH)
         printf(
-            "%s %u", IMATCH_S(INST_P(ins)) ? "slot" : "set",
-            IMATCH_I(INST_P(ins)));
-      else if (INST_OP(ins) == ASSERT)
-        printf("%s", dump_assert(assert_buf, INST_P(ins)));
+            "%s %u", IMATCH_S(inst_param(ins)) ? "slot" : "set",
+            IMATCH_I(inst_param(ins)));
+      else if (inst_opcode(ins) == ASSERT)
+        printf("%s", dump_assert(assert_buf, inst_param(ins)));
       printf("\"]\n");
-      if (!(INST_OP(ins) == MATCH && IMATCH_S(INST_P(ins)) && !INST_N(ins))) {
-        printf("I%04X -> I%04X\n", start, INST_N(ins));
-        if (INST_OP(ins) == SPLIT)
-          printf("I%04X -> I%04X [style=dashed]\n", start, INST_P(ins));
+      if (!(inst_opcode(ins) == MATCH && IMATCH_S(inst_param(ins)) &&
+            !inst_next(ins))) {
+        printf("I%04X -> I%04X\n", start, inst_next(ins));
+        if (inst_opcode(ins) == SPLIT)
+          printf("I%04X -> I%04X [style=dashed]\n", start, inst_param(ins));
       }
     }
   }
