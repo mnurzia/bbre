@@ -9,13 +9,24 @@
 
 #include "re.h"
 
+#ifdef RE_TEST
+
+  #include "mptest/_cpack/mptest.h"
+  #define malloc  MPTEST_INJECT_MALLOC
+  #define realloc MPTEST_INJECT_REALLOC
+  #define free    MPTEST_INJECT_FREE
+
+#endif
+
 #define REF_NONE 0
 #define UTFMAX   0x10FFFF
 
+/* A general-purpose growable buffer. */
 typedef struct stk {
   u32 *ptr, size, alloc;
 } stk;
 
+/* A set of regular expressions. */
 struct re {
   re_alloc alloc;
   stk ast;
@@ -29,22 +40,14 @@ struct re {
   size_t error_pos;
 };
 
-#define ENT_ONESHOT 0
-#define ENT_DOTSTAR 2
-#define ENT_FWD     0
-#define ENT_REV     1
+/* Bit flags to identify program entry points in the `entry` field of `re`. */
+#define PROG_ENTRY_REVERSE 1
+#define PROG_ENTRY_DOTSTAR 2
 
-#ifdef RE_TEST
-
-  #include "mptest/_cpack/mptest.h"
-  #define malloc  MPTEST_INJECT_MALLOC
-  #define realloc MPTEST_INJECT_REALLOC
-  #define free    MPTEST_INJECT_FREE
-
-#endif
-
+/* Helper macro for assertions. */
 #define IMPLIES(subj, pred) (!(subj) || (pred))
 
+/* Default allocation function. Hooks stdlib malloc. */
 void *re_default_alloc(size_t prev, size_t next, void *ptr)
 {
   if (next) {
@@ -56,6 +59,7 @@ void *re_default_alloc(size_t prev, size_t next, void *ptr)
   return NULL;
 }
 
+/* Allocate memory for an instance of `re`. */
 void *re_ialloc(re *re, size_t prev, size_t next, void *ptr)
 {
   return re->alloc(prev, next, ptr);
@@ -255,76 +259,89 @@ typedef enum group_flag {
 } group_flag;
 
 typedef enum assert_flag {
-  LINE_BEGIN = 1,
-  LINE_END = 2,
-  TEXT_BEGIN = 4,
-  TEXT_END = 8,
-  WORD = 16,
-  NOT_WORD = 32
+  LINE_BEGIN = 1, /* ^ */
+  LINE_END = 2,   /* $ */
+  TEXT_BEGIN = 4, /* \A */
+  TEXT_END = 8,   /* \z */
+  WORD = 16,      /* \w */
+  NOT_WORD = 32   /* \W */
 } assert_flag;
 
+/* Represents an inclusive range of bytes. */
 typedef struct byte_range {
-  u8 l, h;
+  u8 l /* min ordinal */, h /* max ordinal */;
 } byte_range;
 
-byte_range mkbr(u8 l, u8 h)
+/* Make a byte range inline. */
+byte_range byte_range_make(u8 l, u8 h)
 {
   byte_range out;
   out.l = l, out.h = h;
   return out;
 }
 
-u32 br2u(byte_range br) { return ((u32)br.l) | ((u32)br.h) << 8; }
+/* Pack a byte range into a u32, low byte first. */
+u32 byte_range_to_u32(byte_range br) { return ((u32)br.l) | ((u32)br.h) << 8; }
 
-byte_range u2br(u32 u) { return mkbr(u & 0xFF, u >> 8 & 0xFF); }
+/* Unpack a byte range from a u32. */
+byte_range u32_to_byte_range(u32 u)
+{
+  return byte_range_make(u & 0xFF, u >> 8 & 0xFF);
+}
 
-int br_isect(byte_range r, byte_range clip)
+/* Check if two byte ranges intersect. */
+int byte_range_is_intersecting(byte_range r, byte_range clip)
 {
   return r.l <= clip.h && clip.l <= r.h;
 }
 
-int br_adjace(byte_range left, byte_range right)
+/* Check if two byte ranges are adjacent (right directly supersedes left) */
+int byte_range_is_adjacent(byte_range left, byte_range right)
 {
   return ((u32)left.h) + 1 == ((u32)right.l);
 }
 
-#define BYTE_RANGE(l, h) mkbr(l, h)
-
-int re_mkast(re *re, ast_type type, u32 p0, u32 p1, u32 p2, u32 *out)
+/* Make a new AST node within the regular expression. */
+int re_ast_make(re *re, ast_type type, u32 p0, u32 p1, u32 p2, u32 *out_node)
 {
   u32 args[4];
   int err;
   args[0] = type, args[1] = p0, args[2] = p1, args[3] = p2;
   if (type && !re->ast.size &&
-      (err = re_mkast(re, 0, 0, 0, 0, out))) /* sentinel node */
+      (err = re_ast_make(re, 0, 0, 0, 0, out_node))) /* sentinel node */
     return err;
-  *out = re->ast.size;
+  *out_node = re->ast.size;
   return stk_pushn(re, &re->ast, args, (1 + ast_type_lens[type]) * sizeof(u32));
 }
 
-void re_decompast(re *re, u32 root, u32 *out_args)
+/* Decompose a given AST node, given its reference, into `out_args`. */
+void re_ast_decompose(re *re, u32 node, u32 *out_args)
 {
-  u32 *in_args = stk_getn(&re->ast, root);
+  u32 *in_args = stk_getn(&re->ast, node);
   memcpy(out_args, in_args + 1, ast_type_lens[*in_args] * sizeof(u32));
 }
 
-u32 *re_astarg(re *re, u32 root, u32 n)
+/* Get a pointer to the `n`'th parameter of the given AST node. */
+u32 *re_ast_param(re *re, u32 node, u32 n)
 {
-  assert(ast_type_lens[re->ast.ptr[root]] > n);
-  return re->ast.ptr + root + 1 + n;
+  assert(ast_type_lens[re->ast.ptr[node]] > n);
+  return re->ast.ptr + node + 1 + n;
 }
 
-u32 *re_asttype(re *re, u32 root) { return re->ast.ptr + root; }
+/* Get the type of the given AST node. */
+u32 *re_ast_type(re *re, u32 node) { return re->ast.ptr + node; }
 
+/* Add another regular expression to the set of regular expressions matched by
+ * this `re` instance. */
 int re_union(re *r, const char *regex, size_t n)
-{ /* add an ALT here */
+{
   int err = 0;
   if (!r->ast_sets && (err = re_parse(r, (const u8 *)regex, n, &r->ast_root))) {
     return err;
   } else if (!r->ast_sets) {
     u32 next_reg, next_root;
     if ((err = re_parse(r, (const u8 *)regex, n, &next_reg)) ||
-        (err = re_mkast(r, ALT, r->ast_root, next_reg, 0, &next_root)))
+        (err = re_ast_make(r, ALT, r->ast_root, next_reg, 0, &next_root)))
       return err;
     r->ast_root = next_root;
   }
@@ -375,21 +392,26 @@ u32 utf8_decode(u32 *state, u32 *codep, u32 byte)
   return *state;
 }
 
+/* Create and propagate a parsing error.
+ * Returns `ERR_PARSE` unconditionally. */
 int re_parse_err(re *r, const char *msg)
 {
   r->error = msg, r->error_pos = r->expr_pos;
   return ERR_PARSE;
 }
 
-int re_hasmore(re *r) { return r->expr_pos != r->expr_size; }
+/* Check if we are at the end of the regex string. */
+int re_parse_has_more(re *r) { return r->expr_pos != r->expr_size; }
 
-int re_next(re *r, u32 *first, const char *else_msg)
+/* Get the next input codepoint.
+ * Returns `ERR_PARSE` if the parser encounters an invalid UTF-8 sequence. */
+int re_parse_next(re *r, u32 *codep, const char *else_msg)
 {
   u32 state = UTF8_ACCEPT;
-  assert(IMPLIES(!else_msg, re_hasmore(r)));
-  if (!re_hasmore(r))
+  assert(IMPLIES(!else_msg, re_parse_has_more(r)));
+  if (!re_parse_has_more(r))
     return re_parse_err(r, else_msg);
-  while (utf8_decode(&state, first, *(r->expr + r->expr_pos)),
+  while (utf8_decode(&state, codep, *(r->expr + r->expr_pos)),
          (++r->expr_pos != r->expr_size))
     if (!state)
       return 0;
@@ -398,12 +420,14 @@ int re_next(re *r, u32 *first, const char *else_msg)
   return 0;
 }
 
+/* Without advancing the parser, check the next character.
+ * Returns `ERR_PARSE` if the parser encounters an invalid UTF-8 sequence. */
 int re_peek_next(re *r, u32 *first)
 {
   size_t prev_pos = r->expr_pos;
   int err;
-  assert(re_hasmore(r));
-  if ((err = re_next(r, first, NULL)))
+  assert(re_parse_has_more(r));
+  if ((err = re_parse_next(r, first, NULL)))
     return err;
   r->expr_pos = prev_pos;
   return 0;
@@ -413,7 +437,8 @@ int re_peek_next(re *r, u32 *first)
 #define INFTY  (MAXREP + 1)
 
 /* Given nodes R_1i..R_N on the argument stack, fold them into a single CAT
- * node. If there are no nodes on the stack, create an epsilon node. */
+ * node. If there are no nodes on the stack, create an epsilon node.
+ * Returns `ERR_MEM` if out of memory. */
 int re_fold(re *r)
 {
   int err = 0;
@@ -427,7 +452,7 @@ int re_fold(re *r)
     u32 right, left, rest;
     right = stk_pop(r, &r->arg_stk);
     left = stk_pop(r, &r->arg_stk);
-    if ((err = re_mkast(r, CAT, left, right, 0, &rest)) ||
+    if ((err = re_ast_make(r, CAT, left, right, 0, &rest)) ||
         (err = stk_push(r, &r->arg_stk, rest)))
       return err;
     /* arg_stk: | ... | R_N-1R_N | */
@@ -438,21 +463,22 @@ int re_fold(re *r)
 
 /* Given a node R on the argument stack and an arbitrary number of ALT nodes at
  * the end of the operator stack, fold and finish each ALT node into a single
- * resulting ALT node on the argument stack. */
+ * resulting ALT node on the argument stack.
+ * Returns `ERR_MEM` if out of memory. */
 int re_fold_alts(re *r, u32 *flags)
 {
   int err = 0;
   assert(r->arg_stk.size == 1);
   /* First pop all inline groups. */
   while (r->op_stk.size &&
-         *re_asttype(r, stk_peek(r, &r->op_stk, 0)) == IGROUP) {
+         *re_ast_type(r, stk_peek(r, &r->op_stk, 0)) == IGROUP) {
     /* arg_stk: |  R  | */
     /* op_stk:  | ... | (S) | */
-    u32 igrp = stk_pop(r, &r->op_stk), prev = *re_astarg(r, igrp, 0), cat,
-        old_flags = *re_astarg(r, igrp, 2);
-    *re_astarg(r, igrp, 0) = stk_pop(r, &r->arg_stk);
+    u32 igrp = stk_pop(r, &r->op_stk), prev = *re_ast_param(r, igrp, 0), cat,
+        old_flags = *re_ast_param(r, igrp, 2);
+    *re_ast_param(r, igrp, 0) = stk_pop(r, &r->arg_stk);
     *flags = old_flags;
-    if ((err = re_mkast(r, CAT, prev, igrp, 0, &cat)) ||
+    if ((err = re_ast_make(r, CAT, prev, igrp, 0, &cat)) ||
         (err = stk_push(r, &r->arg_stk, cat)))
       return err;
     /* arg_stk: | S(R)| */
@@ -461,25 +487,25 @@ int re_fold_alts(re *r, u32 *flags)
   assert(r->arg_stk.size == 1);
   /* arg_stk: |  R  | */
   /* op_stk:  | ... | */
-  if (r->op_stk.size && *re_asttype(r, stk_peek(r, &r->op_stk, 0)) == ALT) {
+  if (r->op_stk.size && *re_ast_type(r, stk_peek(r, &r->op_stk, 0)) == ALT) {
     /* op_stk:  | ... |  A  | */
     /* finish the last alt */
-    *re_astarg(r, stk_peek(r, &r->op_stk, 0), 1) = stk_pop(r, &r->arg_stk);
+    *re_ast_param(r, stk_peek(r, &r->op_stk, 0), 1) = stk_pop(r, &r->arg_stk);
     /* arg_stk: | */
     /* op_stk:  | ... | */
   }
   while (r->op_stk.size > 1 &&
-         *re_asttype(r, stk_peek(r, &r->op_stk, 0)) == ALT &&
-         *re_asttype(r, stk_peek(r, &r->op_stk, 1)) == ALT) {
+         *re_ast_type(r, stk_peek(r, &r->op_stk, 0)) == ALT &&
+         *re_ast_type(r, stk_peek(r, &r->op_stk, 1)) == ALT) {
     /* op_stk:  | ... | A_1 | A_2 | */
     u32 right = stk_pop(r, &r->op_stk), left = stk_pop(r, &r->op_stk);
-    *re_astarg(r, left, 1) = right;
+    *re_ast_param(r, left, 1) = right;
     if ((err = stk_push(r, &r->op_stk, left)))
       return err;
     /* op_stk:  | ... | A_1(|A_2) | */
   }
   if (r->op_stk.size &&
-      *re_asttype(r, r->op_stk.ptr[r->op_stk.size - 1]) == ALT) {
+      *re_ast_type(r, r->op_stk.ptr[r->op_stk.size - 1]) == ALT) {
     /* op_stk:  | ... |  A  | */
     if ((err = stk_push(r, &r->arg_stk, stk_pop(r, &r->op_stk))))
       return err;
@@ -489,28 +515,36 @@ int re_fold_alts(re *r, u32 *flags)
   return 0;
 }
 
-u32 re_uncc(re *r, u32 rest, u32 first)
+/* Add the CLS node `rest` to the CLS node `first`. */
+u32 re_ast_cls_union(re *r, u32 rest, u32 first)
 {
   u32 cur = first, *next;
   assert(first);
-  while (*(next = re_astarg(r, cur, 0)))
+  assert(*re_ast_type(r, first) == CLS || *re_ast_type(r, first) == ICLS);
+  assert(IMPLIES(rest, *re_ast_type(r, rest) == CLS));
+  while (*(next = re_ast_param(r, cur, 0)))
     cur = *next;
   *next = rest;
   return first;
 }
 
+/* Helper function to add a character to the argument stack.
+ * Returns `ERR_MEM` if out of memory. */
 int re_parse_escape_addchr(re *r, u32 ch, u32 allowed_outputs)
 {
   int err = 0;
   u32 res, args[1];
   (void)allowed_outputs, assert(allowed_outputs & (1 << CHR));
   args[0] = ch;
-  if ((err = re_mkast(r, CHR, ch, 0, 0, &res)) ||
+  if ((err = re_ast_make(r, CHR, ch, 0, 0, &res)) ||
       (err = stk_push(r, &r->arg_stk, res)))
     return err;
   return 0;
 }
 
+/* Convert a hexadecimal digit to a number.
+ * Returns -1 on invalid hex digit.
+ * TODO: convert this to an idiomatic error function */
 int re_hexdig(u32 ch)
 {
   if (ch >= '0' && ch <= '9')
@@ -551,19 +585,20 @@ int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert)
     return re_parse_err(r, "unknown builtin character class name");
   for (i = 0; i < named->cc_len; i++) {
     cur_min = named->chars[i * 2], cur_max = named->chars[i * 2 + 1];
-    if (!invert && (err = re_mkast(r, CLS, res, cur_min, cur_max, &res)))
+    if (!invert && (err = re_ast_make(r, CLS, res, cur_min, cur_max, &res)))
       return err;
     else if (invert) {
       assert(cur_min >= max); /* builtin charclasses are ordered. */
       if (max != cur_min &&
-          (err = re_mkast(r, CLS, res, max, cur_min - 1, &res)))
+          (err = re_ast_make(r, CLS, res, max, cur_min - 1, &res)))
         return err;
       else
         max = cur_max + 1;
     }
   }
   assert(cur_max < UTFMAX); /* builtin charclasses never reach UTFMAX */
-  if (invert && i && (err = re_mkast(r, CLS, res, cur_max + 1, UTFMAX, &res)))
+  if (invert && i &&
+      (err = re_ast_make(r, CLS, res, cur_max + 1, UTFMAX, &res)))
     return err;
   if ((err = stk_push(r, &r->arg_stk, res)))
     return err;
@@ -575,7 +610,7 @@ int re_parse_escape(re *r, u32 allowed_outputs)
 {
   u32 ch;
   int err = 0;
-  if ((err = re_next(r, &ch, "expected escape sequence")))
+  if ((err = re_parse_next(r, &ch, "expected escape sequence")))
     return err;
   if (                              /* single character escapes */
       (ch == 'a' && (ch = '\a')) || /* bell */
@@ -601,9 +636,9 @@ int re_parse_escape(re *r, u32 allowed_outputs)
   } else if (ch >= '0' && ch <= '7') { /* octal escape */
     int digs = 1;
     u32 ord = ch - '0';
-    while (digs++ < 3 && re_hasmore(r) && !(err = re_peek_next(r, &ch)) &&
-           ch >= '0' && ch <= '7') {
-      err = re_next(r, &ch, NULL);
+    while (digs++ < 3 && re_parse_has_more(r) &&
+           !(err = re_peek_next(r, &ch)) && ch >= '0' && ch <= '7') {
+      err = re_parse_next(r, &ch, NULL);
       assert(!err && ch >= '0' && ch <= '7');
       ord = ord * 8 + ch - '0';
     }
@@ -612,14 +647,14 @@ int re_parse_escape(re *r, u32 allowed_outputs)
     return re_parse_escape_addchr(r, ord, allowed_outputs);
   } else if (ch == 'x') { /* hex escape */
     u32 ord = 0;
-    if ((err = re_next(
+    if ((err = re_parse_next(
              r, &ch, "expected two hex characters or a bracketed hex literal")))
       return err;
     if (ch == '{') { /* bracketed hex lit */
       u32 i;
       for (i = 0; i < 8; i++) {
         if ((i == 7) ||
-            (err = re_next(r, &ch, "expected up to six hex characters")))
+            (err = re_parse_next(r, &ch, "expected up to six hex characters")))
           return re_parse_err(r, "expected up to six hex characters");
         if (ch == '}')
           break;
@@ -633,7 +668,7 @@ int re_parse_escape(re *r, u32 allowed_outputs)
       return re_parse_err(r, "invalid hex digit");
     } else {
       ord = err;
-      if ((err = re_next(r, &ch, "expected two hex characters")))
+      if ((err = re_parse_next(r, &ch, "expected two hex characters")))
         return err;
       else if ((err = re_hexdig(ch)) == -1)
         return re_parse_err(r, "invalid hex digit");
@@ -646,33 +681,33 @@ int re_parse_escape(re *r, u32 allowed_outputs)
     u32 res;
     if (!(allowed_outputs & (1 << ANYBYTE)))
       return re_parse_err(r, "cannot use \\C here");
-    if ((err = re_mkast(r, ANYBYTE, 0, 0, 0, &res)) ||
+    if ((err = re_ast_make(r, ANYBYTE, 0, 0, 0, &res)) ||
         (err = stk_push(r, &r->arg_stk, res)))
       return err;
   } else if (ch == 'Q') { /* quote string */
     u32 cat = REF_NONE, chr = REF_NONE;
     if (!(allowed_outputs & (1 << CAT)))
       return re_parse_err(r, "cannot use \\Q...\\E here");
-    while (re_hasmore(r)) {
-      if ((err = re_next(r, &ch, NULL)))
+    while (re_parse_has_more(r)) {
+      if ((err = re_parse_next(r, &ch, NULL)))
         return err;
-      if (ch == '\\' && re_hasmore(r)) {
+      if (ch == '\\' && re_parse_has_more(r)) {
         if ((err = re_peek_next(r, &ch)))
           return err;
         if (ch == 'E') {
-          err = re_next(r, &ch, NULL);
+          err = re_parse_next(r, &ch, NULL);
           assert(!err); /* we already read this in the peeknext */
           return stk_push(r, &r->arg_stk, cat);
         } else if (ch == '\\') {
-          err = re_next(r, &ch, NULL);
+          err = re_parse_next(r, &ch, NULL);
           assert(!err && ch == '\\');
         } else {
           ch = '\\';
         }
       }
-      if ((err = re_mkast(r, CHR, ch, 0, 0, &chr)))
+      if ((err = re_ast_make(r, CHR, ch, 0, 0, &chr)))
         return err;
-      if ((err = re_mkast(r, CAT, cat, chr, 0, &cat)))
+      if ((err = re_ast_make(r, CAT, cat, chr, 0, &cat)))
         return err;
     }
     if ((err = stk_push(r, &r->arg_stk, cat)))
@@ -695,7 +730,7 @@ int re_parse_escape(re *r, u32 allowed_outputs)
     u32 res;
     if (!(allowed_outputs & (1 << AASSERT)))
       return re_parse_err(r, "cannot use an epsilon assertion here");
-    if ((err = re_mkast(
+    if ((err = re_ast_make(
              r, AASSERT,
              ch == 'A'   ? TEXT_BEGIN
              : ch == 'z' ? TEXT_END
@@ -714,10 +749,10 @@ int re_parse_number(re *r, u32 *out, u32 max_digits)
 {
   int err = 0;
   u32 ch, acc = 0, ndigs = 0;
-  if (!re_hasmore(r))
+  if (!re_parse_has_more(r))
     return re_parse_err(r, "expected at least one decimal digit");
-  while (re_hasmore(r) && !(err = re_peek_next(r, &ch)) && ch >= '0' &&
-         ch <= '9' && (re_next(r, &ch, NULL), ++ndigs < max_digits))
+  while (re_parse_has_more(r) && !(err = re_peek_next(r, &ch)) && ch >= '0' &&
+         ch <= '9' && (re_parse_next(r, &ch, NULL), ++ndigs < max_digits))
     acc = acc * 10 + (ch - '0');
   if (err)
     return err;
@@ -733,9 +768,9 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
   u32 flags = 0;
   r->expr = ts;
   r->expr_size = tsz, r->expr_pos = 0;
-  while (re_hasmore(r)) {
+  while (re_parse_has_more(r)) {
     u32 ch, res = REF_NONE;
-    if ((err = re_next(r, &ch, NULL)))
+    if ((err = re_parse_next(r, &ch, NULL)))
       return err;
     if (ch == '*' || ch == '+' || ch == '?') {
       u32 q = ch, greedy = 1;
@@ -743,15 +778,15 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* pop one from arg stk, create quant, push to arg stk */
       if (!r->arg_stk.size)
         return re_parse_err(r, "cannot apply quantifier to empty regex");
-      if (re_hasmore(r)) {
+      if (re_parse_has_more(r)) {
         if ((err = re_peek_next(r, &ch)))
           return err;
         else if (ch == '?') {
-          re_next(r, &ch, NULL);
+          re_parse_next(r, &ch, NULL);
           greedy = 0;
         }
       }
-      if ((err = re_mkast(
+      if ((err = re_ast_make(
                r, greedy ? QUANT : UQUANT, stk_pop(r, &r->arg_stk) /* child */,
                q == '+' /* min */, q == '?' ? 1 : INFTY /* max */, &res)) ||
           (err = stk_push(r, &r->arg_stk, res)))
@@ -764,7 +799,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       if ((err = re_fold(r)))
         return err;
       /* arg_stk: |  R  | */
-      if ((err = re_mkast(
+      if ((err = re_ast_make(
                r, ALT, stk_pop(r, &r->arg_stk) /* left */, REF_NONE /* right */,
                0, &res)) ||
           (err = stk_push(r, &r->op_stk, res)))
@@ -773,20 +808,20 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* op_stk:  | ... | R(|) | */
     } else if (ch == '(') {
       u32 old_flags = flags, inline_group = 0;
-      if (!re_hasmore(r))
+      if (!re_parse_has_more(r))
         return re_parse_err(r, "expected ')' to close group");
       if ((err = re_peek_next(r, &ch)))
         return err;
       if (ch == '?') { /* start of group flags */
-        re_next(r, &ch, NULL);
-        if ((err = re_next(
+        re_parse_next(r, &ch, NULL);
+        if ((err = re_parse_next(
                  r, &ch,
                  "expected 'P', '<', or group flags after special "
                  "group opener \"(?\"")))
           return err;
         if (ch == 'P' || ch == '<') {
           if (ch == 'P' &&
-              (err = re_next(
+              (err = re_parse_next(
                    r, &ch, "expected '<' after named group opener \"(?P\"")))
             return err;
           if (ch != '<')
@@ -794,7 +829,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
                 r, "expected '<' after named group opener \"(?P\"");
           /* parse group name */
           while (1) {
-            if ((err = re_next(
+            if ((err = re_parse_next(
                      r, &ch, "expected name followed by '>' for named group")))
               return err;
             if (ch == '>')
@@ -819,7 +854,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
               return re_parse_err(
                   r, "expected ':', ')', or group flags for special group");
             }
-            if ((err = re_next(
+            if ((err = re_parse_next(
                      r, &ch,
                      "expected ':', ')', or group flags for special group")))
               return err;
@@ -834,7 +869,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       if ((err = re_fold(r)))
         return err;
       /* arg_stk: |  R  | */
-      if ((err = re_mkast(
+      if ((err = re_ast_make(
                r, inline_group ? IGROUP : GROUP, stk_pop(r, &r->arg_stk), flags,
                old_flags, &res)) ||
           (err = stk_push(r, &r->op_stk, res)))
@@ -856,11 +891,11 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* op_stk:  | ... | (R) | */
       grp = stk_peek(r, &r->op_stk, 0);
       /* retrieve the previous contents of arg_stk */
-      prev = *re_astarg(r, grp, 0);
+      prev = *re_ast_param(r, grp, 0);
       /* add it to the group */
-      *(re_astarg(r, grp, 0)) = stk_pop(r, &r->arg_stk);
+      *(re_ast_param(r, grp, 0)) = stk_pop(r, &r->arg_stk);
       /* restore group flags */
-      flags = *(re_astarg(r, grp, 2));
+      flags = *(re_ast_param(r, grp, 2));
       /* push the saved contents of arg_stk */
       if (prev && (err = stk_push(r, &r->arg_stk, prev)))
         return err;
@@ -872,10 +907,10 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
     } else if (ch == '.') { /* any char */
       /* arg_stk: | ... | */
       if (((flags & DOTNEWLINE) &&
-           (err = re_mkast(r, CLS, REF_NONE, 0, UTFMAX, &res))) ||
+           (err = re_ast_make(r, CLS, REF_NONE, 0, UTFMAX, &res))) ||
           (!(flags & DOTNEWLINE) &&
-           ((err = re_mkast(r, CLS, REF_NONE, 0, '\n' - 1, &res)) ||
-            (err = re_mkast(r, CLS, res, '\n' + 1, UTFMAX, &res)))) ||
+           ((err = re_ast_make(r, CLS, REF_NONE, 0, '\n' - 1, &res)) ||
+            (err = re_ast_make(r, CLS, res, '\n' + 1, UTFMAX, &res)))) ||
           (err = stk_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... |  .  | */
@@ -885,7 +920,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       res = REF_NONE;
       while (1) {
         u32 next;
-        if ((err = re_next(r, &ch, "unclosed character class")))
+        if ((err = re_parse_next(r, &ch, "unclosed character class")))
           return err;
         if ((r->expr_pos - start == 1) && ch == '^') {
           inverted = 1; /* caret at start of CC */
@@ -902,36 +937,36 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
           if ((err = re_parse_escape(r, (1 << CHR) | (1 << CLS))))
             return err;
           next = stk_pop(r, &r->arg_stk);
-          assert(*re_asttype(r, next) == CHR || *re_asttype(r, next) == CLS);
-          if (*re_asttype(r, next) == CHR)
-            min = *re_astarg(r, next, 0); /* single-character escape */
-          else if (*re_asttype(r, next) == CLS) {
-            res = re_uncc(r, res, next);
+          assert(*re_ast_type(r, next) == CHR || *re_ast_type(r, next) == CLS);
+          if (*re_ast_type(r, next) == CHR)
+            min = *re_ast_param(r, next, 0); /* single-character escape */
+          else if (*re_ast_type(r, next) == CLS) {
+            res = re_ast_cls_union(r, res, next);
             /* we parsed an entire class, so there's no ending character */
             continue;
           }
         } else if (
-            ch == '[' && re_hasmore(r) && !re_peek_next(r, &ch) &&
+            ch == '[' && re_parse_has_more(r) && !re_peek_next(r, &ch) &&
             ch == ':') { /* named class */
           int named_inverted = 0;
           size_t name_start, name_end;
-          err = re_next(r, &ch, NULL); /* : */
+          err = re_parse_next(r, &ch, NULL); /* : */
           assert(!err && ch == ':');
-          if (re_hasmore(r) && !re_peek_next(r, &ch) &&
-              ch == '^') {               /* inverted named class */
-            err = re_next(r, &ch, NULL); /* ^ */
+          if (re_parse_has_more(r) && !re_peek_next(r, &ch) &&
+              ch == '^') {                     /* inverted named class */
+            err = re_parse_next(r, &ch, NULL); /* ^ */
             assert(!err && ch == '^');
             named_inverted = 1;
           }
           name_start = name_end = r->expr_pos;
           while (1) {
-            if ((err = re_next(r, &ch, "expected character class name")))
+            if ((err = re_parse_next(r, &ch, "expected character class name")))
               return err;
             if (ch == ':')
               break;
             name_end = r->expr_pos;
           }
-          if ((err = re_next(
+          if ((err = re_parse_next(
                    r, &ch,
                    "expected closing bracket for named character class")))
             return err;
@@ -943,34 +978,34 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
                    named_inverted)))
             return err;
           next = stk_pop(r, &r->arg_stk);
-          assert(next && *re_asttype(r, next) == CLS);
-          res = re_uncc(r, res, next);
+          assert(next && *re_ast_type(r, next) == CLS);
+          res = re_ast_cls_union(r, res, next);
           continue;
         }
         max = min;
-        if (re_hasmore(r) && !re_peek_next(r, &ch) && ch == '-') {
+        if (re_parse_has_more(r) && !re_peek_next(r, &ch) && ch == '-') {
           /* range expression */
-          err = re_next(r, &ch, NULL);
+          err = re_parse_next(r, &ch, NULL);
           assert(!err && ch == '-');
-          if ((err = re_next(
+          if ((err = re_parse_next(
                    r, &ch, "expected ending character for range expression")))
             return err;
           if (ch == '\\') { /* start of escape */
             if ((err = re_parse_escape(r, (1 << CHR))))
               return err;
             next = stk_pop(r, &r->arg_stk);
-            assert(*re_asttype(r, next) == CHR);
-            max = *re_astarg(r, next, 0);
+            assert(*re_ast_type(r, next) == CHR);
+            max = *re_ast_param(r, next, 0);
           } else {
             max = ch; /* non-escaped character */
           }
         }
-        if ((err = re_mkast(r, CLS, res, min, max, &res)))
+        if ((err = re_ast_make(r, CLS, res, min, max, &res)))
           return err;
       }
       assert(res);  /* charclass cannot be empty */
       if (inverted) /* inverted character class */
-        *re_asttype(r, res) = ICLS;
+        *re_ast_type(r, res) = ICLS;
       if ((err = stk_push(r, &r->arg_stk, res)))
         return err;
     } else if (ch == '\\') { /* escape */
@@ -982,23 +1017,24 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       u32 min = 0, max = 0;
       if ((err = re_parse_number(r, &min, 6)))
         return err;
-      if ((err = re_next(r, &ch, "expected } to end repetition expression")))
+      if ((err = re_parse_next(
+               r, &ch, "expected } to end repetition expression")))
         return err;
       if (ch == '}')
         max = min;
       else if (ch == ',') {
-        if (!re_hasmore(r))
+        if (!re_parse_has_more(r))
           return re_parse_err(
               r, "expected upper bound or } to end repetition expression");
         if ((err = re_peek_next(r, &ch)))
           return err;
         if (ch == '}')
-          re_next(r, &ch, NULL), max = INFTY;
+          re_parse_next(r, &ch, NULL), max = INFTY;
         else {
           if ((err = re_parse_number(r, &max, 6)))
             return err;
-          if ((err =
-                   re_next(r, &ch, "expected } to end repetition expression")))
+          if ((err = re_parse_next(
+                   r, &ch, "expected } to end repetition expression")))
             return err;
           if (ch != '}')
             return re_parse_err(r, "expected } to end repetition expression");
@@ -1007,11 +1043,12 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         return re_parse_err(r, "expected } or , for repetition expression");
       if (!r->arg_stk.size)
         return re_parse_err(r, "cannot apply quantifier to empty regex");
-      if ((err = re_mkast(r, QUANT, stk_pop(r, &r->arg_stk), min, max, &res)) ||
+      if ((err = re_ast_make(
+               r, QUANT, stk_pop(r, &r->arg_stk), min, max, &res)) ||
           (err = stk_push(r, &r->arg_stk, res)))
         return err;
     } else if (ch == '^' || ch == '$') { /* beginning/end of text/line */
-      if ((err = re_mkast(
+      if ((err = re_ast_make(
                r, AASSERT,
                ch == '^' ? (flags & MULTILINE ? LINE_BEGIN : TEXT_BEGIN)
                          : (flags & MULTILINE ? LINE_END : TEXT_END),
@@ -1020,7 +1057,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         return err;
     } else { /* char: push to the arg stk */
       /* arg_stk: | ... | */
-      if ((err = re_mkast(r, CHR, ch, 0, 0, &res)) ||
+      if ((err = re_ast_make(r, CHR, ch, 0, 0, &res)) ||
           (err = stk_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... | chr | */
@@ -1030,8 +1067,8 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
     return err;
   if (r->op_stk.size)
     return re_parse_err(r, "unmatched open parenthesis");
-  if ((err =
-           re_mkast(r, GROUP, stk_pop(r, &r->arg_stk), SUBEXPRESSION, 0, root)))
+  if ((err = re_ast_make(
+           r, GROUP, stk_pop(r, &r->arg_stk), SUBEXPRESSION, 0, root)))
     return err;
   return 0;
 }
@@ -1267,7 +1304,8 @@ int re_compcc_buildtree_split(
   assert(y_bits <= 7);
   if (x_bits == 0) {
     if ((err = cc_treeappend(
-             r, cc_out, br2u(mkbr(byte_min, byte_max)), parent, &next)))
+             r, cc_out, byte_range_to_u32(byte_range_make(byte_min, byte_max)),
+             parent, &next)))
       return err;
   } else {
     /* nonterminal */
@@ -1277,7 +1315,7 @@ int re_compcc_buildtree_split(
        * _or_ one range followed by another maximal range */
       /* Output:
        * ---[Ymin-Ymax]---{tree for [Xmin-Xmax]} */
-      brs[0] = br2u(mkbr(byte_min, byte_max));
+      brs[0] = byte_range_to_u32(byte_range_make(byte_min, byte_max));
       mins[0] = x_min, maxs[0] = x_max;
       n = 1;
     } else if (!x_min) {
@@ -1286,9 +1324,9 @@ int re_compcc_buildtree_split(
        * ---[Ymin-(Ymax-1)]---{tree for [00-FF]}
        *           |
        *      [Ymax-Ymax]----{tree for [00-Xmax]} */
-      brs[0] = br2u(mkbr(byte_min, byte_max - 1));
+      brs[0] = byte_range_to_u32(byte_range_make(byte_min, byte_max - 1));
       mins[0] = 0, maxs[0] = x_mask;
-      brs[1] = br2u(mkbr(byte_max, byte_max));
+      brs[1] = byte_range_to_u32(byte_range_make(byte_max, byte_max));
       mins[1] = 0, maxs[1] = x_max;
       n = 2;
     } else if (x_max == x_mask) {
@@ -1297,9 +1335,9 @@ int re_compcc_buildtree_split(
        * -----[Ymin-Ymin]----{tree for [Xmin-FF]}
        *           |
        *    [(Ymin+1)-Ymax]---{tree for [00-FF]} */
-      brs[0] = br2u(mkbr(byte_min, byte_min));
+      brs[0] = byte_range_to_u32(byte_range_make(byte_min, byte_min));
       mins[0] = x_min, maxs[0] = x_mask;
-      brs[1] = br2u(mkbr(byte_min + 1, byte_max));
+      brs[1] = byte_range_to_u32(byte_range_make(byte_min + 1, byte_max));
       mins[1] = 0, maxs[1] = x_mask;
       n = 2;
     } else if (y_min == y_max - 1) {
@@ -1308,9 +1346,9 @@ int re_compcc_buildtree_split(
        * -----[Ymin-Ymin]----{tree for [Xmin-FF]}
        *           |
        *      [Ymax-Ymax]----{tree for [00-Xmax]} */
-      brs[0] = br2u(mkbr(byte_min, byte_min));
+      brs[0] = byte_range_to_u32(byte_range_make(byte_min, byte_min));
       mins[0] = x_min, maxs[0] = x_mask;
-      brs[1] = br2u(mkbr(byte_min + 1, byte_max));
+      brs[1] = byte_range_to_u32(byte_range_make(byte_min + 1, byte_max));
       mins[1] = 0, maxs[1] = x_max;
       n = 2;
     } else {
@@ -1322,11 +1360,11 @@ int re_compcc_buildtree_split(
        *    [(Ymin+1)-(Ymax-1)]----{tree for [00-FF]}
        *             |
        *        [Ymax-Ymax]-------{tree for [00-Xmax]} */
-      brs[0] = br2u(mkbr(byte_min, byte_min));
+      brs[0] = byte_range_to_u32(byte_range_make(byte_min, byte_min));
       mins[0] = x_min, maxs[0] = x_mask;
-      brs[1] = br2u(mkbr(byte_min + 1, byte_max - 1));
+      brs[1] = byte_range_to_u32(byte_range_make(byte_min + 1, byte_max - 1));
       mins[1] = 0, maxs[1] = x_mask;
-      brs[2] = br2u(mkbr(byte_max, byte_max));
+      brs[2] = byte_range_to_u32(byte_range_make(byte_max, byte_max));
       mins[2] = 0, maxs[2] = x_max;
       n = 3;
     }
@@ -1337,9 +1375,10 @@ int re_compcc_buildtree_split(
       assert(parent);
       parent_node = cc_treeref(cc_out, parent);
       if (parent_node->sibling_ref &&
-          br_isect(
-              u2br(cc_treeref(cc_out, parent_node->sibling_ref)->range),
-              u2br(brs[i]))) {
+          byte_range_is_intersecting(
+              u32_to_byte_range(
+                  cc_treeref(cc_out, parent_node->sibling_ref)->range),
+              u32_to_byte_range(brs[i]))) {
         child_ref = parent_node->sibling_ref;
       } else {
         if ((err = cc_treeappend(r, cc_out, brs[i], parent, &child_ref)))
@@ -1412,8 +1451,10 @@ void re_compcc_merge_one(stk *cc_tree_in, u32 child_ref, u32 sibling_ref)
   compcc_node *child = cc_treeref(cc_tree_in, child_ref),
               *sibling = cc_treeref(cc_tree_in, sibling_ref);
   child->sibling_ref = sibling->sibling_ref;
-  assert(br_adjace(u2br(child->range), u2br(sibling->range)));
-  child->range = br2u(mkbr(u2br(child->range).l, u2br(sibling->range).h));
+  assert(byte_range_is_adjacent(
+      u32_to_byte_range(child->range), u32_to_byte_range(sibling->range)));
+  child->range = byte_range_to_u32(byte_range_make(
+      u32_to_byte_range(child->range).l, u32_to_byte_range(sibling->range).h));
 }
 
 /*https://nullprogram.com/blog/2018/07/31/*/
@@ -1456,7 +1497,9 @@ void re_compcc_hashtree(re *r, stk *cc_tree_in, stk *cc_ht_out, u32 parent_ref)
     re_compcc_hashtree(r, cc_tree_in, cc_ht_out, child_ref);
     if (sibling_ref) {
       sibling_node = cc_treeref(cc_tree_in, sibling_ref);
-      if (br_adjace(u2br(child_node->range), u2br(sibling_node->range))) {
+      if (byte_range_is_adjacent(
+              u32_to_byte_range(child_node->range),
+              u32_to_byte_range(sibling_node->range))) {
         if (!sibling_node->child_ref) {
           if (!child_node->child_ref) {
             re_compcc_merge_one(cc_tree_in, child_ref, sibling_ref);
@@ -1549,10 +1592,11 @@ int re_compcc_rendertree(
       *my_out_pc = my_pc;
     range_pc = re_prog_size(r);
     if ((err = re_emit(
-             r,
-             inst_make(
-                 RANGE, 0,
-                 br2u(BYTE_RANGE(u2br(node->range).l, u2br(node->range).h))))))
+             r, inst_make(
+                    RANGE, 0,
+                    byte_range_to_u32(byte_range_make(
+                        u32_to_byte_range(node->range).l,
+                        u32_to_byte_range(node->range).h))))))
       return err;
     if (node->child_ref) {
       /* need to down-compile */
@@ -1579,14 +1623,14 @@ int casefold_fold_range(re *r, u32 begin, u32 end, stk *cc_out);
 
 int re_compcc(re *r, u32 root, compframe *frame)
 {
-  int err = 0, inverted = *re_asttype(r, frame->root_ref) == ICLS,
+  int err = 0, inverted = *re_ast_type(r, frame->root_ref) == ICLS,
       insensitive = !!(frame->flags & INSENSITIVE);
   u32 start_pc = 0;
   r->cc_stk_a.size = r->cc_stk_b.size = 0; /* clear stks */
   /* push ranges */
   while (root) {
     u32 args[3], min, max;
-    re_decompast(r, root, args);
+    re_ast_decompose(r, root, args);
     root = args[0], min = args[1], max = args[2];
     /* handle out-of-order ranges (min > max) */
     if ((err = stk_push(r, &r->cc_stk_a, min > max ? max : min)) ||
@@ -1683,7 +1727,7 @@ int re_compile(re *r, u32 root, u32 reverse)
       initial_frame.patch_tail = REF_NONE;
   initial_frame.idx = 0;
   initial_frame.pc = re_prog_size(r);
-  r->entry[ENT_ONESHOT | (reverse ? ENT_REV : ENT_FWD)] = initial_frame.pc;
+  r->entry[reverse ? PROG_ENTRY_REVERSE : 0] = initial_frame.pc;
   if ((err = compframe_push(r, initial_frame)))
     return err;
   while (r->comp_stk.size) {
@@ -1694,9 +1738,9 @@ int re_compile(re *r, u32 root, u32 reverse)
     child_frame.child_ref = child_frame.root_ref = child_frame.patch_head =
         child_frame.patch_tail = REF_NONE;
     child_frame.idx = child_frame.pc = 0;
-    type = *re_asttype(r, frame.root_ref);
+    type = *re_ast_type(r, frame.root_ref);
     if (frame.root_ref)
-      re_decompast(r, frame.root_ref, args);
+      re_ast_decompose(r, frame.root_ref, args);
     if (!frame.root_ref) {
       /* epsilon */
       /*  in  out  */
@@ -1707,15 +1751,18 @@ int re_compile(re *r, u32 root, u32 reverse)
         /*  in     out
          * ---> R ----> */
         if ((err = re_emit(
-                 r, inst_make(RANGE, 0, br2u(BYTE_RANGE(args[0], args[0]))))))
+                 r, inst_make(
+                        RANGE, 0,
+                        byte_range_to_u32(byte_range_make(args[0], args[0]))))))
           return err;
         patch_add(r, &frame, my_pc, 0);
       } else { /* unicode */
         /* create temp ast */
         if (!tmp_cc_ast &&
-            (err = re_mkast(r, CLS, REF_NONE, 0, 0, &tmp_cc_ast)))
+            (err = re_ast_make(r, CLS, REF_NONE, 0, 0, &tmp_cc_ast)))
           return err;
-        *re_astarg(r, tmp_cc_ast, 1) = *re_astarg(r, tmp_cc_ast, 2) = args[0];
+        *re_ast_param(r, tmp_cc_ast, 1) = *re_ast_param(r, tmp_cc_ast, 2) =
+            args[0];
         if ((err = re_compcc(r, tmp_cc_ast, &frame)))
           return err;
       }
@@ -1723,7 +1770,10 @@ int re_compile(re *r, u32 root, u32 reverse)
       /*  in     out
        * ---> R ----> */
       patch(r, &frame, my_pc);
-      if ((err = re_emit(r, inst_make(RANGE, 0, br2u(BYTE_RANGE(0x00, 0xFF))))))
+      if ((err = re_emit(
+               r,
+               inst_make(
+                   RANGE, 0, byte_range_to_u32(byte_range_make(0x00, 0xFF))))))
         return err;
       patch_add(r, &frame, my_pc, 0);
     } else if (type == CAT) {
@@ -1877,15 +1927,17 @@ int re_compile(re *r, u32 root, u32 reverse)
   assert(!r->comp_stk.size);
   assert(!returned_frame.patch_head && !returned_frame.patch_tail);
   {
-    u32 dstar = r->entry[ENT_DOTSTAR | (reverse ? ENT_REV : ENT_FWD)] =
-        re_prog_size(r);
+    u32 dstar =
+        r->entry[PROG_ENTRY_DOTSTAR | (reverse ? PROG_ENTRY_REVERSE : 0)] =
+            re_prog_size(r);
     if ((err = re_emit(
-             r,
-             inst_make(
-                 SPLIT, r->entry[ENT_ONESHOT | (reverse ? ENT_REV : ENT_FWD)],
-                 dstar + 1))))
+             r, inst_make(
+                    SPLIT, r->entry[reverse ? PROG_ENTRY_REVERSE : 0],
+                    dstar + 1))))
       return err;
-    if ((err = re_emit(r, inst_make(RANGE, dstar, br2u(mkbr(0, 255))))))
+    if ((err = re_emit(
+             r, inst_make(
+                    RANGE, dstar, byte_range_to_u32(byte_range_make(0, 255))))))
       return err;
   }
   return 0;
@@ -2324,7 +2376,7 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
       bmp_set(&n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot));
     switch (inst_opcode(op)) {
     case RANGE: {
-      byte_range br = u2br(inst_param(op));
+      byte_range br = u32_to_byte_range(inst_param(op));
       if (ch >= br.l && ch <= br.h) {
         thrd.pc = inst_next(op);
         sset_add(&n->a, thrd);
@@ -2423,18 +2475,18 @@ int re_match(
 {
   exec_nfa nfa;
   int err = 0;
-  u32 entry = anchor == A_END          ? ENT_REV
-              : anchor == A_UNANCHORED ? ENT_FWD | ENT_DOTSTAR
-                                       : ENT_FWD;
+  u32 entry = anchor == A_END          ? PROG_ENTRY_REVERSE
+              : anchor == A_UNANCHORED ? PROG_ENTRY_DOTSTAR
+                                       : 0;
   size_t i;
   u32 prev_ch = SENT_CH;
-  if (!re_prog_size(r) && ((err = re_compile(r, r->ast_root, ENT_FWD)) ||
-                           (err = re_compile(r, r->ast_root, ENT_REV))))
+  if (!re_prog_size(r) && ((err = re_compile(r, r->ast_root, 0)) ||
+                           (err = re_compile(r, r->ast_root, 1))))
     return err;
   exec_nfa_init(r, &nfa);
   if ((err = exec_nfa_start(
-           r, &nfa, r->entry[entry], max_span * 2, entry & ENT_REV,
-           entry & ENT_DOTSTAR)))
+           r, &nfa, r->entry[entry], max_span * 2, entry & PROG_ENTRY_REVERSE,
+           entry & PROG_ENTRY_DOTSTAR)))
     goto done;
   for (i = 0; i < n; i++) {
     if ((err = exec_nfa_run(r, &nfa, ((const u8 *)s)[i], i, prev_ch)))
@@ -2838,17 +2890,17 @@ void astdump_i(re *r, u32 root, u32 ilvl, int format)
     printf("A%04X [label=\"%s\\n", root, node_name);
   }
   if (first == CHR)
-    printf("%s", dump_chr_unicode(buf, *re_astarg(r, root, 0)));
+    printf("%s", dump_chr_unicode(buf, *re_ast_param(r, root, 0)));
   else if (first == GROUP || first == IGROUP)
-    printf("%s", dump_group_flag(buf, *re_astarg(r, root, 1)));
+    printf("%s", dump_group_flag(buf, *re_ast_param(r, root, 1)));
   else if (first == QUANT || first == UQUANT)
     printf(
-        "%s-%s", dump_quant(buf, *re_astarg(r, root, 1)),
-        dump_quant(buf2, *re_astarg(r, root, 2)));
+        "%s-%s", dump_quant(buf, *re_ast_param(r, root, 1)),
+        dump_quant(buf2, *re_ast_param(r, root, 2)));
   else if (first == CLS || first == ICLS)
     printf(
-        "%s-%s", dump_chr_unicode(buf, *re_astarg(r, root, 0)),
-        dump_chr_unicode(buf2, *re_astarg(r, root, 1)));
+        "%s-%s", dump_chr_unicode(buf, *re_ast_param(r, root, 0)),
+        dump_chr_unicode(buf2, *re_ast_param(r, root, 1)));
   if (format == GRAPHVIZ)
     printf(
         "\"]\nsubgraph cluster_%04X { "
@@ -2858,7 +2910,7 @@ void astdump_i(re *r, u32 root, u32 ilvl, int format)
     printf("\n");
   for (i = 0; i < sizeof(sub) / sizeof(*sub); i++)
     if (sub[i] != 0xFF) {
-      u32 child = *re_astarg(r, root, sub[i]);
+      u32 child = *re_ast_param(r, root, sub[i]);
       astdump_i(r, child, ilvl + 1, format);
       if (format == GRAPHVIZ)
         printf(
@@ -2911,8 +2963,9 @@ void progdump_range(re *r, u32 start, u32 end, int format)
           ops[inst_opcode(ins)]);
       if (inst_opcode(ins) == RANGE)
         printf(
-            "%s-%s", dump_chr_ascii(start_buf, u2br(inst_param(ins)).l),
-            dump_chr_ascii(end_buf, u2br(inst_param(ins)).h));
+            "%s-%s",
+            dump_chr_ascii(start_buf, u32_to_byte_range(inst_param(ins)).l),
+            dump_chr_ascii(end_buf, u32_to_byte_range(inst_param(ins)).h));
       else if (inst_opcode(ins) == MATCH)
         printf(
             "%s %u", inst_match_param_slot(inst_param(ins)) ? "slot" : "set",
@@ -2930,18 +2983,21 @@ void progdump_range(re *r, u32 start, u32 end, int format)
   }
 }
 
-void progdump(re *r) { progdump_range(r, 1, r->entry[ENT_REV], TERM); }
+void progdump(re *r)
+{
+  progdump_range(r, 1, r->entry[PROG_ENTRY_REVERSE], TERM);
+}
 
 void progdump_r(re *r)
 {
-  progdump_range(r, r->entry[ENT_REV], re_prog_size(r), TERM);
+  progdump_range(r, r->entry[PROG_ENTRY_REVERSE], re_prog_size(r), TERM);
 }
 
 void progdump_whole(re *r) { progdump_range(r, 0, re_prog_size(r), TERM); }
 
 void progdump_gv(re *r)
 {
-  progdump_range(r, 1, r->entry[ENT_FWD | ENT_DOTSTAR], GRAPHVIZ);
+  progdump_range(r, 1, r->entry[PROG_ENTRY_DOTSTAR], GRAPHVIZ);
 }
 
 void cctreedump_i(stk *cc_tree, u32 ref, u32 lvl)
@@ -2951,7 +3007,9 @@ void cctreedump_i(stk *cc_tree, u32 ref, u32 lvl)
   printf("%04X [%08X] ", ref, node->hash);
   for (i = 0; i < lvl; i++)
     printf("  ");
-  printf("%02X-%02X\n", u2br(node->range).l, u2br(node->range).h);
+  printf(
+      "%02X-%02X\n", u32_to_byte_range(node->range).l,
+      u32_to_byte_range(node->range).h);
   if (node->child_ref)
     cctreedump_i(cc_tree, node->child_ref, lvl + 1);
   if (node->sibling_ref)
