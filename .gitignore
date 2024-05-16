@@ -5,4 +5,5 @@ build/
 .vscode/
 tools/.ucd.zip
 tools/__pycache__
-corpus/
+.gitignore
+fuzz_db.json

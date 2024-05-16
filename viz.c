@@ -10,11 +10,12 @@ const char *escape(const char *regex, char *buf)
 {
   const char *out = buf;
   while (*regex) {
-    if (*regex == '\\' || *regex == '"')
-      *(buf++) = '\\', *(buf++) = '\\';
-    if (*regex == '\\')
-      *(buf++) = *(regex);
-    *(buf++) = *(regex++);
+    char esc_ch = *(regex++);
+    if (*regex == '\\' || *regex == '"' || *regex == '(' || *regex == ')' ||
+        (*regex == '\n' && (esc_ch = 'n')))
+      *(buf++) = '\\', *(buf++) = esc_ch;
+    else
+      *(buf++) = esc_ch;
   }
   *(buf++) = '\0';
   return out;

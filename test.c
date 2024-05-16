@@ -59,10 +59,10 @@ size_t utf_encode(char *out_buf, u32 codep)
   }
 }
 
-int check_matches(
-    const char **regexes, u32 nregex, const char *s, size_t n, u32 max_span,
-    u32 max_set, anchor_type anchor, span *check_span, u32 *check_set,
-    u32 check_nsets)
+int check_matches_n(
+    const char **regexes, size_t *regex_n, u32 nregex, const char *s, size_t n,
+    u32 max_span, u32 max_set, anchor_type anchor, span *check_span,
+    u32 *check_set, u32 check_nsets)
 {
   re *r;
   int err;
@@ -75,11 +75,11 @@ int check_matches(
   if (max_set && !found_set)
     goto oom_set;
   if ((err = re_init_full(
-           &r, nregex == 1 ? *regexes : NULL,
-           nregex == 1 ? strlen(*regexes) : 0, test_alloc)) == ERR_MEM)
+           &r, nregex == 1 ? *regexes : NULL, nregex == 1 ? regex_n[0] : 0,
+           test_alloc)) == ERR_MEM)
     goto oom_re;
   for (i = 0; i < nregex && nregex != 1; i++) {
-    if ((err = re_union(r, regexes[i], strlen(regexes[i]))) == ERR_MEM)
+    if ((err = re_union(r, regexes[i], regex_n[i])) == ERR_MEM)
       goto oom_re;
     ASSERT_EQ(err, 0);
   }
@@ -117,9 +117,10 @@ int check_match(
     const char *regex, const char *s, size_t n, u32 max_span, u32 max_set,
     anchor_type anchor, span *check_span, u32 *check_set, u32 check_nsets)
 {
-  return check_matches(
-      &regex, 1, s, n, max_span, max_set, anchor, check_span, check_set,
-      check_nsets);
+  size_t regex_n = strlen(regex);
+  return check_matches_n(
+      &regex, &regex_n, 1, s, n, max_span, max_set, anchor, check_span,
+      check_set, check_nsets);
 }
 
 int check_fullmatch_n(const char *regex, const char *s, size_t n)
@@ -165,8 +166,11 @@ int check_match_s2_a(
 {
   u32 set[2] = {0, 1};
   const char *regexes[2];
+  size_t regexes_n[2];
   regexes[0] = r1, regexes[1] = r2;
-  return check_matches(regexes, 2, s, strlen(s), 0, 2, anchor, NULL, set, 2);
+  regexes_n[0] = strlen(r1), regexes_n[1] = strlen(r2);
+  return check_matches_n(
+      regexes, regexes_n, 2, s, strlen(s), 0, 2, anchor, NULL, set, 2);
 }
 
 int check_match_s2_g1_a(
@@ -176,10 +180,13 @@ int check_match_s2_g1_a(
   u32 set[2] = {0, 1};
   span g[2];
   const char *regexes[2];
+  size_t regexes_n[2];
   regexes[0] = r1, regexes[1] = r2;
+  regexes_n[0] = strlen(r1), regexes_n[1] = strlen(r2);
   g[0].begin = b11, g[0].end = e11;
   g[1].begin = b21, g[1].end = e21;
-  return check_matches(regexes, 2, s, strlen(s), 1, 2, anchor, g, set, 2);
+  return check_matches_n(
+      regexes, regexes_n, 2, s, strlen(s), 1, 2, anchor, g, set, 2);
 }
 
 int check_match_s2_g2_a(
@@ -190,12 +197,15 @@ int check_match_s2_g2_a(
   u32 set[2] = {0, 1};
   span g[4];
   const char *regexes[2];
+  size_t regexes_n[2];
   regexes[0] = r1, regexes[1] = r2;
+  regexes_n[0] = strlen(r1), regexes_n[1] = strlen(r2);
   g[0].begin = b11, g[0].end = e11;
   g[1].begin = b12, g[1].end = e12;
   g[2].begin = b21, g[2].end = e21;
   g[3].begin = b22, g[3].end = e22;
-  return check_matches(regexes, 2, s, strlen(s), 2, 2, anchor, g, set, 2);
+  return check_matches_n(
+      regexes, regexes_n, 2, s, strlen(s), 2, 2, anchor, g, set, 2);
 }
 
 #define ASSERT_MATCH(regex, str)  PROPAGATE(check_fullmatch(regex, str))
@@ -921,6 +931,18 @@ TEST(escape_pipe)
   PASS();
 }
 
+TEST(escape_caret)
+{
+  ASSERT_MATCH("\\^", "^");
+  PASS();
+}
+
+TEST(escape_dollar)
+{
+  ASSERT_MATCH("\\$", "$");
+  PASS();
+}
+
 TEST(escape_slash)
 {
   ASSERT_MATCH_G1("\\\\", "\\", 0, 1);
@@ -1205,6 +1227,8 @@ SUITE(escape)
   RUN_TEST(escape_close_curly_bracket);
   RUN_TEST(escape_slash);
   RUN_TEST(escape_pipe);
+  RUN_TEST(escape_caret);
+  RUN_TEST(escape_dollar);
   RUN_SUITE(escape_octal);
   RUN_SUITE(escape_hex);
   RUN_SUITE(escape_hex_long);
@@ -1406,6 +1430,18 @@ TEST(repetition_one_three_nonmatch)
   PASS();
 }
 
+TEST(repetition_zero_zero_match)
+{
+  ASSERT_MATCH("a{0,0}", "");
+  PASS();
+}
+
+TEST(repetition_zero_zero_nonmatch)
+{
+  ASSERT_NMATCH("a{0,0}", "aa");
+  PASS();
+}
+
 SUITE(repetition)
 {
   RUN_TEST(repetition_zero_empty);
@@ -1440,6 +1476,8 @@ SUITE(repetition)
   RUN_TEST(repetition_one_three_three);
   RUN_TEST(repetition_one_three_four);
   RUN_TEST(repetition_one_three_nonmatch);
+  RUN_TEST(repetition_zero_zero_match);
+  RUN_TEST(repetition_zero_zero_nonmatch);
 }
 
 TEST(grp_flag_i_match)
@@ -1680,6 +1718,12 @@ TEST(grp_nonmatching_malformed)
   PASS();
 }
 
+TEST(grp_nonmatching_in_zero_quant)
+{
+  ASSERT_MATCH("(?:){0,0}", "");
+  PASS();
+}
+
 TEST(grp_negate_twice)
 {
   ASSERT_NOPARSE("(?--:)");
@@ -1742,6 +1786,7 @@ SUITE(grp)
   RUN_TEST(grp_empty);
   RUN_TEST(grp_nonmatching_unfinished);
   RUN_TEST(grp_nonmatching_malformed);
+  RUN_TEST(grp_nonmatching_in_zero_quant);
   RUN_TEST(grp_negate_twice);
   RUN_SUITE(grp_inline_flag);
   RUN_TEST(grp_after_cat);

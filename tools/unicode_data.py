@@ -17,12 +17,22 @@ from squish_casefold import (
     find_best_arrays,
     build_arrays,
 )
-from util import UTF_MAX, DataType, RRanges, insert_c_file, nranges_invert, nranges_normalize, ranges_expand
+from util import (
+    UTF_MAX,
+    DataType,
+    RRanges,
+    insert_c_file,
+    nranges_invert,
+    nranges_normalize,
+    ranges_expand,
+    make_appender_func,
+)
 
 UCD_URL = "https://www.unicode.org/Public/zipped"
 CLEAR_TERM = "\x1b[0K"
 
 logger = getLogger(__name__)
+
 
 def _fetch_ucd(db: Path, version: str):
     url = UCD_URL + "/" + version + "/UCD.zip"
@@ -31,10 +41,12 @@ def _fetch_ucd(db: Path, version: str):
         shutil.copyfileobj(req, out_file)
         logger.debug("fetched %i bytes", out_file.tell())
 
+
 def cmd_fetch(args):
     """Fetch the UCD."""
     _fetch_ucd(args.db, args.version)
     return 0
+
 
 class UnicodeData:
     """Manages a UCD and performs simple file retrieval/parsing."""
@@ -70,6 +82,7 @@ class UnicodeData:
         for line in file:
             if (result := line_filter(line)) is not None:
                 yield result
+
 
 def _casefold_load(args) -> list[int]:
     # Load casefold data into a deltas array.
@@ -111,20 +124,11 @@ def _cmd_casefold_search(args):
         num_tables=args.max_arrays,
         max_rune=UTF_MAX,
     )
-    check_arrays(
-        deltas, array_sizes, arrays, max_rune=UTF_MAX
-    )
+    check_arrays(deltas, array_sizes, arrays, max_rune=UTF_MAX)
     # output the array sizes
     print(",".join(map(str, array_sizes)))
     return 0
 
-def _make_appender_func() -> tuple[list[str], Callable[[str], None]]:
-    array = []
-
-    def out(s: str):
-        array.append(s + "\n")
-
-    return array, out
 
 def _cmd_gen_casefold(args) -> int:
     # Generate C code for casefolding.
@@ -135,7 +139,7 @@ def _cmd_gen_casefold(args) -> int:
     shifts = calculate_shifts(array_sizes)
     masks = calculate_masks(array_sizes, UTF_MAX)
     data_types = list(map(DataType.from_list, arrays))
-    output, out = _make_appender_func()
+    output, out = make_appender_func()
 
     def fmt_hex(n: int, data_type: DataType, num_digits: int = 0) -> str:
         return f"{'-' if n < 0 else '+' if data_type.signed else ''}0x{abs(n):0{num_digits}X}"
@@ -165,7 +169,9 @@ def _cmd_gen_casefold(args) -> int:
     }
 
     for i, data_type in enumerate(data_types):
-        types[data_type.to_ctype()] = types.setdefault(data_type.to_ctype(), []) + [f"a{i}"]
+        types[data_type.to_ctype()] = types.setdefault(data_type.to_ctype(), []) + [
+            f"a{i}"
+        ]
 
     for data_type, defs in sorted(types.items()):
         out(f"{data_type} {','.join(defs)};")
@@ -174,19 +180,20 @@ def _cmd_gen_casefold(args) -> int:
 
     for i, array in reversed(list(enumerate(arrays))):
         limit = len(arrays[-1]) if i == len(array_sizes) else array_sizes[i]
-        out( "for (")
+        out("for (")
         out(f"  x{i} = {shift_mask_expr("begin", i)};")
         out(f"  x{i} <= 0x{limit - 1:X} && begin <= end;")
         out(f"  x{i}++")
-        out( ") {")
-        out( "if (")
-        out(f"  (a{i} = casefold_array_{i}[{f"a{i+1} +" if i != len(arrays) - 1 else ""}x{i}])")
+        out(") {")
+        out("if (")
+        out(
+            f"  (a{i} = casefold_array_{i}[{f"a{i+1} +" if i != len(arrays) - 1 else ""}x{i}])"
+        )
         out(f"    == {fmt_hex(arrays[i].zero_location, data_types[i])}")
-        out( ") {")
+        out(") {")
         out(f"  begin = ((begin >> {shifts[i]}) + 1) << {shifts[i]};")
-        out( "  continue;")
-        out( "}")
-
+        out("  continue;")
+        out("}")
 
     out("current = begin + a0;")
     out("while (current != begin) {")
@@ -206,8 +213,6 @@ def _cmd_gen_casefold(args) -> int:
     insert_c_file(file, output, "gen_casefold")
     file.close()
     return 0
-
-
 
 
 ASCII_CHARCLASSES: dict[str, RRanges] = {
@@ -238,7 +243,6 @@ PERL_CHARCLASSES = {
 }
 
 
-
 def _cmd_gen_ascii_charclasses_impl(args) -> int:
     out_lines = ["const ccdef builtin_cc[] = {\n"]
     for name, cc in ASCII_CHARCLASSES.items():
@@ -256,7 +260,7 @@ def _cmd_gen_ascii_charclasses_impl(args) -> int:
 
 def _cmd_gen_ascii_charclasses_test(args) -> int:
     tests = {}
-    output, out = _make_appender_func()
+    output, out = make_appender_func()
 
     def make_test(test_name: str, cc: RRanges, regex: str, invert: int) -> str:
         regex = '"' + regex.replace("\\", "\\\\") + '"'
@@ -281,7 +285,9 @@ def _cmd_gen_ascii_charclasses_test(args) -> int:
     for name, cc in ASCII_CHARCLASSES.items():
         test_name = f"cls_named_{name}"
         tests[test_name] = make_test(test_name, cc, f"[[:{name}:]]", 0)
-        tests[test_name + "_invert"] = make_test(test_name + "_invert", cc, f"[[:^{name}:]]", 1)
+        tests[test_name + "_invert"] = make_test(
+            test_name + "_invert", cc, f"[[:^{name}:]]", 1
+        )
 
     out("\n".join(tests.values()))
     out(make_suite("cls_named", tests))
@@ -300,28 +306,32 @@ def _cmd_gen_ascii_charclasses_test(args) -> int:
     insert_c_file(args.file, output, "gen_ascii_charclasses test")
     return 0
 
+
 C_SPECIALS = {
-    ord("\n") : "\\n",
-    ord("\r") : "\\r",
-    ord("\t") : "\\t",
-    ord("\"") : "\\\"",
-    ord("\\") : "\\\\"
+    ord("\n"): "\\n",
+    ord("\r"): "\\r",
+    ord("\t"): "\\t",
+    ord('"'): '\\"',
+    ord("\\"): "\\\\",
 }
 
 JSON_SPECIALS = {
-    ord("\n") : "\\n",
-    ord("\r") : "\\r",
-    ord("\t") : "\\t",
-    ord("\"") : "\\\"",
-    ord("\\") : "\\\\"
+    ord("\n"): "\\n",
+    ord("\r"): "\\r",
+    ord("\t"): "\\t",
+    ord('"'): '\\"',
+    ord("\\"): "\\\\",
 }
+
 
 def _sanitize_char_for_c_string(c: int) -> str:
     assert 0 <= c <= 255
     return C_SPECIALS.get(c, chr(c) if c >= 0x20 and c < 0x7F else f"\\x{c:02X}")
 
+
 def _sanitize_for_c_string(a: bytes) -> str:
-    return '"' + ''.join(map(_sanitize_char_for_c_string, a)) + '"'
+    return '"' + "".join(map(_sanitize_char_for_c_string, a)) + '"'
+
 
 def _sanitize_for_json(a: bytes) -> str | list[int]:
     if 0 in a:
@@ -331,12 +341,16 @@ def _sanitize_for_json(a: bytes) -> str | list[int]:
     except UnicodeDecodeError:
         return list(a)
 
+
 def _parse_fuzz_json(tests: list) -> Iterator[tuple[bytes, bool]]:
     for corpus, should_parse in tests:
-        yield bytes(map(ord, corpus) if isinstance(corpus, str) else corpus), should_parse
+        yield bytes(
+            map(ord, corpus) if isinstance(corpus, str) else corpus
+        ), should_parse
+
 
 def _cmd_gen_parser_fuzz_regression_tests(args) -> int:
-    output, out = _make_appender_func()
+    output, out = make_appender_func()
     test_names = []
 
     for i, (corpus, should_parse) in enumerate(_parse_fuzz_json(load(args.tests))):
@@ -344,9 +358,11 @@ def _cmd_gen_parser_fuzz_regression_tests(args) -> int:
         test_names.append(test_name)
 
         out(f"TEST({test_name}) {{")
-        out(f"  PROPAGATE({
+        out(
+            f"  PROPAGATE({
             "check_compiles_n" if should_parse else "check_noparse_n"
-            }({_sanitize_for_c_string(corpus)}, {len(corpus)}));")
+            }({_sanitize_for_c_string(corpus)}, {len(corpus)}));"
+        )
         out("   PASS();")
         out(" }")
 
@@ -359,9 +375,12 @@ def _cmd_gen_parser_fuzz_regression_tests(args) -> int:
 
     return 0
 
+
 def _cmd_add_parser_fuzz_regression_tests(args) -> int:
     original_file = load(args.tests)
-    original_corpi: set[bytes] = set([corpus for corpus, _ in _parse_fuzz_json(original_file)])
+    original_corpi: set[bytes] = set(
+        [corpus for corpus, _ in _parse_fuzz_json(original_file)]
+    )
 
     for new_corpus_file in args.file:
         contents = bytes(new_corpus_file.read())
@@ -377,7 +396,6 @@ def _cmd_add_parser_fuzz_regression_tests(args) -> int:
     dump(original_file, args.tests, indent=2)
 
     return 0
-
 
 
 def main() -> int:
@@ -396,7 +414,9 @@ def main() -> int:
         default=False,
         help="show debug info",
     )
-    parse.add_argument("--version", type=str, default="latest", help="UCD version to use")
+    parse.add_argument(
+        "--version", type=str, default="latest", help="UCD version to use"
+    )
 
     subcmds = parse.add_subparsers(help="subcommands", required=True)
     subcmd_fetch = subcmds.add_parser("fetch", help="fetch unicode database")
@@ -442,13 +462,18 @@ def main() -> int:
     )
 
     subcmd_gen_parser_fuzz_regression_tests = subcmds.add_parser(
-        "gen_parser_fuzz_regression_tests", help="generate regression tests for the fuzz parser"
+        "gen_parser_fuzz_regression_tests",
+        help="generate regression tests for the fuzz parser",
     )
     subcmd_gen_parser_fuzz_regression_tests.set_defaults(
         func=_cmd_gen_parser_fuzz_regression_tests
     )
-    subcmd_gen_parser_fuzz_regression_tests.add_argument("tests", type=argparse.FileType("r"))
-    subcmd_gen_parser_fuzz_regression_tests.add_argument("file", type=argparse.FileType("r+"))
+    subcmd_gen_parser_fuzz_regression_tests.add_argument(
+        "tests", type=argparse.FileType("r")
+    )
+    subcmd_gen_parser_fuzz_regression_tests.add_argument(
+        "file", type=argparse.FileType("r+")
+    )
 
     subcmd_add_parser_fuzz_regression_tests = subcmds.add_parser(
         "add_parser_fuzz_regression_tests", help="add regression tests to json file"
@@ -456,9 +481,11 @@ def main() -> int:
     subcmd_add_parser_fuzz_regression_tests.set_defaults(
         func=_cmd_add_parser_fuzz_regression_tests
     )
-    subcmd_add_parser_fuzz_regression_tests.add_argument("tests", type=argparse.FileType("r+"))
     subcmd_add_parser_fuzz_regression_tests.add_argument(
-        "file", type=argparse.FileType("rb"), nargs='+'
+        "tests", type=argparse.FileType("r+")
+    )
+    subcmd_add_parser_fuzz_regression_tests.add_argument(
+        "file", type=argparse.FileType("rb"), nargs="+"
     )
 
     args = parse.parse_args()

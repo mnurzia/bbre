@@ -19,9 +19,9 @@ build:
 build/test: build $(SRCS)
 	$(CC) $(CFLAGS) -DRE_TEST $(SRCS) -o $@
 
-test-gen.c: build fuzz_results.json
+test-gen.c: build fuzz_db.json tools/fuzz_tool.py
 	$(UDATA) gen_ascii_charclasses test test-gen.c
-	$(UDATA) gen_parser_fuzz_regression_tests fuzz_results.json test-gen.c
+	python tools/fuzz_tool.py fuzz_db.json gen_tests test-gen.c
 	$(FORMAT) $@
 
 build/compile_commands.json: build $(SRCS) 
@@ -92,17 +92,12 @@ parser_fuzz: build build/parser_fuzz
 parser_fuzz_import: build
 	$(UDATA) add_parser_fuzz_regression_tests fuzz_results.json build/fuzz/artifact/*
 
-build/fuzzington_harness: build fuzzington_harness.c re.c re.h
-	$(CC) $(CFLAGS) -fsanitize=address fuzzington_harness.c re.c -o $@
+tools/fuzzington/target/debug/fuzzington: tools/fuzzington/src/main.rs tools/fuzzington/build.rs
+	cd tools/fuzzington; cargo build
 
-fuzzington/target/debug/fuzzington: fuzzington/src/main.rs
-	cd fuzzington; cargo build
-
-fuzzington_run: build/fuzzington_harness fuzzington/target/debug/fuzzington
-	./fuzzington/target/debug/fuzzington -f binary | ./build/fuzzington_harness
-
-fuzzington_run_many: build/fuzzington_harness fuzzington/target/debug/fuzzington
-	./fuzzington/target/debug/fuzzington -f binary -n 1000 | ./build/fuzzington_harness
+## run fuzzington
+fuzzington_run: build tools/fuzzington/target/debug/fuzzington
+	python tools/fuzz_tool.py --debug fuzz_db.json run_fuzzington --num-iterations 1000000
 
 ## generate data tables for re.c
 tables:

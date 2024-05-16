@@ -592,6 +592,8 @@ int re_parse_escape(re *r, u32 allowed_outputs)
       (ch == '{') ||                /* open curly bracket */
       (ch == '}') ||                /* close curly bracket */
       (ch == '|') ||                /* pipe */
+      (ch == '^') ||                /* caret */
+      (ch == '$') ||                /* dolla */
       (ch == '\\') /* escaped slash */) {
     return re_parse_escape_addchr(r, ch, allowed_outputs);
   } else if (ch >= '0' && ch <= '7') { /* octal escape */
@@ -1771,8 +1773,12 @@ int re_compile(re *r, u32 root, u32 reverse)
         patch_add(r, &child_frame, my_pc, !is_greedy);
         patch_add(r, &frame, my_pc, is_greedy);
         frame.child_ref = child;
-      } else if (frame.idx == max) { /* after maximum bound */
+      } else if (frame.idx && frame.idx == max) { /* after maximum bound */
         patch_merge(r, &frame, &returned_frame);
+      } else if (!frame.idx && frame.idx == max) {
+        /* epsilon */
+      } else {
+        assert(0);
       }
       frame.idx++;
     } else if (type == GROUP || type == IGROUP) {
@@ -2728,14 +2734,15 @@ char dump_hex(u8 d)
 
 char *dump_chr(char *buf, u32 ch, int ascii)
 {
-  if (ch >= ' ' && ch < 0x7F)
-    buf[0] = ch, buf[1] = 0;
-  else if (
-      (ch == '\a' && ch == 'a') || (ch == '\b' && ch == 'b') ||
+  if ((ch == '\a' && ch == 'a') || (ch == '\b' && ch == 'b') ||
       (ch == '\t' && ch == 't') || (ch == '\n' && ch == 'n') ||
       (ch == '\v' && ch == 'v') || (ch == '\f' && ch == 'f') ||
       (ch == '\r' && ch == 'r'))
     buf[0] = '\\', buf[1] = '\\', buf[2] = ch, buf[3] = 0;
+  else if (ch == '"')
+    buf[0] = '\\', buf[1] = '"';
+  else if (ch >= ' ' && ch < 0x7F)
+    buf[0] = ch, buf[1] = 0;
   else if (ascii || (ch < 0x80))
     buf[0] = '\\', buf[1] = '\\', buf[2] = 'x', buf[3] = dump_hex(ch >> 4),
     buf[4] = dump_hex(ch), buf[5] = 0;
@@ -2780,7 +2787,7 @@ char *dump_quant(char *buf, u32 quantval)
   return buf;
 }
 
-void astdump_i(re *r, u32 root, u32 ilvl, enum dumpformat format)
+void astdump_i(re *r, u32 root, u32 ilvl, int format)
 {
   const char *colors[] = {"1", "2", "3", "4"};
   u32 i, first = root ? r->ast.ptr[root] : 0;
@@ -2824,6 +2831,8 @@ void astdump_i(re *r, u32 root, u32 ilvl, enum dumpformat format)
         "\"]\nsubgraph cluster_%04X { "
         "label=\"\";style=filled;colorscheme=greys7;fillcolor=%s;",
         root, colors[ilvl % (sizeof(colors) / sizeof(*colors))]);
+  if (format == TERM)
+    printf("\n");
   for (i = 0; i < sizeof(sub) / sizeof(*sub); i++)
     if (sub[i] != 0xFF) {
       u32 child = *re_astarg(r, root, sub[i]);
@@ -2834,15 +2843,13 @@ void astdump_i(re *r, u32 root, u32 ilvl, enum dumpformat format)
     }
   if (format == GRAPHVIZ)
     printf("}\n");
-  if (format == TERM)
-    printf("\n");
 }
 
 void astdump(re *r, u32 root) { astdump_i(r, root, 0, TERM); }
 
 void astdump_gv(re *r) { astdump_i(r, r->ast_root, 0, GRAPHVIZ); }
 
-void progdump_range(re *r, u32 start, u32 end, enum dumpformat format)
+void progdump_range(re *r, u32 start, u32 end, int format)
 {
   u32 j, k;
   assert(end <= re_prog_size(r));

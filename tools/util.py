@@ -1,7 +1,7 @@
 """Utilities for the tools folder."""
 
 from subprocess import run
-from typing import IO, Iterator, NamedTuple
+from typing import IO, Callable, Iterator, NamedTuple, Protocol
 
 UTF_MAX = 0x10FFFF
 
@@ -140,3 +140,17 @@ def get_commit_hash() -> str:
     return run(
         ["git", "rev-parse", "HEAD"], capture_output=True, encoding="utf-8", check=True
     ).stdout.strip()
+
+
+class _Appender(Protocol):
+    def __call__(self, *args: str, suffix: str = "\n"): ...
+
+
+def make_appender_func() -> tuple[list[str], _Appender]:
+    """Convenience function to make a line builder."""
+    array = []
+
+    def out(*s: str, suffix: str = "\n"):
+        array.extend([x + suffix for x in s])
+
+    return array, out
