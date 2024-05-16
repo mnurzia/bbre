@@ -67,16 +67,16 @@ def insert_c_file(file: IO, insert_lines: list[str], tag: str):
     )
 
 
-RRange = tuple[str | int, str | int] | str | int
-NRRange = tuple[int, int]
+SyntacticRange = tuple[str | int, str | int] | str | int
+RuneRange = tuple[int, int]
 
-RRanges = tuple[RRange, ...]
-NRRanges = list[NRRange]
+SyntacticRanges = tuple[SyntacticRange, ...]
+RuneRanges = list[RuneRange]
 
-BRange = tuple[int, int]
+ByteRange = tuple[int, int]
 
 
-def ranges_expand(r: RRanges) -> Iterator[NRRange]:
+def ranges_expand(r: SyntacticRanges) -> Iterator[RuneRange]:
     """
     Convert syntactic ranges to pairs of (unnormalized) ranges.
     """
@@ -94,7 +94,7 @@ def ranges_expand(r: RRanges) -> Iterator[NRRange]:
             yield (start, end)
 
 
-def nranges_normalize(r: NRRanges) -> Iterator[NRRange]:
+def nranges_normalize(r: RuneRanges) -> Iterator[RuneRange]:
     """
     Normalize a list of pairs of ranges.
     """
@@ -114,7 +114,7 @@ def nranges_normalize(r: NRRanges) -> Iterator[NRRange]:
         yield local_min, local_max
 
 
-def nranges_invert(r: NRRanges, max_rune: int = UTF_MAX) -> Iterator[NRRange]:
+def nranges_invert(r: RuneRanges, max_rune: int = UTF_MAX) -> Iterator[RuneRange]:
     """
     Invert a normalized list of ranges.
     """
@@ -128,7 +128,7 @@ def nranges_invert(r: NRRanges, max_rune: int = UTF_MAX) -> Iterator[NRRange]:
         yield cur_max + 1, max_rune
 
 
-def nrange_isect(r1: NRRange, r2: NRRange) -> bool:
+def nrange_isect(r1: RuneRange, r2: RuneRange) -> bool:
     """
     Check if two ranges intersect.
     """

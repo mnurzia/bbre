@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from typing import Iterator, Self
-from util import BRange, NRRange, NRRanges, nrange_isect
+from util import ByteRange, RuneRange, RuneRanges, nrange_isect
 
 
 def byte_length_digits(l: int):
@@ -39,7 +39,7 @@ class CCTree:
 class TreeFront(CCTree):
     """A front node for the tree."""
 
-    range: NRRange
+    range: RuneRange
     x_bits: int
     y_bits: int
     left: CCTree | None
@@ -64,7 +64,7 @@ class TreeFront(CCTree):
             # terminal
             parent.right = TreeNode((byte_min, byte_max), self.left, None)
             return True
-        leftover: NRRange | None = None
+        leftover: RuneRange | None = None
         if y_min == y_max or (x_min == 0 and x_max == x_mask):
             byte_range = (byte_min, byte_max)
             x_range = (x_min, x_max)
@@ -101,7 +101,7 @@ class TreeFront(CCTree):
 class TreeNode(CCTree):
     """A range node for the tree."""
 
-    range: BRange
+    range: ByteRange
     left: CCTree | None
     right: CCTree | None
 
@@ -166,7 +166,7 @@ class Tree(TreeNode):
     def __init__(self):
         super().__init__((0, 0), None, None)
 
-    def add(self, range_: NRRange, x_bits: int, y_bits: int):
+    def add(self, range_: RuneRange, x_bits: int, y_bits: int):
         """Add a tree front to the tree."""
         self.right = TreeFront(range_, x_bits, y_bits, self.right)
 
@@ -229,7 +229,9 @@ class Tree(TreeNode):
         return "\n".join(lines)
 
 
-def split_ranges_utf8(ranges: NRRanges) -> Iterator[tuple[NRRange, int]]:
+def split_ranges_utf8(
+    ranges: RuneRanges,
+) -> Iterator[tuple[RuneRange, int]]:
     """Split a list of ranges among UTF-8 byte length boundaries."""
     for cur_min, cur_max in ranges:
         min_bound = 0

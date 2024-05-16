@@ -12,8 +12,8 @@ from typing import BinaryIO
 
 from charclass_tree import X_BITS, Y_BITS, Tree, byte_length_digits, split_ranges_utf8
 from util import (
-    NRRange,
-    NRRanges,
+    RuneRange,
+    RuneRanges,
     extract_between_tags,
     insert_file,
     nranges_invert,
@@ -126,7 +126,10 @@ def _doc_ast(args, lines: list[str]) -> int:
 
 CC_EXAMPLE_REGEX = r"[^a-zA-Z]"
 CC_EXAMPLE_REGEX_INVERTED = True
-CC_EXAMPLE_REGEX_RANGES: NRRanges = [(ord("a"), ord("z")), (ord("A"), ord("Z"))]
+CC_EXAMPLE_REGEX_RANGES: RuneRanges = [
+    (ord("a"), ord("z")),
+    (ord("A"), ord("Z")),
+]
 
 
 def _doc_cccomp(args, _: list[str]) -> int:
@@ -154,7 +157,7 @@ def _doc_cccomp(args, _: list[str]) -> int:
     )
     _generate_dot(cc_array(array), generated_path / "array_normalized_inverted.svg")
 
-    byte_lengths_array: list[tuple[NRRange, int]] = list(split_ranges_utf8(array))
+    byte_lengths_array: list[tuple[RuneRange, int]] = list(split_ranges_utf8(array))
     _generate_dot(
         dot_array(
             [

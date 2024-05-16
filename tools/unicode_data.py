@@ -20,7 +20,7 @@ from squish_casefold import (
 from util import (
     UTF_MAX,
     DataType,
-    RRanges,
+    SyntacticRanges,
     insert_c_file,
     nranges_invert,
     nranges_normalize,
@@ -224,7 +224,7 @@ def _cmd_gen_casefold(args) -> int:
     return 0
 
 
-ASCII_CHARCLASSES: dict[str, RRanges] = {
+ASCII_CHARCLASSES: dict[str, SyntacticRanges] = {
     "alnum": (("0", "9"), ("A", "Z"), ("a", "z")),
     "alpha": (("A", "Z"), ("a", "z")),
     "ascii": ((0, 0x7F),),
@@ -271,7 +271,7 @@ def _cmd_gen_ascii_charclasses_test(args) -> int:
     tests = {}
     output, out = make_appender_func()
 
-    def make_test(test_name: str, cc: RRanges, regex: str, invert: int) -> str:
+    def make_test(test_name: str, cc: SyntacticRanges, regex: str, invert: int) -> str:
         regex = '"' + regex.replace("\\", "\\\\") + '"'
         return f"""
         TEST({test_name}) {{
