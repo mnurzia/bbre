@@ -813,6 +813,18 @@ TEST(cls_nevermatch)
   PASS();
 }
 
+TEST(cls_reversed)
+{
+  ASSERT_MATCH("[Z-A]", "Z");
+  PASS();
+}
+
+TEST(cls_reversed_nonmatch)
+{
+  ASSERT_NMATCH("[Z-A]", ",");
+  PASS();
+}
+
 SUITE(cls)
 {
   RUN_SUITE(cls_escape);
@@ -827,6 +839,8 @@ SUITE(cls)
   RUN_TEST(cls_insensitive);
   RUN_TEST(cls_subclass);
   RUN_TEST(cls_nevermatch);
+  RUN_TEST(cls_reversed);
+  RUN_TEST(cls_reversed_nonmatch);
 }
 
 TEST(escape_null)

@@ -1,4 +1,4 @@
-"""Algorithms for compressing sparse Unicode casefold data"""
+"""Algorithms for compressing sparse Unicode casefold data."""
 
 from functools import cache
 from itertools import accumulate, pairwise

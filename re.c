@@ -1399,7 +1399,7 @@ int re_compcc_buildtree_split(
  * 3 hash of this node and its descendants */
 int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out)
 {
-  size_t i, j;
+  size_t i = 0, j = 0, min_bound = 0;
   u32 root_ref;
   compcc_node root_node;
   int err = 0;
@@ -1409,24 +1409,26 @@ int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out)
   cc_out->size = 0;
   if ((err = cc_treenew(r, cc_out, root_node, &root_ref)))
     return err;
-  for (i = 0; i < ccsize(cc_in); i++) {
-    u32 min, max, min_bound = 0, max_bound;
+  for (i = 0, j = 0; i < ccsize(cc_in) && j < 4;) {
     static const u32 y_bits[4] = {7, 5, 4, 3};
     static const u32 x_bits[4] = {0, 6, 12, 18};
+    u32 max_bound = (1 << (x_bits[j] + y_bits[j])) - 1, min, max;
     ccget(cc_in, i, &min, &max);
-    for (j = 0; j < 4; j++) {
-      max_bound = (1 << (x_bits[j] + y_bits[j])) - 1;
-      if (min_bound <= max && min <= max_bound) {
-        /* [min,max] intersects [min_bound,max_bound] */
-        u32 clamped_min = min < min_bound ? min_bound : min, /* clamp range */
-            clamped_max = max > max_bound ? max_bound : max;
-        if ((err = re_compcc_buildtree_split(
-                 r, cc_out, root_ref, clamped_min, clamped_max, x_bits[j],
-                 y_bits[j])))
-          return err;
-      }
-      min_bound = max_bound + 1;
+    if (min_bound <= max && min <= max_bound) {
+      /* [min,max] intersects [min_bound,max_bound] */
+      u32 clamped_min = min < min_bound ? min_bound : min, /* clamp range */
+          clamped_max = max > max_bound ? max_bound : max;
+      if ((err = re_compcc_buildtree_split(
+               r, cc_out, root_ref, clamped_min, clamped_max, x_bits[j],
+               y_bits[j])))
+        return err;
     }
+    if (max < max_bound)
+      /* range is less than [min_bound,max_bound] */
+      i++;
+    else
+      /* range is greater than [min_bound,max_bound] */
+      j++;
   }
   return err;
 }
