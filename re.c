@@ -43,10 +43,12 @@ struct re {
 
 #endif
 
+#define IMPLIES(subj, pred) (!(subj) || (pred))
+
 void *re_default_alloc(size_t prev, size_t next, void *ptr)
 {
   if (next) {
-    (void)prev, assert(prev || !ptr);
+    (void)prev, assert(IMPLIES(!prev, !ptr));
     return realloc(ptr, next);
   } else if (ptr) {
     free(ptr);
@@ -217,9 +219,9 @@ typedef enum ast_type {
    *   Argument 2: character range end (number) */
   CLS,
   /* An inverted character class: /[^a-zA-Z]/
-   *   Argument 0: character range begin (number)
-   *   Argument 1: character range end (number)
-   *   Argument 2: REF_NONE or another CLS node in the charclass (AST) */
+   *   Argument 0: REF_NONE or another CLS node in the charclass (AST)
+   *   Argument 1: character range begin (number)
+   *   Argument 2: character range end (number) */
   ICLS,
   /* Matches any byte: /\C/ */
   ANYBYTE,
@@ -384,7 +386,7 @@ int re_hasmore(re *r) { return r->expr_pos != r->expr_size; }
 int re_next(re *r, u32 *first, const char *else_msg)
 {
   u32 state = UTF8_ACCEPT;
-  assert(else_msg || re_hasmore(r));
+  assert(IMPLIES(!else_msg, re_hasmore(r)));
   if (!re_hasmore(r))
     return re_parse_err(r, else_msg);
   while (utf8_decode(&state, first, *(r->expr + r->expr_pos)),
@@ -1752,7 +1754,7 @@ int re_compile(re *r, u32 root, u32 reverse)
        *        +-----------------> */
       u32 child = args[0], min = args[1], max = args[2],
           is_greedy = !(frame.flags & UNGREEDY) ^ (type == UQUANT);
-      assert((min != INFTY && max != INFTY) || min != max);
+      assert(IMPLIES((min == INFTY || max == INFTY), min != max));
       if (frame.idx < min) { /* before minimum bound */
         patch_xfer(&child_frame, frame.idx ? &returned_frame : &frame);
         frame.child_ref = child;
@@ -2161,8 +2163,6 @@ int exec_nfa_start(
   n->track = track;
   return 0;
 }
-
-#define IMPLIES(subj, pred) (!(subj) || (pred))
 
 int exec_nfa_eps(re *r, exec_nfa *n, size_t pos, assert_flag ass)
 {
