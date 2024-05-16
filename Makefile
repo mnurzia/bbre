@@ -6,6 +6,8 @@ GDB=lldb --
 FORMAT=clang-format -i
 UDATA=python tools/unicode_data.py --debug --db tools/.ucd.zip
 
+FUZZINGTON=build/fuzzington/release/fuzzington
+
 ## run target `test`
 all: test
 
@@ -14,7 +16,7 @@ clean:
 	rm -rf build
 
 build:
-	mkdir -p build/{cov,fuzz/{artifact,new}}
+	mkdir -p build/{cov,fuzz/{artifact,new},fuzzington}
 
 build/test: build $(SRCS)
 	$(CC) $(CFLAGS) -DRE_TEST $(SRCS) -o $@
@@ -92,11 +94,11 @@ parser_fuzz: build build/parser_fuzz
 parser_fuzz_import: build
 	$(UDATA) add_parser_fuzz_regression_tests fuzz_results.json build/fuzz/artifact/*
 
-tools/fuzzington/target/debug/fuzzington: tools/fuzzington/src/main.rs tools/fuzzington/build.rs
-	cd tools/fuzzington; cargo build
+build/fuzzington/release/fuzzington: tools/fuzzington/src/main.rs tools/fuzzington/build.rs
+	cd tools/fuzzington; cargo build --release --target-dir ../../build/fuzzington
 
-## run fuzzington
-fuzzington_run: build tools/fuzzington/target/debug/fuzzington
+## run fuzzington, the semantic regex fuzz tester
+fuzzington_run: build build/fuzzington/release/fuzzington
 	python tools/fuzz_tool.py --debug fuzz_db.json run_fuzzington --num-iterations 1000000
 
 ## generate data tables for re.c
@@ -105,9 +107,10 @@ tables:
 	$(UDATA) gen_ascii_charclasses impl re.c
 	$(FORMAT) re.c
 
-## run clang-format on all sources
+## run clang-format/black on all .c/.py sources
 format:
 	$(FORMAT) $(SRCS) parser_fuzz.c
+	python -m black -q tools/*.py
 
 build/viz: build viz.c re.c
 	$(CC) $(CFLAGS) viz.c re.c -o $@
@@ -125,7 +128,7 @@ viz_ast: build/viz viz_gv_ast
 
 ## print a list of targets and their descriptions
 help_targets:
-	awk 'BEGIN {print "TARGET,DESCRIPTION"} {if ($$0 ~ /^##/) {getline target; split(target,a,":"); print a[1]","substr($$0,4)}}' Makefile | sort | column -t -s ','
+	awk 'BEGIN {print "TARGET&DESCRIPTION"} {if ($$0 ~ /^##/) {getline target; split(target,a,":"); print a[1]"&"substr($$0,4)}}' Makefile | sort | column -t -s '&'
 
 ## build documentation
 docs: build build/viz
