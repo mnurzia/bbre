@@ -10,7 +10,7 @@ from pathlib import Path
 from selectors import EVENT_READ, DefaultSelector
 from subprocess import PIPE, Popen
 import sys
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Callable, NamedTuple, Self
 from json import JSONDecodeError, dumps, load, dump, loads
 from util import get_commit_hash, insert_c_file, make_appender_func
 
@@ -45,139 +45,208 @@ def _escape_cstr(a: bytes) -> str:
     return '"' + "".join(map(_escape_char_for_cstr, a)) + '"'
 
 
-@dataclass
-class FuzzTest:
-    """Holds a single fuzz test."""
+class TestStamp(NamedTuple):
+    """Holds registration information for a test case."""
 
-    regexes: tuple[bytes, ...]
-    should_parse: tuple[bool, ...]
-    num_spans: int | None = None
-    num_sets: int | None = None
-    match_string: bytes | None = None
-    match_spans: tuple[tuple[int, int], ...] | None = None
-    match_sets: tuple[int, ...] | None = None
-    match_anchor: str | None = None
-    identifier: str | None = None
-    commit_hash: str | None = None
-    created: datetime | None = None
+    identifier: str
+    commit_hash: str
+    created: datetime
 
     @classmethod
-    def from_dict(cls, obj: dict[str, Any], identifier: str | None = None):
-        """Instantiate a FuzzTest from a given JSON object."""
-        encoding = obj.get("encoding", "raw")
-        if encoding == "utf-8":
-
-            def decoder_func(s: str | list[int]) -> bytes:
-                assert isinstance(s, str)
-                return s.encode()
-
-        elif encoding == "binascii":
-
-            def decoder_func(s: str | list[int]) -> bytes:
-                assert isinstance(s, str)
-                return unhexlify(s.replace("_", ""))
-
-        elif encoding == "raw":
-
-            def decoder_func(s: str | list[int]) -> bytes:
-                assert isinstance(s, list)
-                return bytes(s)
-
-        else:
-            raise ValueError(f"unknown regex encoding {encoding}")
-
-        regexes = obj["regexes"]
-        regexes = tuple(map(decoder_func, regexes))
-
-        should_parse: tuple[bool] = tuple(obj["should_parse"])
-
-        commit_hash = obj.get("commit_hash")
-        created = (
-            datetime.fromisoformat(obj["created"])
-            if obj.get("created") is not None
-            else None
-        )
-
-        if len(should_parse) != len(regexes):
-            raise ValueError("length of should_parse should equal length of regexes")
-
-        all_parse = all(should_parse)
-
-        if not all_parse or obj.get("match_string") is None:
-            return cls(
-                regexes,
-                should_parse,
-                identifier=identifier,
-                commit_hash=commit_hash,
-                created=created,
-            )
-
+    def from_dict(cls, obj) -> Self | None:
+        """Read a"""
+        if "identifier" not in obj:
+            return None
         return cls(
-            regexes,
-            should_parse,
-            obj["num_spans"],
-            obj["num_sets"],
-            decoder_func(obj["match_string"]),
-            tuple(tuple(x) for x in obj["match_spans"]),
-            tuple(obj["match_sets"]),
-            obj.get("match_anchor"),
-            identifier,
-            commit_hash,
-            created,
+            obj["identifier"],
+            obj["commit_hash"],
+            datetime.fromisoformat(obj["created"]),
         )
 
     def to_dict(self) -> dict:
-        """Convert this FuzzTest into a JSON object."""
-        try:
-            encoding = "utf-8"
-            encoded_regexes = [r.decode() for r in self.regexes]
-            encoded_match = (
-                self.match_string.decode() if self.match_string is not None else None
-            )
-        except UnicodeDecodeError:
-            encoding = "binascii"
-            encoded_regexes = [hexlify(r, "_").decode() for r in self.regexes]
-            encoded_match = (
-                hexlify(self.match_string, "_")
-                if self.match_string is not None
-                else None
-            )
-        assert self.created is not None
-        assert self.commit_hash is not None
+        """Convert this stamp into a dictionary."""
         return {
-            k: v
-            for k, v in sorted(
-                {
-                    "encoding": encoding,
-                    "regexes": encoded_regexes,
-                    "should_parse": self.should_parse,
-                    "num_spans": self.num_spans,
-                    "num_sets": self.num_sets,
-                    "match_string": encoded_match,
-                    "match_spans": self.match_spans,
-                    "match_sets": self.match_sets,
-                    "match_anchor": self.match_anchor,
-                    "commit_hash": self.commit_hash,
-                    "created": self.created.isoformat(),
-                }.items()
-            )
-            if v is not None
+            "identifier": self.identifier,
+            "commit_hash": self.commit_hash,
+            "created": self.created,
+        }
+
+
+def deserialize_bytes(obj: dict | str | list) -> bytes:
+    if isinstance(obj, str):
+        return obj.encode()
+    elif isinstance(obj, list):
+        return bytes(obj)
+    encoding = obj.get("encoding", "utf-8")
+    data: str = obj["data"]
+    assert isinstance(data, str)
+    if encoding == "utf-8":
+
+        def decoder_func(s: str) -> bytes:
+            return s.encode()
+
+    elif encoding == "binascii":
+
+        def decoder_func(s: str) -> bytes:
+            return unhexlify(s.replace("_", ""))
+
+    else:
+        raise ValueError(f"unknown regex encoding {encoding}")
+    return decoder_func(data)
+
+
+def serialize_bytes(b: bytes) -> dict | str | list:
+    try:
+        encoded = b.decode()
+        return encoded
+    except UnicodeDecodeError:
+        return {"encoding": "binascii", "data": hexlify(b, "_").decode()}
+
+
+class Test:
+    """Represents a single test case."""
+
+    REGISTRY: dict[str, type[Self]] = {}
+    test_type: str
+    _stamp: TestStamp | None
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        Test.REGISTRY[cls.test_type] = cls
+        super().__init_subclass__(**kwargs)
+
+    def __init__(self, stamp: TestStamp | None):
+        self._stamp = stamp
+
+    @classmethod
+    def from_dict(cls, obj) -> Self:
+        """Read this from a dictionary."""
+        return cls(TestStamp.from_dict(obj))
+
+    def to_dict(self) -> dict:
+        """Convert this test case into a dictionary."""
+        return {}
+
+    @classmethod
+    def deserialize(cls, obj) -> "Test":
+        """Convert this test case and its stamp into a dictionary."""
+        return Test.REGISTRY[obj["type"]].from_dict(obj)
+
+    def serialize(self) -> dict:
+        """Convert this test case and its stamp into a dictionary."""
+        return self._stamp.to_dict() if self._stamp is not None else self.to_dict()
+
+    def to_c_code(self) -> list[str]:
+        """Convert this test to C code."""
+        return NotImplemented
+
+    def __eq__(self, other) -> bool:
+        assert isinstance(other, Test)
+        return self.to_dict() == other.to_dict()
+
+    def __hash__(self) -> int:
+        return hash(self.to_dict())
+
+    def get_stamp(self) -> TestStamp | None:
+        return self._stamp
+
+    def stamp(self, stamp: TestStamp):
+        self._stamp = stamp
+
+
+class ParseTest(Test):
+    """
+    A test that runs the parser and checks whether or not the given regexes parse.
+    """
+
+    test_type = "parse"
+
+    regexes: tuple[bytes, ...]
+    should_parse: tuple[bool, ...]
+
+    def __init__(
+        self,
+        stamp: TestStamp | None,
+        regexes: tuple[bytes, ...],
+        should_parse: tuple[bool, ...],
+    ):
+        super().__init__(stamp)
+        self.regexes = regexes
+        self.should_parse = should_parse
+
+    @classmethod
+    def from_dict(cls, obj: dict) -> Test:
+        return cls(
+            TestStamp.from_dict(obj),
+            tuple(map(deserialize_bytes, obj["regexes"])),
+            tuple(obj["should_parse"]),
+        )
+
+    def to_dict(self) -> dict:
+        return super().to_dict() | {
+            "regexes": [serialize_bytes(b) for b in self.regexes]
         }
 
     def to_c_code(self) -> list[str]:
-        """Output this test case as C code."""
         assert len(self.regexes) == 1
-        if not self.parses():
-            return [
-                "PROPAGATE(check_noparse_n(",
-                _escape_cstr(self.regexes[0]) + ",",
-                str(len(self.regexes[0])),
-                "));",
-                "PASS();",
-            ]
-        assert self.match_spans is not None
-        assert self.match_sets is not None
-        assert self.match_string is not None
+        return [
+            "PROPAGATE(check_noparse_n(",
+            _escape_cstr(self.regexes[0]) + ",",
+            str(len(self.regexes[0])),
+            "));",
+            "PASS();",
+        ]
+
+
+class MatchTest(Test):
+    """A test that runs a match on a string."""
+
+    test_type = "match"
+
+    def __init__(
+        self,
+        stamp: TestStamp | None,
+        regexes: tuple[bytes, ...],
+        num_spans: int,
+        num_sets: int,
+        match_string: bytes,
+        match_spans: tuple[tuple[int, int], ...],
+        match_sets: tuple[int],
+        match_anchor: str,
+    ):
+        super().__init__(stamp)
+        self.regexes = regexes
+        self.num_spans = num_spans
+        self.num_sets = num_sets
+        self.match_string = match_string
+        self.match_spans = match_spans
+        self.match_sets = match_sets
+        self.match_anchor = match_anchor
+
+    @classmethod
+    def from_dict(cls, obj: dict) -> Test:
+        return cls(
+            TestStamp.from_dict(obj),
+            tuple(map(deserialize_bytes, obj["regexes"])),
+            obj["num_spans"],
+            obj["num_sets"],
+            deserialize_bytes(obj["match_string"]),
+            obj["match_spans"],
+            obj["match_sets"],
+            obj["match_anchor"],
+        )
+
+    def to_dict(self) -> dict:
+        return super().to_dict() | {
+            "regexes": [serialize_bytes(b) for b in self.regexes],
+            "num_spans": self.num_spans,
+            "num_sets": self.num_sets,
+            "match_string": serialize_bytes(self.match_string),
+            "match_spans": self.match_spans,
+            "match_sets": self.match_sets,
+            "match_anchor": self.match_anchor,
+        }
+
+    def to_c_code(self) -> list[str]:
         output, out = make_appender_func()
         out("const char *regexes[] = {")
         out(*[_escape_cstr(r) + "," for r in self.regexes])
@@ -213,76 +282,41 @@ class FuzzTest:
         out("PASS();")
         return output
 
-    def dump(self):
-        """Dump test info to stdout."""
-        print(f"{self.identifier}: {len(self.regexes)} regexes")
-        for regex, parse in zip(self.regexes, self.should_parse):
-            print(f"  {_escape_cstr(regex)}: {["parses", "doesn't parse"][parse]}")
-        if all(self.should_parse) and self.match_string is not None:
-            print(f"  match with {_escape_cstr(self.match_string)}:")
-            assert self.match_spans is not None and self.num_spans is not None
-            assert self.match_sets is not None and self.num_sets is not None
-            print(
-                f"    spans: {self.num_spans} sets: {self.num_sets} anchor: {self.match_anchor}"
-            )
-            print(f"    expect spans: {','.join(map(_fmt_span, self.match_spans))}")
-            print(f"    expect sets:  {','.join(map(str, self.match_sets))}")
 
-    def _key(self):
-        cmp_dict = asdict(self)
-        del cmp_dict["identifier"]
-        del cmp_dict["commit_hash"]
-        del cmp_dict["created"]
-        return tuple(cmp_dict.values())
-
-    def parses(self) -> bool:
-        """Check if this regex parses."""
-        return all(self.should_parse)
-
-    def __hash__(self) -> int:
-        return hash(self._key())
-
-    def __eq__(self, other) -> bool:
-        return self._key() == other._key()
-
-
-def _read_tests(json: BinaryIO) -> tuple[dict, list[FuzzTest]]:
+def _read_tests(json: BinaryIO) -> tuple[dict, list[Test]]:
     return (
         doc := load(json),
-        list(FuzzTest.from_dict(test, identifier) for identifier, test in doc.items()),
+        list(Test.deserialize(test) for test in doc),
     )
-
-
-def _fmt_span(span: tuple[int, int]) -> str:
-    return f"({span[0]}, {span[1]})"
 
 
 def _cmd_show(args) -> int:
     _, tests = _read_tests(args.tests_file)
     for test in tests:
-        test.dump()
+        if (stamp := test.get_stamp()) is None:
+            continue
+        print(stamp.identifier, stamp.commit_hash, stamp.created.isoformat())
     return 0
 
 
-def _import_tests(args, tests: list[FuzzTest]):
+def _import_tests(args, tests: list[Test]):
     doc, original_tests = _read_tests(args.tests_file)
     commit_hash = get_commit_hash()
 
     for test in tests:
         try:
             original_test_idx = original_tests.index(test)
+            assert (stamp := original_tests[original_test_idx].get_stamp())
             logger.debug(
                 "skipping existing test %s",
-                original_tests[original_test_idx].identifier,
+                stamp.identifier,
             )
             continue
         except ValueError:
             pass
         new_identifier = f"{len(original_tests):04d}"
-        test.identifier = new_identifier
-        test.commit_hash = commit_hash
-        test.created = datetime.now()
-        logger.debug("imported new test %s", test.identifier)
+        test.stamp(TestStamp(new_identifier, commit_hash, datetime.now()))
+        logger.debug("imported new test %s", new_identifier)
         doc[new_identifier] = test.to_dict()
 
     args.tests_file.seek(0)
@@ -297,7 +331,8 @@ def _cmd_import_parser(args) -> int:
     _import_tests(
         args,
         [
-            FuzzTest(
+            ParseTest(
+                None,
                 (new_corpus_file.read(),),
                 (False,),
             )
@@ -357,7 +392,7 @@ def _cmd_run_fuzzington(args) -> int:
                 break
     assert current_test is not None
 
-    _import_tests(args, [FuzzTest.from_dict(current_test)])
+    _import_tests(args, [Test.from_dict(current_test)])
 
     return 1
 
@@ -370,7 +405,9 @@ def _cmd_gen_tests(args) -> int:
     test_names = []
 
     for test in tests:
-        test_name = f"fuzz_regression_{test.identifier}"
+        stamp = test.get_stamp()
+        assert stamp is not None
+        test_name = f"fuzz_regression_{stamp.identifier}"
         out(f"TEST({test_name}) {{")
         out(*test.to_c_code(), suffix="")
         out("}")
@@ -382,6 +419,8 @@ def _cmd_gen_tests(args) -> int:
     out("}")
 
     insert_c_file(args.file, output, "gen_parser_fuzz_regression_tests")
+
+    logger.debug("generated %i tests", len(tests))
 
     return 0
 

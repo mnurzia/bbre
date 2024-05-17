@@ -112,6 +112,7 @@ int check_matches_n(
   re *r;
   int err;
   u32 i;
+  ASSERT_LTEm(nregex, TEST_MAX_SET, "too many regexes to match");
   ASSERT_LTEm(max_span, TEST_MAX_SPAN, "too many spans to match");
   ASSERT_LTEm(max_set, TEST_MAX_SET, "too many sets to match");
   /* initialize the regex: use argument to init_full() if there's only one
@@ -129,6 +130,10 @@ int check_matches_n(
   PROPAGATE(check_match_results(
       r, s, n, max_span, max_set, anchor, check_span, check_set, check_nsets));
   /* check to make sure that all match modes agree */
+  /* if `check_nsets` > 0, then a boolean match *must* return 1.
+   * if `check_nsets` == 0, then a boolean match *must* return 0. */
+  PROPAGATE(
+      check_match_results(r, s, n, 0, 0, anchor, NULL, NULL, !!check_nsets));
   if (anchor == 'B' && !max_span) {
     /* if we're fully anchored, group 0 *must* be the bounds of the match */
     span check_span_anchored[TEST_MAX_SET];
@@ -138,10 +143,6 @@ int check_matches_n(
         r, s, n, 1, max_set, anchor, check_span_anchored, check_set,
         check_nsets));
   }
-  /* if `check_nsets` > 0, then a boolean match *must* return 1.
-   * if `check_nsets` == 0, then a boolean match *must* return 0. */
-  PROPAGATE(
-      check_match_results(r, s, n, 0, 0, anchor, NULL, NULL, !!check_nsets));
   re_destroy(r);
   PASS();
 oom_re:
