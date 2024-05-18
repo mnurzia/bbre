@@ -1095,15 +1095,19 @@ inst inst_make(opcode op, u32 next, u32 param)
   return out;
 }
 
-u32 inst_match_param_make(u32 slot_or_set, u32 slot_idx_or_set_idx)
+u32 inst_match_param_make(
+    u32 slot_or_set, u32 begin_or_end, u32 slot_idx_or_set_idx)
 {
   assert(slot_or_set == 0 || slot_or_set == 1);
-  return slot_or_set | (slot_idx_or_set_idx << 1);
+  assert(begin_or_end == 0 || begin_or_end == 1);
+  return slot_or_set | (begin_or_end << 1) | (slot_idx_or_set_idx << 2);
 }
 
 u32 inst_match_param_slot(u32 param) { return param & 1; }
 
-u32 inst_match_param_idx(u32 param) { return param >> 1; }
+u32 inst_match_param_end(u32 param) { return (param >> 1) & 1; }
+
+u32 inst_match_param_idx(u32 param) { return param >> 2; }
 
 void re_prog_set(re *r, u32 pc, inst i)
 {
@@ -1721,7 +1725,7 @@ int re_compile(re *r, u32 root, u32 reverse)
 {
   int err = 0;
   compframe initial_frame = {0}, returned_frame = {0}, child_frame = {0};
-  u32 set_idx = 0, grp_idx = 0, tmp_cc_ast = REF_NONE;
+  u32 set_idx = 0, grp_idx = 1, tmp_cc_ast = REF_NONE;
   if (!r->prog.size &&
       ((err = stk_push(r, &r->prog, 0)) || (err = stk_push(r, &r->prog, 0))))
     return err;
@@ -1856,21 +1860,15 @@ int re_compile(re *r, u32 root, u32 reverse)
       if (!frame.idx) {                     /* before child */
         if (!(flags & NONCAPTURING)) {
           patch(r, &frame, my_pc);
-          if (flags & SUBEXPRESSION) {
-            /* for subexpressions: generate an initial match instruction */
+          if (flags & SUBEXPRESSION)
             grp_idx = 1;
-            if ((err = re_emit(
-                     r,
-                     inst_make(
-                         MATCH, 0, inst_match_param_make(0, 1 + set_idx++)))))
-              return err;
-          } else if
-              /* for regular groups: generate a save instruction corresponding
-                 to the start of the group */
-              ((err = re_emit(
-                    r, inst_make(
-                           MATCH, 0,
-                           inst_match_param_make(1, 2 * grp_idx++ + reverse)))))
+          if ((err = re_emit(
+                   r, inst_make(
+                          MATCH, 0,
+                          inst_match_param_make(
+                              !(flags & SUBEXPRESSION), reverse,
+                              (flags & SUBEXPRESSION ? 1 + set_idx++
+                                                     : grp_idx++))))))
             return err;
           patch_add(r, &child_frame, my_pc, 0);
         } else
@@ -1879,25 +1877,16 @@ int re_compile(re *r, u32 root, u32 reverse)
       } else if (frame.idx) { /* after child */
         if (!(flags & NONCAPTURING)) {
           patch(r, &returned_frame, my_pc);
-          if ((flags & SUBEXPRESSION)) {
-            /* for subexpressions: generate the final match instruction */
-            if ((err = re_emit(
-                     r,
-                     inst_make(MATCH, 0, inst_match_param_make(1, reverse)))))
-              return err;
-          } else {
-            /* for regular groups: generate a save instruction corresponding to
-             * the end of the group */
-            if ((err = re_emit(
-                     r, inst_make(
-                            MATCH, 0,
-                            inst_match_param_make(
-                                1, inst_match_param_idx(
-                                       inst_param(re_prog_get(r, frame.pc))) +
-                                       (reverse ? -1 : 1))))))
-              return err;
+          if ((err = re_emit(
+                   r, inst_make(
+                          MATCH, 0,
+                          inst_match_param_make(
+                              !(flags & SUBEXPRESSION), !reverse,
+                              inst_match_param_idx(
+                                  inst_param(re_prog_get(r, frame.pc))))))))
+            return err;
+          if (!(flags & SUBEXPRESSION))
             patch_add(r, &frame, my_pc, 0);
-          }
         } else
           patch_merge(r, &frame, &returned_frame);
       }
@@ -2258,26 +2247,28 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos, assert_flag ass)
         continue;
       sset_add(&n->c, top);
       switch (inst_opcode(re_prog_get(r, top.pc))) {
-      case MATCH:
+      case MATCH: {
+        u32 idx =
+            (inst_match_param_slot(inst_param(op))
+                 ? inst_match_param_idx(inst_param(op)) /* this is a save */
+                 : 0) *
+                2 +
+            inst_match_param_end(inst_param(op));
+        if (!inst_match_param_slot(inst_param(op)) &&
+            (err = save_slots_set_setidx(
+                 r, &n->slots, top.slot, inst_match_param_idx(inst_param(op)),
+                 &top.slot)))
+          return err;
+        if (idx < save_slots_perthrd(&n->slots) &&
+            (err = save_slots_set(r, &n->slots, top.slot, idx, pos, &top.slot)))
+          return err;
         if (inst_next(op)) {
-          u32 idx =
-              inst_match_param_slot(inst_param(op))
-                  ? inst_match_param_idx(inst_param(op)) /* this is a save */
-                  : n->reversed /* this is a set index marker */;
-          if (!inst_match_param_slot(inst_param(op)) &&
-              (err = save_slots_set_setidx(
-                   r, &n->slots, top.slot, inst_match_param_idx(inst_param(op)),
-                   &top.slot)))
-            return err;
-          if (idx < save_slots_perthrd(&n->slots) &&
-              (err =
-                   save_slots_set(r, &n->slots, top.slot, idx, pos, &top.slot)))
-            return err;
           top.pc = inst_next(op);
           if ((err = thrdstk_push(r, &n->thrd_stk, top)))
             return err;
           break;
-        } /* else fall-through */
+        } /* else fallthrough */
+      }
       case RANGE:
         sset_add(&n->b, top); /* this is a range or final match */
         break;
@@ -2389,6 +2380,7 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
     }
     case MATCH: {
       assert(!inst_next(op));
+      assert(!inst_match_param_slot(inst_param(op)));
       if ((err = exec_nfa_matchend(r, n, thrd, pos, ch, pri)))
         return err;
       break;
@@ -2455,6 +2447,29 @@ int exec_nfa_run(re *r, exec_nfa *n, u32 ch, size_t pos, u32 prev_ch)
   (err = exec_nfa_eps(r, n, pos, make_assert_flag(prev_ch, ch))) ||
       (err = exec_nfa_chr(r, n, ch, pos));
   return err;
+}
+
+typedef struct dfa_state {
+  struct dfa_state *ptrs[256 + 1];
+  u32 flags, nstate, nset;
+} dfa_state;
+
+typedef struct dfa {
+  dfa_state **states;
+  size_t states_size, states_alloc;
+} dfa;
+
+void dfa_init(dfa *d)
+{
+  d->states = NULL;
+  d->states_size = d->states_alloc = 0;
+}
+
+void dfa_destroy(re *r, dfa *d)
+{
+  size_t i;
+  for (i = 0; i < d->states_size; i++)
+    re_ialloc(r, sizeof(dfa_state), 0, d->states[i]);
 }
 
 /* problem: how the fuck do we do unanchored set matches? */
@@ -2927,6 +2942,13 @@ void astdump(re *r, u32 root) { astdump_i(r, root, 0, TERM); }
 
 void astdump_gv(re *r) { astdump_i(r, r->ast_root, 0, GRAPHVIZ); }
 
+void ssetdump(sset *s)
+{
+  u32 i;
+  for (i = 0; i < s->dense_size; i++)
+    printf("%04X pc: %04X slot: %04X\n", i, s->dense[i].pc, s->dense[i].slot);
+}
+
 void progdump_range(re *r, u32 start, u32 end, int format)
 {
   u32 j, k;
@@ -2951,8 +2973,10 @@ void progdump_range(re *r, u32 start, u32 end, int format)
           inst_next(ins), inst_param(ins), labels[k]);
       if (inst_opcode(ins) == MATCH)
         printf(
-            " %c/%u", inst_match_param_slot(inst_param(ins)) ? 'G' : 'E',
-            inst_match_param_idx(inst_param(ins)));
+            " %s %u %s",
+            inst_match_param_slot(inst_param(ins)) ? "slot" : "set",
+            inst_match_param_idx(inst_param(ins)),
+            inst_match_param_end(inst_param(ins)) ? "end" : "begin");
       printf("\n");
     } else {
       static const char *shapes[] = {"box", "diamond", "pentagon", "oval"};
@@ -2971,8 +2995,10 @@ void progdump_range(re *r, u32 start, u32 end, int format)
             dump_chr_ascii(end_buf, u32_to_byte_range(inst_param(ins)).h));
       else if (inst_opcode(ins) == MATCH)
         printf(
-            "%s %u", inst_match_param_slot(inst_param(ins)) ? "slot" : "set",
-            inst_match_param_idx(inst_param(ins)));
+            " %s %u %s",
+            inst_match_param_slot(inst_param(ins)) ? "slot" : "set",
+            inst_match_param_idx(inst_param(ins)),
+            inst_match_param_end(inst_param(ins)) ? "end" : "begin");
       else if (inst_opcode(ins) == ASSERT)
         printf("%s", dump_assert(assert_buf, inst_param(ins)));
       printf("\"]\n");
