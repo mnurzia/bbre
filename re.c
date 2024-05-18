@@ -2130,15 +2130,15 @@ u32 save_slots_get_setidx(save_slots *s, u32 ref)
   return s->slots[ref * s->per_thrd + s->per_thrd - 2];
 }
 
-typedef struct exec_nfa {
+typedef struct nfa {
   sset a, b, c;
   stk thrd_stk;
   save_slots slots;
   stk pri_stk, pri_bmp, pri_bmp_tmp;
   int reversed, track;
-} exec_nfa;
+} nfa;
 
-void exec_nfa_init(re *r, exec_nfa *n)
+void nfa_init(re *r, nfa *n)
 {
   sset_init(r, &n->a), sset_init(r, &n->b), sset_init(r, &n->c);
   stk_init(r, &n->thrd_stk);
@@ -2148,7 +2148,7 @@ void exec_nfa_init(re *r, exec_nfa *n)
   n->reversed = n->track = 0;
 }
 
-void exec_nfa_destroy(re *r, exec_nfa *n)
+void nfa_destroy(re *r, nfa *n)
 {
   sset_destroy(r, &n->a), sset_destroy(r, &n->b), sset_destroy(r, &n->c);
   stk_destroy(r, &n->thrd_stk);
@@ -2200,8 +2200,7 @@ u32 bmp_get(stk *s, u32 idx)
   return s->ptr[idx / BITS_PER_U32] & (1 << (idx % BITS_PER_U32));
 }
 
-int exec_nfa_start(
-    re *r, exec_nfa *n, u32 pc, u32 noff, int reversed, int track)
+int nfa_start(re *r, nfa *n, u32 pc, u32 noff, int reversed, int track)
 {
   thrdspec initial_thrd;
   u32 i;
@@ -2228,7 +2227,7 @@ int exec_nfa_start(
   return 0;
 }
 
-int exec_nfa_eps(re *r, exec_nfa *n, size_t pos, assert_flag ass)
+int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
 {
   int err;
   size_t i;
@@ -2303,8 +2302,8 @@ int exec_nfa_eps(re *r, exec_nfa *n, size_t pos, assert_flag ass)
   return 0;
 }
 
-int exec_nfa_matchend(
-    re *r, exec_nfa *n, thrdspec thrd, size_t pos, unsigned int ch, int pri)
+int nfa_matchend(
+    re *r, nfa *n, thrdspec thrd, size_t pos, unsigned int ch, int pri)
 {
   int err = 0;
   u32 idx = save_slots_get_setidx(&n->slots, thrd.slot);
@@ -2353,7 +2352,7 @@ int exec_nfa_matchend(
   return err;
 }
 
-int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
+int nfa_chr(re *r, nfa *n, unsigned int ch, size_t pos)
 {
   int err;
   size_t i;
@@ -2381,7 +2380,7 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
     case MATCH: {
       assert(!inst_next(op));
       assert(!inst_match_param_slot(inst_param(op)));
-      if ((err = exec_nfa_matchend(r, n, thrd, pos, ch, pri)))
+      if ((err = nfa_matchend(r, n, thrd, pos, ch, pri)))
         return err;
       break;
     }
@@ -2394,18 +2393,26 @@ int exec_nfa_chr(re *r, exec_nfa *n, unsigned int ch, size_t pos)
 
 #define SENT_CH 256
 
-int is_word_char(u32 ch)
+u32 is_word_char(u32 ch)
 {
   return (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') ||
          (ch >= 'a' && ch <= 'z') || ch == '_';
 }
 
+assert_flag make_assert_flag_raw(
+    u32 prev_text_begin, u32 prev_line_begin, u32 prev_word, u32 next_ch)
+{
+  return prev_text_begin * TEXT_BEGIN | (next_ch == SENT_CH) * TEXT_END |
+         prev_line_begin * LINE_BEGIN |
+         (next_ch == SENT_CH || next_ch == '\n') * LINE_END |
+         ((prev_word == is_word_char(next_ch)) ? NOT_WORD : WORD);
+}
+
 assert_flag make_assert_flag(u32 prev_ch, u32 next_ch)
 {
-  return (prev_ch == SENT_CH) * TEXT_BEGIN | (next_ch == SENT_CH) * TEXT_END |
-         (prev_ch == SENT_CH || prev_ch == '\n') * LINE_BEGIN |
-         (next_ch == SENT_CH || next_ch == '\n') * LINE_END |
-         ((is_word_char(prev_ch) == is_word_char(next_ch)) ? NOT_WORD : WORD);
+  return make_assert_flag_raw(
+      prev_ch == SENT_CH, (prev_ch == SENT_CH || prev_ch == '\n'),
+      is_word_char(prev_ch), next_ch);
 }
 
 /* return number of sets matched, -n otherwise */
@@ -2414,14 +2421,14 @@ assert_flag make_assert_flag(u32 prev_ch, u32 next_ch)
 /* if max_set != 0 and max_span == 0 */
 /* if max_set == 0 and max_span != 0 */
 /* if max_set != 0 and max_span != 0 */
-int exec_nfa_end(
-    re *r, size_t pos, exec_nfa *n, u32 max_span, u32 max_set, span *out_span,
+int nfa_end(
+    re *r, size_t pos, nfa *n, u32 max_span, u32 max_set, span *out_span,
     u32 *out_set, u32 prev_ch)
 {
   int err;
   size_t j, sets = 0, nset = 0;
-  if ((err = exec_nfa_eps(r, n, pos, make_assert_flag(prev_ch, SENT_CH))) ||
-      (err = exec_nfa_chr(r, n, 256, pos)))
+  if ((err = nfa_eps(r, n, pos, make_assert_flag(prev_ch, SENT_CH))) ||
+      (err = nfa_chr(r, n, 256, pos)))
     return err;
   for (sets = 0; sets < r->ast_sets && (max_set ? nset < max_set : nset < 1);
        sets++) {
@@ -2441,13 +2448,21 @@ int exec_nfa_end(
   return nset;
 }
 
-int exec_nfa_run(re *r, exec_nfa *n, u32 ch, size_t pos, u32 prev_ch)
+int nfa_run(re *r, nfa *n, u32 ch, size_t pos, u32 prev_ch)
 {
   int err;
-  (err = exec_nfa_eps(r, n, pos, make_assert_flag(prev_ch, ch))) ||
-      (err = exec_nfa_chr(r, n, ch, pos));
+  (err = nfa_eps(r, n, pos, make_assert_flag(prev_ch, ch))) ||
+      (err = nfa_chr(r, n, ch, pos));
   return err;
 }
+
+#define DFA_MAX_NUM_STATES 256
+
+typedef enum dfa_state_flag {
+  FROM_TEXT_BEGIN,
+  FROM_LINE_BEGIN,
+  FROM_WORD
+} dfa_state_flag;
 
 typedef struct dfa_state {
   struct dfa_state *ptrs[256 + 1];
@@ -2456,22 +2471,217 @@ typedef struct dfa_state {
 
 typedef struct dfa {
   dfa_state **states;
-  size_t states_size, states_alloc;
+  size_t states_size, num_active_states;
+  dfa_state *entry[4][8]; /* program entry type * dfa_state_flag */
+  stk set_buf;
 } dfa;
 
-void dfa_init(dfa *d)
+void dfa_init(re *r, dfa *d)
 {
   d->states = NULL;
-  d->states_size = d->states_alloc = 0;
+  d->states_size = d->num_active_states = 0;
+  stk_init(r, &d->set_buf);
 }
 
 void dfa_destroy(re *r, dfa *d)
 {
   size_t i;
   for (i = 0; i < d->states_size; i++)
-    re_ialloc(r, sizeof(dfa_state), 0, d->states[i]);
+    if (d->states[i])
+      re_ialloc(r, sizeof(dfa_state), 0, d->states[i]);
+  re_ialloc(r, d->states_size * sizeof(dfa_state *), 0, d->states);
 }
 
+size_t dfa_state_size(u32 nstate, u32 nset)
+{
+  return sizeof(dfa_state) + sizeof(u32) * (nstate + nset);
+}
+
+u32 *dfa_state_data(dfa_state *state) { return (u32 *)(state + 1); }
+
+/* need: current state, but ALSO the previous state's matches */
+int dfa_construct(
+    re *r, dfa *d, dfa_state *prev_state, unsigned int ch, u32 prev_flag,
+    nfa *n, dfa_state **out_next_state)
+{
+  size_t i;
+  int err = 0;
+  u32 hash, table_pos, *state_data;
+  dfa_state *next_state;
+  /* check threads in n, and look them up in the dfa cache */
+  hash = hashington(prev_flag);
+  hash = hashington(hash + n->a.dense_size);
+  hash = hashington(hash + d->set_buf.size);
+  for (i = 0; i < n->a.dense_size; i++)
+    hash = hashington(hash + n->a.dense[i].pc);
+  for (i = 0; i < d->set_buf.size; i++)
+    hash = hashington(hash + d->set_buf.size);
+  if (!d->states_size) {
+    /* need to allocate initial cache */
+    dfa_state **next_cache =
+        re_ialloc(r, 0, sizeof(dfa_state *) * DFA_MAX_NUM_STATES, NULL);
+    if (!next_cache)
+      return ERR_MEM;
+    memset(next_cache, 0, sizeof(dfa_state *) * DFA_MAX_NUM_STATES);
+    d->states = next_cache, d->states_size = DFA_MAX_NUM_STATES;
+  }
+  table_pos = hash % d->states_size;
+  while (1) {
+    /* linear probe for next state */
+    if (!d->states[table_pos]) {
+      next_state = NULL;
+      break;
+    }
+    next_state = d->states[table_pos];
+    state_data = (u32 *)(next_state + sizeof(dfa_state));
+    if (next_state->flags != prev_flag)
+      goto not_found;
+    if (next_state->nstate != n->a.dense_size)
+      goto not_found;
+    if (next_state->nset != d->set_buf.size)
+      goto not_found;
+    for (i = 0; i < n->a.dense_size; i++)
+      if (state_data[i] != n->a.dense[i].pc)
+        goto not_found;
+    for (i = 0; i < d->set_buf.size; d++)
+      if (state_data[n->a.dense_size + i] != d->set_buf.ptr[i])
+        goto not_found;
+    /* state found! */
+    break;
+  not_found:
+    table_pos += 1;
+    if (table_pos == d->states_size)
+      table_pos = 0;
+  }
+  if (!next_state) {
+    /* we need to construct a new state */
+    if (d->num_active_states == DFA_MAX_NUM_STATES) {
+      /* clear cache */
+      for (i = 0; i < d->states_size; d++)
+        if (d->states[i]) {
+          re_ialloc(
+              r, dfa_state_size(d->states[i]->nstate, d->states[i]->nset), 0,
+              d->states[i]);
+          d->states[i] = NULL;
+        }
+      d->num_active_states = 0;
+      table_pos = hash % d->states_size;
+      memset(d->entry, 0, sizeof(d->entry));
+      prev_state = NULL;
+    }
+    /* allocate new state */
+    next_state =
+        re_ialloc(r, 0, dfa_state_size(n->a.dense_size, d->set_buf.size), NULL);
+    if (!next_state)
+      return ERR_MEM;
+    next_state->flags = prev_flag;
+    next_state->nstate = n->a.dense_size;
+    next_state->nset = d->set_buf.size;
+    state_data = (u32 *)(next_state + sizeof(dfa_state));
+    for (i = 0; i < n->a.dense_size; i++)
+      state_data[i] = n->a.dense[i].pc;
+    for (i = 0; i < d->set_buf.size; i++)
+      state_data[n->a.dense_size + i] = d->set_buf.ptr[i];
+    d->states[table_pos] = next_state;
+  }
+  assert(next_state);
+  if (prev_state)
+    /* link the states */
+    prev_state->ptrs[ch] = next_state;
+  *out_next_state = next_state;
+  return err;
+}
+
+int dfa_construct_start(
+    re *r, dfa *d, nfa *n, u32 entry, u32 prev_flag, dfa_state **out_next_state)
+{
+  int err = 0;
+  /* clear the set buffer so that it can be used to compare dfa states later */
+  d->set_buf.size = 0;
+  *out_next_state = d->entry[entry][prev_flag];
+  if (!*out_next_state) {
+    thrdspec spec;
+    spec.pc = r->entry[entry];
+    spec.slot = 0;
+    sset_clear(&n->a);
+    sset_add(&n->a, spec);
+    err = dfa_construct(r, d, NULL, 0, prev_flag, n, out_next_state);
+  }
+  return err;
+}
+
+int dfa_construct_chr(
+    re *r, dfa *d, nfa *n, dfa_state *prev_state, unsigned int ch,
+    dfa_state **out_next_state)
+{
+  int err;
+  size_t i;
+  /* clear the set buffer so that it can be used to compare dfa states later */
+  d->set_buf.size = 0;
+  /* we only care about `ch` if `prev_state != NULL`. we only care about
+   * `prev_flag` if `prev_state == NULL` */
+  /* import prev_state into n */
+  sset_clear(&n->a);
+  for (i = 0; i < prev_state->nstate; i++) {
+    thrdspec thrd;
+    thrd.pc = dfa_state_data(prev_state)[i];
+    thrd.slot = 0;
+    sset_add(&n->a, thrd);
+  }
+  /* run eps on n */
+  if ((err = nfa_eps(
+           r, n, 0,
+           make_assert_flag_raw(
+               prev_state->flags & TEXT_BEGIN, prev_state->flags & LINE_BEGIN,
+               prev_state->flags & FROM_WORD, ch))))
+    return err;
+  /* collect matches and match priorities into d->set_buf */
+  bmp_clear(&n->pri_bmp_tmp);
+  for (i = 0; i < n->b.dense_size; i++) {
+    thrdspec thrd = n->b.dense[i];
+    inst op = re_prog_get(r, thrd.pc);
+    int pri =
+        save_slots_perthrd(&n->slots)
+            ? !bmp_get(
+                  &n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot))
+            : 0;
+    if (pri)
+      bmp_set(&n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot));
+    switch (inst_opcode(op)) {
+    case RANGE: {
+      byte_range br = u32_to_byte_range(inst_param(op));
+      if (ch >= br.l && ch <= br.h) {
+        thrd.pc = inst_next(op);
+        sset_add(&n->a, thrd);
+      } else
+        save_slots_kill(&n->slots, thrd.slot);
+      break;
+    }
+    case MATCH: {
+      assert(!inst_next(op));
+      assert(!inst_match_param_slot(inst_param(op)));
+      /* NOTE: since there only exists one match instruction for a set n, we
+       * don't need to check if we've already pushed the match instruction. */
+      if ((err = stk_push(
+               r, &d->set_buf,
+               inst_match_param_idx(inst_param(op)) << 1 & pri)))
+        return err;
+      break;
+    }
+    default:
+      assert(0);
+    }
+  }
+  /* feed ch to n -> this was accomplished by the above code */
+  return dfa_construct(
+      r, d, prev_state, ch,
+      (ch == SENT_CH) * TEXT_BEGIN | (ch == SENT_CH || ch == '\n') * LINE_END |
+          (is_word_char(ch) ? WORD : NOT_WORD),
+      n, out_next_state);
+}
+
+/* go to next state: run eps, dump previous state's matching state into new
+ * state */
 /* problem: how the fuck do we do unanchored set matches? */
 /* solutions:
  * - introduce "partition" instructions
@@ -2491,7 +2701,7 @@ int re_match(
     re *r, const char *s, size_t n, u32 max_span, u32 max_set, span *out_span,
     u32 *out_set, anchor_type anchor)
 {
-  exec_nfa nfa;
+  nfa nfa;
   int err = 0;
   u32 entry = anchor == A_END          ? PROG_ENTRY_REVERSE
               : anchor == A_UNANCHORED ? PROG_ENTRY_DOTSTAR
@@ -2501,21 +2711,21 @@ int re_match(
   if (!re_prog_size(r) && ((err = re_compile(r, r->ast_root, 0)) ||
                            (err = re_compile(r, r->ast_root, 1))))
     return err;
-  exec_nfa_init(r, &nfa);
-  if ((err = exec_nfa_start(
+  nfa_init(r, &nfa);
+  if ((err = nfa_start(
            r, &nfa, r->entry[entry], max_span * 2, entry & PROG_ENTRY_REVERSE,
            entry & PROG_ENTRY_DOTSTAR)))
     goto done;
   for (i = 0; i < n; i++) {
-    if ((err = exec_nfa_run(r, &nfa, ((const u8 *)s)[i], i, prev_ch)))
+    if ((err = nfa_run(r, &nfa, ((const u8 *)s)[i], i, prev_ch)))
       goto done;
     prev_ch = ((const u8 *)s)[i];
   }
-  if ((err = exec_nfa_end(
-           r, n, &nfa, max_span, max_set, out_span, out_set, prev_ch)))
+  if ((err =
+           nfa_end(r, n, &nfa, max_span, max_set, out_span, out_set, prev_ch)))
     goto done;
 done:
-  exec_nfa_destroy(r, &nfa);
+  nfa_destroy(r, &nfa);
   return err;
 }
 
