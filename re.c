@@ -2902,8 +2902,8 @@ void astdump_i(re *r, u32 root, u32 ilvl, int format)
         dump_quant(buf2, *re_ast_param(r, root, 2)));
   else if (first == CLS || first == ICLS)
     printf(
-        "%s-%s", dump_chr_unicode(buf, *re_ast_param(r, root, 0)),
-        dump_chr_unicode(buf2, *re_ast_param(r, root, 1)));
+        "%s-%s", dump_chr_unicode(buf, *re_ast_param(r, root, 1)),
+        dump_chr_unicode(buf2, *re_ast_param(r, root, 2)));
   if (format == GRAPHVIZ)
     printf(
         "\"]\nsubgraph cluster_%04X { "

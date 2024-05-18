@@ -100,9 +100,9 @@ A character class.
 ### ICLS
 An inverted character class.
 #### Arguments:
-  -   Argument 0: character range begin (number)
-  -   Argument 1: character range end (number)
-  -   Argument 2: REF_NONE or another CLS node in the charclass (AST)
+  -   Argument 0: REF_NONE or another CLS node in the charclass (AST)
+  -   Argument 1: character range begin (number)
+  -   Argument 2: character range end (number)
 
 #### Example: `[^a-zA-Z]`
 ![ICLS AST example](generated/ast/icls_ast.svg)
