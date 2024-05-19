@@ -31,7 +31,7 @@ test-gen.c: build fuzz_db.json tools/fuzz_tool.py
 	$(FORMAT) $@
 
 build/compile_commands.json: build $(SRCS) 
-	bear --output $@ -- make -B build/test build/parser_fuzz build/fuzzington_harness
+	bear --output $@ -- make -B build/test build/parser_fuzz
 
 ## generate compile_commands.json for language servers (alias for build/compile_commands.json)
 compile_commands: build/compile_commands.json

@@ -2480,6 +2480,7 @@ void dfa_init(re *r, dfa *d)
 {
   d->states = NULL;
   d->states_size = d->num_active_states = 0;
+  memset(d->entry, 0, sizeof(d->entry));
   stk_init(r, &d->set_buf);
 }
 
@@ -2533,7 +2534,7 @@ int dfa_construct(
       break;
     }
     next_state = d->states[table_pos];
-    state_data = (u32 *)(next_state + sizeof(dfa_state));
+    state_data = dfa_state_data(next_state);
     if (next_state->flags != prev_flag)
       goto not_found;
     if (next_state->nstate != n->a.dense_size)
@@ -2543,7 +2544,7 @@ int dfa_construct(
     for (i = 0; i < n->a.dense_size; i++)
       if (state_data[i] != n->a.dense[i].pc)
         goto not_found;
-    for (i = 0; i < d->set_buf.size; d++)
+    for (i = 0; i < d->set_buf.size; i++)
       if (state_data[n->a.dense_size + i] != d->set_buf.ptr[i])
         goto not_found;
     /* state found! */
@@ -2574,10 +2575,11 @@ int dfa_construct(
         re_ialloc(r, 0, dfa_state_size(n->a.dense_size, d->set_buf.size), NULL);
     if (!next_state)
       return ERR_MEM;
+    memset(next_state, 0, dfa_state_size(n->a.dense_size, d->set_buf.size));
     next_state->flags = prev_flag;
     next_state->nstate = n->a.dense_size;
     next_state->nset = d->set_buf.size;
-    state_data = (u32 *)(next_state + sizeof(dfa_state));
+    state_data = dfa_state_data(next_state);
     for (i = 0; i < n->a.dense_size; i++)
       state_data[i] = n->a.dense[i].pc;
     for (i = 0; i < d->set_buf.size; i++)
@@ -2680,6 +2682,53 @@ int dfa_construct_chr(
       n, out_next_state);
 }
 
+int re_match_dfa(
+    re *r, nfa *nfa, u8 *s, size_t n, u32 max_span, u32 max_set, span *out_span,
+    u32 *out_set, anchor_type anchor)
+{
+  int err;
+  dfa dfa;
+  dfa_state *state = NULL;
+  size_t i;
+  u32 entry = anchor == A_END          ? PROG_ENTRY_REVERSE
+              : anchor == A_UNANCHORED ? PROG_ENTRY_DOTSTAR
+                                       : 0;
+  u32 incoming_assert_flag = FROM_TEXT_BEGIN | FROM_LINE_BEGIN;
+  assert(max_span == 0 || max_span == 1);
+  assert(anchor == A_BOTH);
+  if ((err = nfa_start(
+           r, nfa, r->entry[entry], 0, entry & PROG_ENTRY_REVERSE,
+           entry & PROG_ENTRY_DOTSTAR)))
+    return err;
+  dfa_init(r, &dfa);
+  if (!(state = dfa.entry[entry][incoming_assert_flag]) &&
+      (err = dfa_construct_start(
+           r, &dfa, nfa, entry, FROM_TEXT_BEGIN | FROM_LINE_BEGIN, &state)))
+    goto done;
+  for (i = 0; i < n; i++) {
+    if (!state->ptrs[s[i]]) {
+      if ((err = dfa_construct_chr(r, &dfa, nfa, state, s[i], &state)))
+        goto done;
+    } else
+      state = state->ptrs[s[i]];
+  }
+  if (!state->ptrs[SENT_CH]) {
+    if ((err = dfa_construct_chr(r, &dfa, nfa, state, SENT_CH, &state)))
+      goto done;
+  } else
+    state = state->ptrs[s[i]];
+  for (i = 0; i < state->nset; i++) {
+    if (max_span)
+      out_span[i].begin = 0, out_span[i].end = n;
+    if (i < max_set)
+      out_set[i] = dfa_state_data(state)[state->nstate + i] >> 1;
+  }
+  err = state->nset;
+done:
+  dfa_destroy(r, &dfa);
+  return err;
+}
+
 /* go to next state: run eps, dump previous state's matching state into new
  * state */
 /* problem: how the fuck do we do unanchored set matches? */
@@ -2712,6 +2761,10 @@ int re_match(
                            (err = re_compile(r, r->ast_root, 1))))
     return err;
   nfa_init(r, &nfa);
+  if (anchor == A_BOTH && (max_span == 0 || max_span == 1)) {
+    err = re_match_dfa(
+        r, &nfa, (u8 *)s, n, max_span, max_set, out_span, out_set, anchor);
+  }
   if ((err = nfa_start(
            r, &nfa, r->entry[entry], max_span * 2, entry & PROG_ENTRY_REVERSE,
            entry & PROG_ENTRY_DOTSTAR)))
