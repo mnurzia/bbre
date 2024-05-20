@@ -2135,7 +2135,7 @@ typedef struct nfa {
   stk thrd_stk;
   save_slots slots;
   stk pri_stk, pri_bmp, pri_bmp_tmp;
-  int reversed, track;
+  int reversed, track, pri;
 } nfa;
 
 void nfa_init(re *r, nfa *n)
@@ -2200,7 +2200,7 @@ u32 bmp_get(stk *s, u32 idx)
   return s->ptr[idx / BITS_PER_U32] & (1 << (idx % BITS_PER_U32));
 }
 
-int nfa_start(re *r, nfa *n, u32 pc, u32 noff, int reversed, int track)
+int nfa_start(re *r, nfa *n, u32 pc, u32 noff, int reversed, int track, int pri)
 {
   thrdspec initial_thrd;
   u32 i;
@@ -2224,6 +2224,7 @@ int nfa_start(re *r, nfa *n, u32 pc, u32 noff, int reversed, int track)
     return err;
   n->reversed = reversed;
   n->track = track;
+  n->pri = pri;
   return 0;
 }
 
@@ -2262,9 +2263,12 @@ int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
             (err = save_slots_set(r, &n->slots, top.slot, idx, pos, &top.slot)))
           return err;
         if (inst_next(op)) {
-          top.pc = inst_next(op);
-          if ((err = thrdstk_push(r, &n->thrd_stk, top)))
-            return err;
+          if (inst_match_param_slot(inst_param(op)) ||
+              !n->pri_stk.ptr[inst_match_param_idx(inst_param(op)) - 1]) {
+            top.pc = inst_next(op);
+            if ((err = thrdstk_push(r, &n->thrd_stk, top)))
+              return err;
+          }
           break;
         } /* else fallthrough */
       }
@@ -2302,8 +2306,7 @@ int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
   return 0;
 }
 
-int nfa_matchend(
-    re *r, nfa *n, thrdspec thrd, size_t pos, unsigned int ch, int pri)
+int nfa_matchend(re *r, nfa *n, thrdspec thrd, size_t pos, unsigned int ch)
 {
   int err = 0;
   u32 idx = save_slots_get_setidx(&n->slots, thrd.slot);
@@ -2314,34 +2317,8 @@ int nfa_matchend(
     return err;
   if (n->slots.per_thrd) {
     u32 slot_idx = !n->reversed;
-    if (*memo) {
-      int older = 1, same = 0, better_pri = 0, same_pri = 0;
-      if ((u32)n->reversed < save_slots_perthrd(&n->slots)) {
-        size_t start = save_slots_get(
-          &n->slots, thrd.slot,
-          n->reversed /* TODO: should this actually be n->reversed or just 0 if we want leftmost matches */),
-          other_start = save_slots_get(
-          &n->slots, *memo,
-          n->reversed /* TODO: should this actually be n->reversed or just 0 if we want leftmost matches */);
-
-        older = start < other_start;
-        same = start == other_start;
-      }
-      better_pri = !!bmp_get(&n->pri_bmp, idx) < pri;
-      same_pri = !!bmp_get(&n->pri_bmp, idx) == pri;
-      if (!older && !same)
-        return 0;
-      else if (older && !same) {
-      } else if (!older && same) {
-        if (better_pri || (same_pri && !pri)) {
-        } else {
-          return 0;
-        }
-      }
+    if (*memo)
       save_slots_kill(&n->slots, *memo);
-    }
-    if (pri)
-      bmp_set(&n->pri_bmp, idx);
     *memo = thrd.slot;
     if (slot_idx < save_slots_perthrd(&n->slots) &&
         (err = save_slots_set(r, &n->slots, thrd.slot, slot_idx, pos, memo)))
@@ -2362,11 +2339,11 @@ int nfa_chr(re *r, nfa *n, unsigned int ch, size_t pos)
     inst op = re_prog_get(r, thrd.pc);
     int pri =
         save_slots_perthrd(&n->slots)
-            ? !bmp_get(
+            ? bmp_get(
                   &n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot))
             : 0;
-    if (pri)
-      bmp_set(&n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot));
+    if (pri && n->pri)
+      continue; /* priority exhaustion: disregard this thread */
     switch (inst_opcode(op)) {
     case RANGE: {
       byte_range br = u32_to_byte_range(inst_param(op));
@@ -2380,8 +2357,10 @@ int nfa_chr(re *r, nfa *n, unsigned int ch, size_t pos)
     case MATCH: {
       assert(!inst_next(op));
       assert(!inst_match_param_slot(inst_param(op)));
-      if ((err = nfa_matchend(r, n, thrd, pos, ch, pri)))
+      if ((err = nfa_matchend(r, n, thrd, pos, ch)))
         return err;
+      if (save_slots_perthrd(&n->slots) && n->pri)
+        bmp_set(&n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot));
       break;
     }
     default:
@@ -2698,7 +2677,7 @@ int re_match_dfa(
   assert(anchor == A_BOTH);
   if ((err = nfa_start(
            r, nfa, r->entry[entry], 0, entry & PROG_ENTRY_REVERSE,
-           entry & PROG_ENTRY_DOTSTAR)))
+           entry & PROG_ENTRY_DOTSTAR, entry & PROG_ENTRY_DOTSTAR)))
     return err;
   dfa_init(r, &dfa);
   if (!(state = dfa.entry[entry][incoming_assert_flag]) &&
@@ -2767,7 +2746,7 @@ int re_match(
   }
   if ((err = nfa_start(
            r, &nfa, r->entry[entry], max_span * 2, entry & PROG_ENTRY_REVERSE,
-           entry & PROG_ENTRY_DOTSTAR)))
+           entry & PROG_ENTRY_DOTSTAR, entry & PROG_ENTRY_DOTSTAR)))
     goto done;
   for (i = 0; i < n; i++) {
     if ((err = nfa_run(r, &nfa, ((const u8 *)s)[i], i, prev_ch)))
