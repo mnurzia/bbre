@@ -2134,8 +2134,8 @@ typedef struct nfa {
   sset a, b, c;
   stk thrd_stk;
   save_slots slots;
-  stk pri_stk, pri_bmp, pri_bmp_tmp;
-  int reversed, track, pri;
+  stk pri_stk, pri_bmp_tmp;
+  int reversed, pri;
 } nfa;
 
 void nfa_init(re *r, nfa *n)
@@ -2143,9 +2143,8 @@ void nfa_init(re *r, nfa *n)
   sset_init(r, &n->a), sset_init(r, &n->b), sset_init(r, &n->c);
   stk_init(r, &n->thrd_stk);
   save_slots_init(r, &n->slots);
-  stk_init(r, &n->pri_stk), stk_init(r, &n->pri_bmp),
-      stk_init(r, &n->pri_bmp_tmp);
-  n->reversed = n->track = 0;
+  stk_init(r, &n->pri_stk), stk_init(r, &n->pri_bmp_tmp);
+  n->reversed = 0;
 }
 
 void nfa_destroy(re *r, nfa *n)
@@ -2153,8 +2152,7 @@ void nfa_destroy(re *r, nfa *n)
   sset_destroy(r, &n->a), sset_destroy(r, &n->b), sset_destroy(r, &n->c);
   stk_destroy(r, &n->thrd_stk);
   save_slots_destroy(r, &n->slots);
-  stk_destroy(r, &n->pri_stk), stk_destroy(r, &n->pri_bmp),
-      stk_destroy(r, &n->pri_bmp_tmp);
+  stk_destroy(r, &n->pri_stk), stk_destroy(r, &n->pri_bmp_tmp);
 }
 
 int thrdstk_push(re *r, stk *s, thrdspec t)
@@ -2200,7 +2198,7 @@ u32 bmp_get(stk *s, u32 idx)
   return s->ptr[idx / BITS_PER_U32] & (1 << (idx % BITS_PER_U32));
 }
 
-int nfa_start(re *r, nfa *n, u32 pc, u32 noff, int reversed, int track, int pri)
+int nfa_start(re *r, nfa *n, u32 pc, u32 noff, int reversed, int pri)
 {
   thrdspec initial_thrd;
   u32 i;
@@ -2219,11 +2217,9 @@ int nfa_start(re *r, nfa *n, u32 pc, u32 noff, int reversed, int track, int pri)
   for (i = 0; i < r->ast_sets; i++)
     if ((err = stk_push(r, &n->pri_stk, 0)))
       return err;
-  if ((err = bmp_init(r, &n->pri_bmp, r->ast_sets)) ||
-      (err = bmp_init(r, &n->pri_bmp_tmp, r->ast_sets)))
+  if ((err = bmp_init(r, &n->pri_bmp_tmp, r->ast_sets)))
     return err;
   n->reversed = reversed;
-  n->track = track;
   n->pri = pri;
   return 0;
 }
@@ -2313,7 +2309,7 @@ int nfa_matchend(re *r, nfa *n, thrdspec thrd, size_t pos, unsigned int ch)
   u32 *memo = n->pri_stk.ptr + idx - 1;
   assert(idx > 0); /* save_slots_set_setidx() MUST have been called */
   assert(idx - 1 < n->pri_stk.size);
-  if (!n->track && ch < 256)
+  if (!n->pri && ch < 256)
     return err;
   if (n->slots.per_thrd) {
     u32 slot_idx = !n->reversed;
@@ -2677,7 +2673,7 @@ int re_match_dfa(
   assert(anchor == A_BOTH);
   if ((err = nfa_start(
            r, nfa, r->entry[entry], 0, entry & PROG_ENTRY_REVERSE,
-           entry & PROG_ENTRY_DOTSTAR, entry & PROG_ENTRY_DOTSTAR)))
+           entry & PROG_ENTRY_DOTSTAR)))
     return err;
   dfa_init(r, &dfa);
   if (!(state = dfa.entry[entry][incoming_assert_flag]) &&
@@ -2746,7 +2742,7 @@ int re_match(
   }
   if ((err = nfa_start(
            r, &nfa, r->entry[entry], max_span * 2, entry & PROG_ENTRY_REVERSE,
-           entry & PROG_ENTRY_DOTSTAR, entry & PROG_ENTRY_DOTSTAR)))
+           entry & PROG_ENTRY_DOTSTAR)))
     goto done;
   for (i = 0; i < n; i++) {
     if ((err = nfa_run(r, &nfa, ((const u8 *)s)[i], i, prev_ch)))
