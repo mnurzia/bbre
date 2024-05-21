@@ -30,9 +30,9 @@ class CCTree:
         """Return Graphviz properties of this tree."""
         return NotImplemented
 
-    def build(self, _: Self) -> bool:
+    def build(self, parent: Self) -> bool:
         """Run a step of the build process."""
-        return NotImplemented
+        return NotImplemented and parent
 
 
 @dataclass
@@ -123,7 +123,8 @@ class TreeNode(CCTree):
     def graphviz_properties(self) -> str:
         return f'shape=rect,label="0x{self.range[0]:02X}-0x{self.range[1]:02X}"'
 
-    def build(self, _: CCTree) -> bool:
+    def build(self, parent: CCTree) -> bool:
+        assert parent is None or parent is not None  # suppress not accessed
         return (
             self.left is not None
             and self.left.build(self)
@@ -156,6 +157,23 @@ class TreeNode(CCTree):
             self.right = found
             return True
         return False
+
+    def transpose(self, root: Self, cache: dict["TreeNode", "TreeNode"]) -> "TreeNode":
+        if self.left is not None:
+            assert isinstance(self.left, TreeNode)
+            self.left.transpose(root, cache)
+        if self.right is None:
+            # add to root
+            root.right = (out := TreeNode(self.range, root.right, None))
+            cache[self] = out
+            return out
+        else:
+            # add to self.right
+            assert isinstance(self.right, TreeNode)
+            if (found := cache.get(self.right)) is None:
+                found = self.right.transpose(root, cache)
+            found.right = (out := TreeNode(self.range, found.right, None))
+            return out
 
 
 class Tree(TreeNode):
@@ -196,7 +214,7 @@ class Tree(TreeNode):
         """Generate Graphviz code describing this tree."""
         names: dict[int, str] = {}
         stack: list[CCTree | None] = [self.right]
-        edges: list[tuple[int, int]] = []
+        edges: list[tuple[int, int, str]] = []
         lines = ["digraph D {"]
         lines.append(f' label="{title}";')
 
@@ -210,20 +228,21 @@ class Tree(TreeNode):
             if isinstance(top, TreeFront):
                 children = [top.left]
             if isinstance(top, TreeNode):
-                children = [top.right, top.left]
+                children = [top.left, top.right]
             name = f"N{len(names):04X}"
             names[id(top)] = name
 
             lines.append(f"{name} [{top.graphviz_properties()}]")
-            for child in children:
+            for i, child in enumerate(children):
                 if child is None:
                     continue
-                edges.append((id(top), id(child)))
+                edge_type = ["dashed", "solid"]
+                edges.append((id(top), id(child), edge_type[i]))
 
             stack.extend(children)
 
-        for v1, v2 in edges:
-            lines.append(f"{names[v1]} -> {names[v2]}")
+        for v1, v2, edge_type in edges:
+            lines.append(f"{names[v1]} -> {names[v2]} [style={edge_type}]")
 
         lines = lines + ["}"]
         return "\n".join(lines)

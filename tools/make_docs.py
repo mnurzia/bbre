@@ -245,6 +245,15 @@ def _doc_cccomp(args, _: list[str]) -> int:
 
     dump_tree("after all reductions")
 
+    next_root = Tree()
+
+    tree.transpose(next_root, {})
+
+    tree.right = next_root.right
+    tree.cache = {}
+
+    dump_tree("after transposition")
+
     _generate_visualization(
         args, CC_EXAMPLE_REGEX, "prog", generated_path / "program.svg"
     )
