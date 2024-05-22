@@ -97,9 +97,15 @@ The compiler reduces the deepest nodes first. Since the graph is acyclic, after 
 
 ![tree after all reductions](generated/charclass_compiler/tree_10.svg)
 
+## Reversal/Transposition
+
+When generating code for a reversed NFA, the order of all concatenation expressions is swapped. So, we must reorient all concatenation edges in the tree.
+
+![tree after transposition](generated/charclass_compiler/tree_11.svg)
+
 ## Program Generation
 
-The compiler converts the tree into an NFA program.
+The compiler converts the tree into an NFA program. Shown is the forward NFA program for the tree.
 
 Nodes correspond to `RANGE` instructions. Left edges (alternations) correspond to `SPLIT` instructions. Right edges (concatenations) correspond to the next instructions of `RANGE`s.
 
