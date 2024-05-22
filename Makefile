@@ -1,6 +1,6 @@
 .SILENT: help_targets
 
-CFLAGS=-Wall -Werror -Wextra -Wshadow -pedantic -Wuninitialized -Wunused-variable -std=c89 -fsanitize=address -O0 -g
+CFLAGS=-Wall -Werror -Wextra -Wshadow -pedantic -Wuninitialized -Wunused-variable -std=c89 -fsanitize=address -O0 -g -ferror-limit=0
 CFLAGS_COV=--coverage
 
 SRCS=re.c test.c test-gen.c

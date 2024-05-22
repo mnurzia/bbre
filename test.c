@@ -143,6 +143,88 @@ int check_matches_n(
         r, s, n, 1, max_set, anchor, check_span_anchored, check_set,
         check_nsets));
   }
+  if (1) {
+    /* start with just bounds */
+    span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
+    u32 found_set[TEST_MAX_SET], idx;
+    err = re_match(r, s, n, 1, TEST_MAX_SET, found_span, found_set, anchor);
+    ASSERT_GTE(err, 0);
+    for (idx = 0; idx < (unsigned)err; idx++) {
+      re *r2;
+      span found_span_2[1];
+      u32 found_set_2[1];
+      if ((err = re_init_full(
+               &r2, regexes[found_set[idx]], regex_n[found_set[idx]],
+               test_alloc)) == ERR_MEM) {
+        re_destroy(r2);
+        goto oom_re;
+      }
+      ASSERT_EQm(err, 0, "re_init_full() returned nonzero value");
+      /* both anchors */
+      if ((err = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'B')) ==
+          ERR_MEM) {
+        re_destroy(r2);
+        goto oom_re;
+      }
+      ASSERT_GTE(err, 0);
+      if (err == 1) {
+        ASSERT_EQ(found_set_2[0], 0);
+        ASSERT_EQ(found_span_2[0].begin, 0);
+        ASSERT_EQ(found_span_2[0].end, n);
+      }
+      if (anchor == 'B') {
+        ASSERT_EQ(err, 1);
+        ASSERT_EQ(found_span_2[0].begin, found_span[idx].begin);
+        ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
+      }
+      /* start anchored */
+      if ((err = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'S')) ==
+          ERR_MEM) {
+        re_destroy(r2);
+        goto oom_re;
+      }
+      if (err == 1) {
+        ASSERT_EQ(found_span_2[0].begin, 0);
+        ASSERT_EQ(found_set_2[0], 0);
+      }
+      if (anchor == 'S') {
+        ASSERT_EQ(err, 1);
+        ASSERT_EQ(found_span_2[0].begin, found_span[idx].begin);
+        ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
+        ASSERT_EQ(found_set_2[0], 0);
+      }
+      /* end anchored */
+      if ((err = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'E')) ==
+          ERR_MEM) {
+        re_destroy(r2);
+        goto oom_re;
+      }
+      if (err == 1) {
+        ASSERT_EQ(found_span_2[0].end, n);
+        ASSERT_EQ(found_set_2[0], 0);
+      }
+      if (anchor == 'E') {
+        ASSERT_EQ(err, 1);
+        ASSERT_EQ(found_span_2[0].begin, found_span[idx].begin);
+        ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
+      }
+      /* unanchored */
+      if ((err = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'U')) ==
+          ERR_MEM) {
+        re_destroy(r2);
+        goto oom_re;
+      }
+      if (err == 1) {
+        ASSERT_EQ(found_set_2[0], 0);
+      }
+      if (anchor == 'U') {
+        ASSERT_EQ(err, 1);
+        ASSERT_EQ(found_span_2[0].begin, found_span[idx].begin);
+        ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
+      }
+      re_destroy(r2);
+    }
+  }
   re_destroy(r);
   PASS();
 oom_re:

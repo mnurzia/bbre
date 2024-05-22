@@ -2810,14 +2810,25 @@ int re_match(
            r, &nfa, r->entry[entry], max_span * 2, entry & PROG_ENTRY_REVERSE,
            entry & PROG_ENTRY_DOTSTAR)))
     goto done;
-  for (i = 0; i < n; i++) {
-    if ((err = nfa_run(r, &nfa, ((const u8 *)s)[i], i, prev_ch)))
+  if (entry & PROG_ENTRY_REVERSE) {
+    for (i = n; i > 0; i--) {
+      if ((err = nfa_run(r, &nfa, ((const u8 *)s)[i - 1], i, prev_ch)))
+        goto done;
+      prev_ch = ((const u8 *)s)[i - 1];
+    }
+    if ((err = nfa_end(
+             r, 0, &nfa, max_span, max_set, out_span, out_set, prev_ch)))
       goto done;
-    prev_ch = ((const u8 *)s)[i];
+  } else {
+    for (i = 0; i < n; i++) {
+      if ((err = nfa_run(r, &nfa, ((const u8 *)s)[i], i, prev_ch)))
+        goto done;
+      prev_ch = ((const u8 *)s)[i];
+    }
+    if ((err = nfa_end(
+             r, n, &nfa, max_span, max_set, out_span, out_set, prev_ch)))
+      goto done;
   }
-  if ((err =
-           nfa_end(r, n, &nfa, max_span, max_set, out_span, out_set, prev_ch)))
-    goto done;
 done:
   nfa_destroy(r, &nfa);
   return err;
