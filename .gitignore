@@ -6,4 +6,3 @@ build/
 tools/.ucd.zip
 tools/__pycache__
 .gitignore
-fuzz_db.json

@@ -30,19 +30,34 @@ JSON_SPECIALS = {
     ord("\\"): "\\\\",
 }
 
+HEX_DIGITS = "0123456789abcdefABCDEF"
+
 
 logger = getLogger(__name__)
 
 
-def _escape_char_for_cstr(c: int) -> str:
-    # Escape a character so that it can be used in a C string.
-    assert 0 <= c <= 255
-    return C_SPECIALS.get(c, chr(c) if 0x20 <= c < 0x7F else f"\\{c:03o}")
+def _escape_cchar(c: int) -> str:
+    return f"\\x{c:02X}"
 
 
 def _escape_cstr(a: bytes) -> str:
     # Return escaped bytes as a C string.
-    return '"' + "".join(map(_escape_char_for_cstr, a)) + '"'
+    def gen():
+        last_char_was_escaped = False
+        for b in a:
+            if chr(b) in HEX_DIGITS and last_char_was_escaped:
+                yield _escape_cchar(b)
+            elif b in C_SPECIALS:
+                yield C_SPECIALS[b]
+                last_char_was_escaped = False
+            elif b >= 0x20 and b <= 0x7F:
+                yield chr(b)
+                last_char_was_escaped = False
+            else:
+                yield _escape_cchar(b)
+                last_char_was_escaped = True
+
+    return '"' + "".join(gen()) + '"'
 
 
 class TestStamp(NamedTuple):
@@ -68,7 +83,7 @@ class TestStamp(NamedTuple):
         return {
             "identifier": self.identifier,
             "commit_hash": self.commit_hash,
-            "created": self.created,
+            "created": self.created.isoformat(),
         }
 
 
@@ -124,7 +139,7 @@ class Test:
 
     def to_dict(self) -> dict:
         """Convert this test case into a dictionary."""
-        return {}
+        return {"type": self.test_type}
 
     @classmethod
     def deserialize(cls, obj) -> "Test":
@@ -133,7 +148,9 @@ class Test:
 
     def serialize(self) -> dict:
         """Convert this test case and its stamp into a dictionary."""
-        return self._stamp.to_dict() if self._stamp is not None else self.to_dict()
+        return (
+            self._stamp.to_dict() if self._stamp is not None else {}
+        ) | self.to_dict()
 
     def to_c_code(self) -> list[str]:
         """Convert this test to C code."""
@@ -174,7 +191,7 @@ class ParseTest(Test):
         self.should_parse = should_parse
 
     @classmethod
-    def from_dict(cls, obj: dict) -> Test:
+    def from_dict(cls, obj: dict) -> Self:
         return cls(
             TestStamp.from_dict(obj),
             tuple(map(deserialize_bytes, obj["regexes"])),
@@ -223,7 +240,7 @@ class MatchTest(Test):
         self.match_anchor = match_anchor
 
     @classmethod
-    def from_dict(cls, obj: dict) -> Test:
+    def from_dict(cls, obj: dict) -> Self:
         return cls(
             TestStamp.from_dict(obj),
             tuple(map(deserialize_bytes, obj["regexes"])),
@@ -283,7 +300,7 @@ class MatchTest(Test):
         return output
 
 
-def _read_tests(json: BinaryIO) -> tuple[dict, list[Test]]:
+def _read_tests(json: BinaryIO) -> tuple[list, list[Test]]:
     return (
         doc := load(json),
         list(Test.deserialize(test) for test in doc),
@@ -317,7 +334,7 @@ def _import_tests(args, tests: list[Test]):
         new_identifier = f"{len(original_tests):04d}"
         test.stamp(TestStamp(new_identifier, commit_hash, datetime.now()))
         logger.debug("imported new test %s", new_identifier)
-        doc[new_identifier] = test.to_dict()
+        doc.append(test.serialize())
 
     args.tests_file.seek(0)
     args.tests_file.truncate()
@@ -347,14 +364,16 @@ def _cmd_run_fuzzington(args) -> int:
     selector = DefaultSelector()
     current_test: dict | None = None
     commit_hash = int(get_commit_hash()[: 64 // 4], 16)  # 64 bits worth of hash
+    fuzzington_cmdline = [
+        args.fuzzington.resolve(),
+        "-n",
+        str(args.num_iterations),
+        "-s",
+        str(commit_hash),
+    ]
+    logger.debug("args: %s", " ".join(map(str, fuzzington_cmdline)))
     with Popen(
-        [
-            args.fuzzington.resolve(),
-            "-n",
-            str(args.num_iterations),
-            "-s",
-            str(commit_hash),
-        ],
+        fuzzington_cmdline,
         encoding="utf-8",
         stdout=PIPE,
     ) as proc:
@@ -392,7 +411,7 @@ def _cmd_run_fuzzington(args) -> int:
                 break
     assert current_test is not None
 
-    _import_tests(args, [Test.from_dict(current_test)])
+    _import_tests(args, [Test.deserialize(current_test)])
 
     return 1
 

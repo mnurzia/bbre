@@ -67,5 +67,35 @@
     "should_parse": [
       true
     ]
+  },
+  {
+    "identifier": "0004",
+    "commit_hash": "c692fe17cdb392c6727e2e86f0e2a2d46021d24e",
+    "created": "2024-05-22T14:22:37.624103",
+    "type": "match",
+    "regexes": [
+      "(?:\u00d6*)*"
+    ],
+    "num_spans": 0,
+    "num_sets": 0,
+    "match_string": "\u00d6\u00d6\u00d6\u00d6\u00d6\u00d6\u00d6\u00d6",
+    "match_spans": [],
+    "match_sets": [],
+    "match_anchor": "B"
+  },
+  {
+    "identifier": "0005",
+    "commit_hash": "c692fe17cdb392c6727e2e86f0e2a2d46021d24e",
+    "created": "2024-05-22T14:36:23.277614",
+    "type": "match",
+    "regexes": [
+      "[\u02c9-\uda84\udf63\ud82a\udecc-\u0230m-\u1775\u0765-\u0004B-\u9593\u07d5-\ud888\udddf]"
+    ],
+    "num_spans": 0,
+    "num_sets": 0,
+    "match_string": "\ud803\udd25",
+    "match_spans": [],
+    "match_sets": [],
+    "match_anchor": "B"
   }
 ]

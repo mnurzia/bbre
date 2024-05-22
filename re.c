@@ -1437,7 +1437,7 @@ int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out)
       i++;
     else
       /* range is greater than [min_bound,max_bound] */
-      j++;
+      j++, min_bound = max_bound + 1;
   }
   return err;
 }
@@ -2020,6 +2020,7 @@ int sset_reset(re *r, sset *s, size_t sz)
             s->sparse)))
     return ERR_MEM;
   s->sparse = next_sparse;
+  s->sparse_alloc = sz;
   if (!(next_dense = re_ialloc(
             r, sizeof(thrdspec) * s->dense_alloc, sizeof(thrdspec) * next_alloc,
             s->dense)))
