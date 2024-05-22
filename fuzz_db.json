@@ -1,0 +1,71 @@
+[
+  {
+    "identifier": "0000",
+    "type": "parse",
+    "commit_hash": "f51a04d2f490bdfae7c325128fbbfb0288529745",
+    "created": "2024-05-14T15:36:30.223550",
+    "regexes": [
+      {
+        "encoding": "binascii",
+        "data": "5c_26_0a_c3"
+      }
+    ],
+    "should_parse": [
+      false
+    ]
+  },
+  {
+    "identifier": "0001",
+    "type": "match",
+    "commit_hash": "f51a04d2f490bdfae7c325128fbbfb0288529745",
+    "created": "2024-05-15T14:54:16.433885",
+    "match_anchor": "B",
+    "match_sets": [],
+    "match_spans": [],
+    "match_string": "+",
+    "num_sets": 0,
+    "num_spans": 0,
+    "regexes": [
+      "\\+|(?:\u0014|\u001f){0,0}"
+    ],
+    "should_parse": [
+      true
+    ]
+  },
+  {
+    "identifier": "0002",
+    "type": "match",
+    "commit_hash": "f51a04d2f490bdfae7c325128fbbfb0288529745",
+    "created": "2024-05-15T20:52:13.284283",
+    "match_anchor": "B",
+    "match_sets": [],
+    "match_spans": [],
+    "match_string": "$",
+    "num_sets": 0,
+    "num_spans": 0,
+    "regexes": [
+      "\u00da|\\$|\u0081|e*"
+    ],
+    "should_parse": [
+      true
+    ]
+  },
+  {
+    "identifier": "0003",
+    "type": "match",
+    "commit_hash": "a96412a4a625a8fecebe4c59c077358b24fa621a",
+    "created": "2024-05-16T11:50:18.637040",
+    "match_anchor": "B",
+    "match_sets": [],
+    "match_spans": [],
+    "match_string": "\u9ca0",
+    "num_sets": 0,
+    "num_spans": 0,
+    "regexes": [
+      "[\u0427-V\u0017-k\ubc18-\u001f\u0ff9-:\ua2d1-\u4b57\u8338-~\\--\u3388U-\u04261-\u9a4f]"
+    ],
+    "should_parse": [
+      true
+    ]
+  }
+]
