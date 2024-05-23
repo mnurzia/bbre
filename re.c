@@ -1558,6 +1558,7 @@ void re_compcc_reducetree(
 {
   u32 prev_sibling_ref = 0;
   assert(node_ref);
+  assert(!*my_out_ref);
   while (node_ref) {
     compcc_node *node = cc_treeref(cc_tree_in, node_ref);
     u32 probe, found, child_ref = 0;
@@ -1573,8 +1574,9 @@ void re_compcc_reducetree(
         compcc_node *other_node = cc_treeref(cc_tree_in, found >> 1);
         if (re_compcc_treeeq(r, cc_tree_in, node, other_node)) {
           if (prev_sibling_ref)
-            cc_treeref(cc_tree_in, prev_sibling_ref)->sibling_ref = *my_out_ref;
-          *my_out_ref = found >> 1;
+            cc_treeref(cc_tree_in, prev_sibling_ref)->sibling_ref = node_ref;
+          if (!*my_out_ref)
+            *my_out_ref = found >> 1;
           return;
         }
       }
@@ -2803,7 +2805,7 @@ int re_match(
                            (err = re_compile(r, r->ast_root, 1))))
     return err;
   nfa_init(r, &nfa);
-  if (anchor == A_BOTH && (max_span == 0 || max_span == 1)) {
+  if (0 && anchor == A_BOTH && (max_span == 0 || max_span == 1)) {
     err = re_match_dfa(
         r, &nfa, (u8 *)s, n, max_span, max_set, out_span, out_set, anchor);
   }

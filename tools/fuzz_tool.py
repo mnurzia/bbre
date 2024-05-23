@@ -60,6 +60,14 @@ def _escape_cstr(a: bytes) -> str:
     return '"' + "".join(gen()) + '"'
 
 
+def _declare_cstr(id: str, a: bytes) -> str:
+    if (
+        len(a) > 500
+    ):  # c89 disallows 509+ bytes but let's be safe here... you never know when you might hit a compiler limit!!!
+        return f"const char {id}[{len(a)}] = {{" + ",".join(map(str, a)) + "};"
+    return f"const char* {id} = {_escape_cstr(a)};"
+
+
 class TestStamp(NamedTuple):
     """Holds registration information for a test case."""
 
@@ -268,6 +276,7 @@ class MatchTest(Test):
         out("const char *regexes[] = {")
         out(*[_escape_cstr(r) + "," for r in self.regexes])
         out("};")
+        out(_declare_cstr("text", self.match_string))
         out("size_t regexes_n[] = {")
         out(*[str(len(r)) + "," for r in self.regexes])
         out("};")
@@ -284,7 +293,7 @@ class MatchTest(Test):
                     "regexes",
                     "regexes_n",
                     f"{len(self.regexes)}",
-                    _escape_cstr(self.match_string),
+                    "text",
                     f"{len(self.match_string)}",
                     f"{self.num_spans}",
                     f"{self.num_sets}",
