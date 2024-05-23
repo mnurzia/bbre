@@ -132,22 +132,26 @@ class Test:
     REGISTRY: dict[str, type[Self]] = {}
     test_type: str
     _stamp: TestStamp | None
+    extra: Any
 
     def __init_subclass__(cls, **kwargs) -> None:
         Test.REGISTRY[cls.test_type] = cls
         super().__init_subclass__(**kwargs)
 
-    def __init__(self, stamp: TestStamp | None):
+    def __init__(self, stamp: TestStamp | None, extra: Any | None = None):
         self._stamp = stamp
+        self.extra = extra
 
     @classmethod
     def from_dict(cls, obj) -> Self:
         """Read this from a dictionary."""
-        return cls(TestStamp.from_dict(obj))
+        return cls(TestStamp.from_dict(obj), obj.get("extra", None))
 
     def to_dict(self) -> dict:
         """Convert this test case into a dictionary."""
-        return {"type": self.test_type}
+        return {"type": self.test_type} | (
+            {"extra": self.extra} if self.extra is not None else {}
+        )
 
     @classmethod
     def deserialize(cls, obj) -> "Test":
@@ -191,10 +195,11 @@ class ParseTest(Test):
     def __init__(
         self,
         stamp: TestStamp | None,
+        extra: Any | None,
         regexes: tuple[bytes, ...],
         should_parse: tuple[bool, ...],
     ):
-        super().__init__(stamp)
+        super().__init__(stamp, extra)
         self.regexes = regexes
         self.should_parse = should_parse
 
@@ -202,6 +207,7 @@ class ParseTest(Test):
     def from_dict(cls, obj: dict) -> Self:
         return cls(
             TestStamp.from_dict(obj),
+            obj.get("extra", None),
             tuple(map(deserialize_bytes, obj["regexes"])),
             tuple(obj["should_parse"]),
         )
@@ -230,6 +236,7 @@ class MatchTest(Test):
     def __init__(
         self,
         stamp: TestStamp | None,
+        extra: Any | None,
         regexes: tuple[bytes, ...],
         num_spans: int,
         num_sets: int,
@@ -238,7 +245,7 @@ class MatchTest(Test):
         match_sets: tuple[int],
         match_anchor: str,
     ):
-        super().__init__(stamp)
+        super().__init__(stamp, extra)
         self.regexes = regexes
         self.num_spans = num_spans
         self.num_sets = num_sets
@@ -251,6 +258,7 @@ class MatchTest(Test):
     def from_dict(cls, obj: dict) -> Self:
         return cls(
             TestStamp.from_dict(obj),
+            obj.get("extra", None),
             tuple(map(deserialize_bytes, obj["regexes"])),
             obj["num_spans"],
             obj["num_sets"],
@@ -358,6 +366,7 @@ def _cmd_import_parser(args) -> int:
         args,
         [
             ParseTest(
+                None,
                 None,
                 (new_corpus_file.read(),),
                 (False,),

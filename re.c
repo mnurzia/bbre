@@ -1574,7 +1574,7 @@ void re_compcc_reducetree(
         compcc_node *other_node = cc_treeref(cc_tree_in, found >> 1);
         if (re_compcc_treeeq(r, cc_tree_in, node, other_node)) {
           if (prev_sibling_ref)
-            cc_treeref(cc_tree_in, prev_sibling_ref)->sibling_ref = node_ref;
+            cc_treeref(cc_tree_in, prev_sibling_ref)->sibling_ref = found >> 1;
           if (!*my_out_ref)
             *my_out_ref = found >> 1;
           return;
@@ -2010,9 +2010,8 @@ typedef struct sset {
   u32 dense_size, dense_alloc;
 } sset;
 
-int sset_reset(re *r, sset *s, size_t sz)
+int sset_reset(re *r, sset *s, size_t next_alloc)
 {
-  size_t next_alloc = sz;
   u32 *next_sparse;
   thrdspec *next_dense;
   if (!next_alloc)
@@ -2022,7 +2021,7 @@ int sset_reset(re *r, sset *s, size_t sz)
             s->sparse)))
     return ERR_MEM;
   s->sparse = next_sparse;
-  s->sparse_alloc = sz;
+  s->sparse_alloc = next_alloc;
   if (!(next_dense = re_ialloc(
             r, sizeof(thrdspec) * s->dense_alloc, sizeof(thrdspec) * next_alloc,
             s->dense)))
@@ -2269,9 +2268,9 @@ int nfa_start(re *r, nfa *n, u32 pc, u32 noff, int reversed, int pri)
   thrdspec initial_thrd;
   u32 i;
   int err = 0;
-  if ((err = sset_reset(r, &n->a, r->prog.size)) ||
-      (err = sset_reset(r, &n->b, r->prog.size)) ||
-      (err = sset_reset(r, &n->c, r->prog.size)))
+  if ((err = sset_reset(r, &n->a, re_prog_size(r))) ||
+      (err = sset_reset(r, &n->b, re_prog_size(r))) ||
+      (err = sset_reset(r, &n->c, re_prog_size(r))))
     return err;
   n->thrd_stk.size = 0, n->pri_stk.size = 0;
   save_slots_clear(&n->slots, noff);
