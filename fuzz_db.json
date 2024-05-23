@@ -97,5 +97,20 @@
     "match_spans": [],
     "match_sets": [],
     "match_anchor": "B"
+  },
+  {
+    "identifier": "0006",
+    "commit_hash": "b546ca908ccaf4bf313d387551eed4945c5d6c1c",
+    "created": "2024-05-22T19:22:20.320579",
+    "type": "match",
+    "regexes": [
+      "\r|\u0091|\u00be\u00b9|[\udabe\udf4f-\udbac\udf7f]"
+    ],
+    "num_spans": 0,
+    "num_sets": 0,
+    "match_string": "\udb93\ude4d",
+    "match_spans": [],
+    "match_sets": [],
+    "match_anchor": "B"
   }
 ]

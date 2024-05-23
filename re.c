@@ -1383,12 +1383,12 @@ int re_compcc_buildtree_split(
       /* check if previous child intersects and then compute intersection */
       assert(parent);
       parent_node = cc_treeref(cc_out, parent);
-      if (parent_node->sibling_ref &&
+      if (parent_node->child_ref &&
           byte_range_is_intersecting(
               u32_to_byte_range(
-                  cc_treeref(cc_out, parent_node->sibling_ref)->range),
+                  cc_treeref(cc_out, parent_node->child_ref)->range),
               u32_to_byte_range(brs[i]))) {
-        child_ref = parent_node->sibling_ref;
+        child_ref = parent_node->child_ref;
       } else {
         if ((err = cc_treeappend(r, cc_out, brs[i], parent, &child_ref)))
           return err;
