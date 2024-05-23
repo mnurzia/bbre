@@ -1442,19 +1442,19 @@ int re_compcc_buildtree(re *r, stk *cc_in, stk *cc_out)
   return err;
 }
 
-int re_compcc_treeeq(re *r, stk *cc_tree_in, compcc_node *a, compcc_node *b)
+int re_compcc_treeeq(re *r, stk *cc_tree_in, u32 a_ref, u32 b_ref)
 {
-  u32 a_child_ref = a->child_ref, b_child_ref = b->child_ref;
-  while (a_child_ref && b_child_ref) {
-    compcc_node *a_child = cc_treeref(cc_tree_in, a_child_ref),
-                *b_child = cc_treeref(cc_tree_in, b_child_ref);
-    if (!re_compcc_treeeq(r, cc_tree_in, a_child, b_child))
+  while (a_ref && b_ref) {
+    compcc_node *a = cc_treeref(cc_tree_in, a_ref),
+                *b = cc_treeref(cc_tree_in, b_ref);
+    if (!re_compcc_treeeq(r, cc_tree_in, a->child_ref, b->child_ref))
       return 0;
-    a_child_ref = a_child->sibling_ref, b_child_ref = b_child->sibling_ref;
+    if (a->range != b->range)
+      return 0;
+    a_ref = a->sibling_ref, b_ref = b->sibling_ref;
   }
-  if (a_child_ref != b_child_ref)
-    return 0;
-  return a->range == b->range;
+  assert(a_ref == 0 || b_ref == 0);
+  return a_ref == b_ref;
 }
 
 void re_compcc_merge_one(stk *cc_tree_in, u32 child_ref, u32 sibling_ref)
@@ -1517,11 +1517,9 @@ void re_compcc_hashtree(re *r, stk *cc_tree_in, stk *cc_ht_out, u32 parent_ref)
           }
         } else {
           if (child_node->child_ref) {
-            compcc_node *child_child =
-                            cc_treeref(cc_tree_in, child_node->child_ref),
-                        *sibling_child =
-                            cc_treeref(cc_tree_in, sibling_node->child_ref);
-            if (re_compcc_treeeq(r, cc_tree_in, child_child, sibling_child)) {
+            if (re_compcc_treeeq(
+                    r, cc_tree_in, child_node->child_ref,
+                    sibling_node->child_ref)) {
               re_compcc_merge_one(cc_tree_in, child_ref, sibling_ref);
             }
           }
@@ -1571,8 +1569,7 @@ void re_compcc_reducetree(
         break;
       else {
         /* something is in the cache, but it might not be a child */
-        compcc_node *other_node = cc_treeref(cc_tree_in, found >> 1);
-        if (re_compcc_treeeq(r, cc_tree_in, node, other_node)) {
+        if (re_compcc_treeeq(r, cc_tree_in, node_ref, found >> 1)) {
           if (prev_sibling_ref)
             cc_treeref(cc_tree_in, prev_sibling_ref)->sibling_ref = found >> 1;
           if (!*my_out_ref)

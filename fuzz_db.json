@@ -175,5 +175,23 @@
     "match_spans": [],
     "match_sets": [],
     "match_anchor": "B"
+  },
+  {
+    "identifier": "0011",
+    "commit_hash": "5463ddfdd2e4070ce2409ee5cd64a284334fa03e",
+    "created": "2024-05-23T11:57:12.287906",
+    "type": "match",
+    "extra": {
+      "fuzzington_seed": 6080948004124202687
+    },
+    "regexes": [
+      "[\ud9e2\udec7-\ud938\udda5P-\ud8e1\uddb0]"
+    ],
+    "num_spans": 0,
+    "num_sets": 0,
+    "match_string": "\ud9e1\udf1b",
+    "match_spans": [],
+    "match_sets": [],
+    "match_anchor": "B"
   }
 ]
