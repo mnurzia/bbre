@@ -99,7 +99,7 @@ parser_fuzz_import: build
 	$(UDATA) add_parser_fuzz_regression_tests fuzz_results.json build/fuzz/artifact/*
 
 build/fuzzington/release/fuzzington: tools/fuzzington/src/main.rs tools/fuzzington/build.rs
-	cd tools/fuzzington; cargo build --release --target-dir ../../build/fuzzington
+	cd tools/fuzzington;RUSTFLAGS="-C link-dead-code" cargo build --release --target-dir ../../build/fuzzington
 
 ## run fuzzington, the semantic regex fuzz tester
 fuzzington_run: build build/fuzzington/release/fuzzington
