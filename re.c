@@ -9,13 +9,8 @@
 
 #include "re.h"
 
-#ifdef RE_TEST
-
-  #include "mptest/_cpack/mptest.h"
-  #define malloc  MPTEST_INJECT_MALLOC
-  #define realloc MPTEST_INJECT_REALLOC
-  #define free    MPTEST_INJECT_FREE
-
+#ifdef RE_CONFIG_HEADER_FILE
+  #include RE_CONFIG_HEADER_FILE
 #endif
 
 #define REF_NONE 0
@@ -50,8 +45,10 @@ typedef enum prog_entry {
 /* Helper macro for assertions. */
 #define IMPLIES(subj, pred) (!(subj) || (pred))
 
+#ifndef RE_DEFAULT_ALLOC
 /* Default allocation function. Hooks stdlib malloc. */
-void *re_default_alloc(size_t prev, size_t next, void *ptr)
+void *re_default_alloc(
+    size_t prev, size_t next, void *ptr, const char *file, int line)
 {
   if (next) {
     (void)prev, assert(IMPLIES(!prev, !ptr));
@@ -62,11 +59,12 @@ void *re_default_alloc(size_t prev, size_t next, void *ptr)
   return NULL;
 }
 
+  #define RE_DEFAULT_ALLOC re_default_alloc
+#endif
+
 /* Allocate memory for an instance of `re`. */
-void *re_ialloc(re *re, size_t prev, size_t next, void *ptr)
-{
-  return re->alloc(prev, next, ptr);
-}
+#define re_ialloc(re, prev, next, ptr)                                         \
+  (re)->alloc((prev), (next), (ptr), __FILE__, __LINE__)
 
 void stk_init(re *r, stk *s)
 {
@@ -156,7 +154,7 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
   re *r;
   if (!alloc)
     alloc = re_default_alloc;
-  r = alloc(0, sizeof(re), NULL);
+  r = alloc(0, sizeof(re), NULL, __FILE__, __LINE__);
   *pr = r;
   if (!r)
     return (err = ERR_MEM);
@@ -186,7 +184,7 @@ void re_destroy(re *r)
       stk_destroy(r, &r->comp_stk);
   stk_destroy(r, &r->cc_stk_a), stk_destroy(r, &r->cc_stk_b);
   stk_destroy(r, &r->prog);
-  r->alloc(sizeof(*r), 0, r);
+  r->alloc(sizeof(*r), 0, r, __FILE__, __LINE__);
 }
 
 typedef enum ast_type {
@@ -1768,8 +1766,12 @@ int re_compcc(re *r, u32 root, compframe *frame, int reversed)
     u32 i;
     stk tmp;
     r->cc_stk_b.size = 0;
-    for (i = 1 /* skip sentinel */; i < cc_treesize(&r->cc_stk_a); i++)
-      cc_treenew(r, &r->cc_stk_b, *cc_treeref(&r->cc_stk_a, i), NULL);
+    for (i = 1 /* skip sentinel */; i < cc_treesize(&r->cc_stk_a); i++) {
+      if ((err = cc_treenew(
+               r, &r->cc_stk_b, *cc_treeref(&r->cc_stk_a, i), NULL)) == ERR_MEM)
+        return err;
+      assert(!err);
+    }
     /* detach new root */
     cc_treeref(&r->cc_stk_b, 1)->child_ref = REF_NONE;
     re_compcc_xposetree(&r->cc_stk_a, &r->cc_stk_b, 2, 1);
@@ -2531,6 +2533,7 @@ void dfa_destroy(re *r, dfa *d)
     if (d->states[i])
       re_ialloc(r, sizeof(dfa_state), 0, d->states[i]);
   re_ialloc(r, d->states_size * sizeof(dfa_state *), 0, d->states);
+  stk_destroy(r, &d->set_buf);
 }
 
 size_t dfa_state_size(u32 nstate, u32 nset)
@@ -2684,11 +2687,11 @@ int dfa_construct_chr(
     inst op = re_prog_get(r, thrd.pc);
     int pri =
         save_slots_perthrd(&n->slots)
-            ? !bmp_get(
+            ? bmp_get(
                   &n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot))
             : 0;
-    if (pri)
-      bmp_set(&n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot));
+    if (pri && n->pri)
+      continue; /* priority exhaustion: disregard this thread */
     switch (inst_opcode(op)) {
     case RANGE: {
       byte_range br = u32_to_byte_range(inst_param(op));
@@ -2704,10 +2707,11 @@ int dfa_construct_chr(
       assert(!inst_match_param_slot(inst_param(op)));
       /* NOTE: since there only exists one match instruction for a set n, we
        * don't need to check if we've already pushed the match instruction. */
-      if ((err = stk_push(
-               r, &d->set_buf,
-               inst_match_param_idx(inst_param(op)) << 1 & pri)))
+      if ((err =
+               stk_push(r, &d->set_buf, inst_match_param_idx(inst_param(op)))))
         return err;
+      if (n->pri)
+        bmp_set(&n->pri_bmp_tmp, inst_match_param_idx(inst_param(op)));
       break;
     }
     default:
@@ -2761,7 +2765,7 @@ int re_match_dfa(
     if (max_span)
       out_span[i].begin = 0, out_span[i].end = n;
     if (i < max_set)
-      out_set[i] = dfa_state_data(state)[state->nstate + i] >> 1;
+      out_set[i] = dfa_state_data(state)[state->nstate + i];
   }
   err = state->nset;
 done:
@@ -2804,6 +2808,7 @@ int re_match(
   if (0 && anchor == A_BOTH && (max_span == 0 || max_span == 1)) {
     err = re_match_dfa(
         r, &nfa, (u8 *)s, n, max_span, max_set, out_span, out_set, anchor);
+    goto done;
   }
   if ((err = nfa_start(
            r, &nfa, r->entry[entry], max_span * 2, entry & PROG_ENTRY_REVERSE,

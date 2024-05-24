@@ -1,7 +1,14 @@
-.SILENT: help_targets
+.SILENT: help_targets help_profiles
 
-CFLAGS=-Wall -Werror -Wextra -Wshadow -pedantic -Wuninitialized -Wunused-variable -std=c89 -fsanitize=address -O0 -g -ferror-limit=0
-CFLAGS_COV=--coverage
+# default profile: debug
+PROFILE=debug
+
+# profiles:
+CFLAGS_PROFILE_debug=-O0 -fsanitize=address,undefined -DRE_CONFIG_HEADER_FILE=\"test_config.h\"
+CFLAGS_PROFILE_opt=-O3
+CFLAGS_PROFILE_cov=--coverage -DRE_COV -DRE_CONFIG_HEADER_FILE=test_config.h
+
+CFLAGS=-Wall -Werror -Wextra -Wshadow -pedantic -Wuninitialized -Wunused-variable -std=c89 -ferror-limit=0 $(CFLAGS_PROFILE_$(PROFILE))
 
 SRCS=re.c test.c test-gen.c
 GDB=lldb --
@@ -11,6 +18,8 @@ UDATA=python tools/unicode_data.py --debug --db tools/.ucd.zip
 FUZZINGTON=build/fuzzington/release/fuzzington
 FUZZINGTON_ITERS=10000000
 OPEN_URL=python -m webbrowser
+
+OUT_DIR=build/$(PROFILE)
 
 ## run target `test`
 all: test
@@ -22,59 +31,71 @@ clean:
 build:
 	mkdir -p build/{cov,fuzz/{artifact,new},fuzzington}
 
-build/test: build $(SRCS)
-	$(CC) $(CFLAGS) -DRE_TEST $(SRCS) -o $@
-
 test-gen.c: build fuzz_db.json tools/fuzz_tool.py
 	$(UDATA) gen_ascii_charclasses test test-gen.c
 	python tools/fuzz_tool.py fuzz_db.json gen_tests test-gen.c
 	$(FORMAT) $@
 
-build/compile_commands.json: build $(SRCS) 
-	bear --output $@ -- make -B build/test build/parser_fuzz
+$(OUT_DIR): build
+	mkdir -p $(OUT_DIR)
+
+$(OUT_DIR)/mptest.o: $(OUT_DIR) mptest.c
+	$(CC) $(CFLAGS) mptest.c -c -o $@
+
+$(OUT_DIR)/re.o: $(OUT_DIR) re.c
+	$(CC) $(CFLAGS) -DRE_CONFIG_HEADER_FILE=\"test_config.h\" re.c -c -o $@
+
+$(OUT_DIR)/test.o: $(OUT_DIR) test.c
+	$(CC) $(CFLAGS) test.c -c -o $@
+
+$(OUT_DIR)/test-gen.o: $(OUT_DIR) test-gen.c
+	$(CC) $(CFLAGS) test-gen.c -c -o $@
+
+$(OUT_DIR)/re_test: $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test-gen.o
+	$(CC) $(CFLAGS) $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test-gen.o -o $@
+
+## run tests
+test: $(OUT_DIR)/re_test
+	./$(OUT_DIR)/re_test
+
+## run tests in a debugger
+testdbg: $(OUT_DIR)/re_test
+	$(GDB) ./$(OUT_DIR)/re_test
+
+## run tests with OOM checking
+testoom: $(OUT_DIR)/re_test
+	./$(OUT_DIR)/re_test --leak-check --fault-check
+
+## run tests with OOM checking in a debugger
+testdbgoom: $(OUT_DIR)/re_test
+	$(GDB) ./$(OUT_DIR)/re_test --leak-check --fault-check
+
+## run the given test
+test_%: $(OUT_DIR)/re_test
+	./$(OUT_DIR)/re_test -t $(subst test_,,$@)
+
+## run the given test in a debugger
+testdbg_%: $(OUT_DIR)/re_test
+	$(GDB) ./$(OUT_DIR)/re_test -t $(subst testdbg_,,$@)
+
+## run the given test with OOM checking
+testoom_%: $(OUT_DIR)/re_test
+	./$(OUT_DIR)/re_test -t $(subst testoom_,,$@) --leak-check --fault-check
+
+## run the given test with OOM checking in a debugger
+testdbgoom_%: $(OUT_DIR)/re_test
+	$(GDB) ./$(OUT_DIR)/re_test -t $(subst testdbgoom_,,$@) --leak-check --fault-check
+
+build/compile_commands.json: build
+	bear --output $@ -- make -B build/$(PROFILE)/re_test
 
 ## generate compile_commands.json for language servers (alias for build/compile_commands.json)
 compile_commands: build/compile_commands.json
 
-## run tests
-test: build/test
-	./build/test
-
-## run tests in a debugger
-testdbg: build/test
-	$(GDB) ./build/test
-
-## run tests with OOM checking
-testoom: build/test
-	./build/test --leak-check --fault-check
-
-## run tests with OOM checking in a debugger
-testdbgoom: build/test
-	$(GDB) ./build/test --leak-check --fault-check
-
-## run the given test
-test_%: build/test
-	./build/test -t $(subst test_,,$@)
-
-## run the given test in a debugger
-testdbg_%: build/test
-	$(GDB) ./build/test -t $(subst testdbg_,,$@)
-
-## run the given test with OOM checking
-testoom_%: build/test
-	./build/test -t $(subst testoom_,,$@) --leak-check --fault-check
-
-## run the given test with OOM checking in a debugger
-testdbgoom_%: build/test
-	$(GDB) ./build/test -t $(subst testdbgoom_,,$@) --leak-check --fault-check
-
-build/cov/re-cov: build $(SRCS)
-	rm -rf build/*.gcda build/*.gcno
-	$(CC) $(CFLAGS) -DRE_COV -DRE_TEST -DNDEBUG $(CFLAGS_COV) $(SRCS) -o $@
-
-build/cov/lcov.info: build build/cov/re-cov
+build/cov/lcov.info:
+	$(MAKE) PROFILE=cov build/cov/re_test
 	rm -rf $@ build/cov/*.gcda
-	cd build/cov; ./re-cov --leak-check --fault-check
+	cd build/cov; ./re_test --leak-check --fault-check
 	lcov --rc lcov_branch_coverage=1 --directory build/cov --base-directory . --capture --exclude test -o $@
 
 build/cov/index.html: build/cov/lcov.info
@@ -113,7 +134,7 @@ tables:
 
 ## run clang-format/black on all .c/.py sources
 format:
-	$(FORMAT) $(SRCS) parser_fuzz.c
+	$(FORMAT) re.c re.h test-gen.c test.c test_config.h viz.c parser_fuzz.c
 	python -m black -q tools/*.py
 
 build/viz: build viz.c re.c
@@ -131,6 +152,10 @@ viz_ast: build/viz viz_gv_ast
 ## print a list of targets and their descriptions
 help_targets:
 	awk 'BEGIN {print "TARGET&DESCRIPTION"} {if ($$0 ~ /^##/) {getline target; split(target,a,":"); print a[1]"&"substr($$0,4)}}' Makefile | sort | column -t -s '&'
+
+## print a list of profiles
+help_profiles:
+	sed < Makefile -n -e '1s/^.*/PROFILE\&CFLAGS/p' -e 's/CFLAGS_PROFILE_\([a-z]*\)=\(.*\)/\1\&\2/p' | column -t -s '&'
 
 ## build documentation
 docs: build build/viz

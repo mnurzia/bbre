@@ -6,3 +6,4 @@ build/
 tools/.ucd.zip
 tools/__pycache__
 .gitignore
+attic/

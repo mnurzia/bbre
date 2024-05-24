@@ -1,11 +1,11 @@
+#include <stdio.h>
 #include <string.h>
 
 /* unfinished: parse string ends early
  * malformed:  parse string contains a malformed utf-8 sequence
  * invalid:    parse string is valid utf-8 but contains an unexpected char */
 
-#define MPTEST_IMPLEMENTATION
-#include "mptest/_cpack/mptest.h"
+#include "mptest.h"
 
 #include "re.h"
 
@@ -19,19 +19,6 @@
 #endif
 
 #define IMPLIES(c, pred) (!(c) || (pred))
-
-void *test_alloc(size_t prev, size_t next, void *ptr)
-{
-  if (!prev && next) {
-    return MPTEST_INJECT_MALLOC(next);
-  } else if (next) {
-    assert(IMPLIES(!prev, !ptr));
-    return MPTEST_INJECT_REALLOC(ptr, next);
-  } else if (ptr) {
-    MPTEST_INJECT_FREE(ptr);
-  }
-  return NULL;
-}
 
 size_t utf_encode(char *out_buf, u32 codep)
 {
@@ -119,7 +106,7 @@ int check_matches_n(
    * regex, otherwise union all input regexes */
   if ((err = re_init_full(
            &r, nregex == 1 ? *regexes : NULL, nregex == 1 ? regex_n[0] : 0,
-           test_alloc)) == ERR_MEM)
+           NULL)) == ERR_MEM)
     goto oom_re;
   ASSERT_EQm(err, 0, "re_init_full() returned a nonzero value");
   for (i = 0; i < nregex && nregex != 1; i++) {
@@ -148,14 +135,16 @@ int check_matches_n(
     span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
     u32 found_set[TEST_MAX_SET], idx;
     err = re_match(r, s, n, 1, TEST_MAX_SET, found_span, found_set, anchor);
+    if (err == ERR_MEM)
+      goto oom_re;
     ASSERT_GTE(err, 0);
     for (idx = 0; idx < (unsigned)err; idx++) {
       re *r2;
       span found_span_2[1];
       u32 found_set_2[1];
       if ((err = re_init_full(
-               &r2, regexes[found_set[idx]], regex_n[found_set[idx]],
-               test_alloc)) == ERR_MEM) {
+               &r2, regexes[found_set[idx]], regex_n[found_set[idx]], NULL)) ==
+          ERR_MEM) {
         re_destroy(r2);
         goto oom_re;
       }
@@ -356,7 +345,7 @@ int check_noparse_n(const char *regex, size_t n)
 {
   re *r;
   int err;
-  if ((err = re_init_full(&r, regex, n, test_alloc)) == ERR_MEM)
+  if ((err = re_init_full(&r, regex, n, NULL)) == ERR_MEM)
     goto oom;
   ASSERT_EQ(err, ERR_PARSE);
   re_destroy(r);
@@ -378,7 +367,7 @@ int check_compiles_n(const char *regex, size_t n)
 {
   re *r;
   int err;
-  if ((err = re_init_full(&r, regex, n, test_alloc)) == ERR_MEM)
+  if ((err = re_init_full(&r, regex, n, NULL)) == ERR_MEM)
     goto oom;
   ASSERT_EQ(err, 0);
   if ((err = re_match(r, "", 0, 0, 0, NULL, NULL, 'U')) == ERR_MEM)
@@ -445,7 +434,7 @@ int assert_cc_match(const char *regex, const char *spec, int invert)
   char utf8[16];
   rrange ranges[64];
   u32 num_ranges = matchspec(spec, ranges), range_idx;
-  if ((err = re_init_full(&r, regex, strlen(regex), test_alloc)) == ERR_MEM)
+  if ((err = re_init_full(&r, regex, strlen(regex), NULL)) == ERR_MEM)
     goto oom;
   ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {

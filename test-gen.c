@@ -1,4 +1,4 @@
-#include "mptest/_cpack/mptest.h"
+#include "mptest.h"
 #include "re.h"
 
 mptest__result assert_cc_match(const char *regex, const char *spec, int invert);
