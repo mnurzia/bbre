@@ -2502,6 +2502,7 @@ typedef struct dfa {
   dfa_state *entry[PROG_ENTRY_MAX][DFA_STATE_FLAG_MAX]; /* program entry type *
                                                            dfa_state_flag */
   stk set_buf;
+  stk loc_buf, set_bmp;
 } dfa;
 
 void dfa_init(re *r, dfa *d)
@@ -2509,7 +2510,7 @@ void dfa_init(re *r, dfa *d)
   d->states = NULL;
   d->states_size = d->num_active_states = 0;
   memset(d->entry, 0, sizeof(d->entry));
-  stk_init(r, &d->set_buf);
+  stk_init(r, &d->set_buf), stk_init(r, &d->loc_buf), stk_init(r, &d->set_bmp);
 }
 
 void dfa_destroy(re *r, dfa *d)
@@ -2519,7 +2520,8 @@ void dfa_destroy(re *r, dfa *d)
     if (d->states[i])
       re_ialloc(r, sizeof(dfa_state), 0, d->states[i]);
   re_ialloc(r, d->states_size * sizeof(dfa_state *), 0, d->states);
-  stk_destroy(r, &d->set_buf);
+  stk_destroy(r, &d->set_buf), stk_destroy(r, &d->loc_buf),
+      stk_destroy(r, &d->set_bmp);
 }
 
 size_t dfa_state_size(u32 nstate, u32 nset)
@@ -2708,6 +2710,16 @@ int dfa_construct_chr(
       n, out_next_state);
 }
 
+void dfa_save_matches(dfa *dfa, dfa_state *state, size_t pos)
+{
+  u32 i;
+  for (i = 0; i < state->nset; i++) {
+    *(size_t *)stk_getn(
+        &dfa->loc_buf, dfa_state_data(state)[state->nstate + i]) = pos;
+    bmp_set(&dfa->set_bmp, i);
+  }
+}
+
 int re_match_dfa(
     re *r, nfa *nfa, u8 *s, size_t n, u32 max_span, u32 max_set, span *out_span,
     u32 *out_set, anchor_type anchor)
@@ -2720,6 +2732,7 @@ int re_match_dfa(
               : anchor == A_UNANCHORED ? PROG_ENTRY_DOTSTAR
                                        : 0;
   u32 incoming_assert_flag = FROM_TEXT_BEGIN | FROM_LINE_BEGIN;
+  int pri = !!(entry & PROG_ENTRY_DOTSTAR);
   assert(max_span == 0 || max_span == 1);
   assert(anchor == A_BOTH || anchor == A_START || anchor == A_END);
   if ((err = nfa_start(
@@ -2727,10 +2740,23 @@ int re_match_dfa(
            entry & PROG_ENTRY_DOTSTAR)))
     return err;
   dfa_init(r, &dfa);
+  if (pri) {
+    dfa.loc_buf.size = 0;
+    if ((err = bmp_init(r, &dfa.set_bmp, r->ast_sets)))
+      return err;
+    for (i = 0; i < r->ast_sets; i++) {
+      size_t p = 0;
+      if ((err = stk_pushn(r, &dfa.loc_buf, &p, sizeof(p))))
+        return err;
+    }
+  }
+  i = entry & PROG_ENTRY_REVERSE ? n : 0;
   if (!(state = dfa.entry[entry][incoming_assert_flag]) &&
       (err = dfa_construct_start(
            r, &dfa, nfa, entry, incoming_assert_flag, &state)))
     goto done;
+  if (pri)
+    dfa_save_matches(&dfa, state, i);
   if (entry & PROG_ENTRY_REVERSE) {
     for (i = n; i > 0; i--) {
       if (!state->ptrs[s[i - 1]]) {
@@ -2739,6 +2765,8 @@ int re_match_dfa(
       } else
         state = state->ptrs[s[i - 1]];
     }
+    if (pri)
+      dfa_save_matches(&dfa, state, i);
   } else {
     for (i = 0; i < n; i++) {
       if (!state->ptrs[s[i]]) {
@@ -2747,24 +2775,44 @@ int re_match_dfa(
       } else
         state = state->ptrs[s[i]];
     }
+    if (pri)
+      dfa_save_matches(&dfa, state, i);
   }
   if (!state->ptrs[SENT_CH]) {
     if ((err = dfa_construct_chr(r, &dfa, nfa, state, SENT_CH, &state)))
       goto done;
   } else
     state = state->ptrs[s[i]];
-  for (i = 0; i < state->nset; i++) {
-    if (max_span) {
-      if (entry & PROG_ENTRY_REVERSE)
-        out_span[i].begin = 0, out_span[i].end = n;
-      else
-        out_span[i].begin = 0, out_span[i].end = n;
+  if (pri) {
+    dfa_save_matches(&dfa, state, i);
+    assert(!err);
+    for (i = 0; i < r->ast_sets; i++) {
+      if (!bmp_get(&dfa.set_bmp, i))
+        continue;
+      if ((unsigned)err == max_set && max_set)
+        break;
+      if (max_span) {
+        size_t spos = *(size_t *)stk_getn(&dfa.loc_buf, i);
+        out_span[i].begin = entry & PROG_ENTRY_REVERSE ? 0 : spos,
+        out_span[i].end = entry & PROG_ENTRY_REVERSE ? spos : n;
+      }
+      if (!max_set) {
+        err = 1;
+        break;
+      }
+      err++;
     }
-    if (i < max_set)
-      out_set[i] = dfa_state_data(state)[state->nstate + i];
+  } else {
+    for (i = 0; i < state->nset; i++) {
+      if (max_span) {
+        out_span[i].begin = 0, out_span[i].end = n;
+      }
+      if (i < max_set)
+        out_set[i] = dfa_state_data(state)[state->nstate + i];
+    }
+    err = max_set ? (state->nset > max_set ? max_set : state->nset)
+                  : !!state->nset;
   }
-  err =
-      max_set ? (state->nset > max_set ? max_set : state->nset) : !!state->nset;
 done:
   dfa_destroy(r, &dfa);
   return err;
