@@ -3,7 +3,7 @@
 # default profile: debug
 PROFILE=debug
 
-CFLAGS_debug=-O0 -fsanitize=address,undefined
+CFLAGS_debug=-O0 -fsanitize=address,undefined -g
 CFLAGS_opt=-O3
 CFLAGS_cov=--coverage -DRE_COV
 

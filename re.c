@@ -1796,7 +1796,8 @@ int re_compile(re *r, u32 root, u32 reverse)
   compframe initial_frame = {0}, returned_frame = {0}, child_frame = {0};
   u32 set_idx = 0, grp_idx = 1, tmp_cc_ast = REF_NONE;
   if (!r->prog.size &&
-      ((err = stk_push(r, &r->prog, 0)) || (err = stk_push(r, &r->prog, 0))))
+      ((err = stk_push(r, &r->prog, 0)) || (err = stk_push(r, &r->prog, 0)) ||
+       (err = stk_push(r, &r->prog_set_idxs, 0))))
     return err;
   initial_frame.root_ref = root;
   initial_frame.child_ref = initial_frame.patch_head =
@@ -1933,7 +1934,7 @@ int re_compile(re *r, u32 root, u32 reverse)
         if (!(flags & NONCAPTURING)) {
           patch(r, &frame, my_pc);
           if (flags & SUBEXPRESSION)
-            grp_idx = 1, frame.set_idx = set_idx++;
+            grp_idx = 1, frame.set_idx = ++set_idx;
           if ((err = re_emit(
                    r,
                    inst_make(
@@ -2385,7 +2386,7 @@ int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
 int nfa_matchend(re *r, nfa *n, thrdspec thrd, size_t pos, unsigned int ch)
 {
   int err = 0;
-  u32 idx = r->prog_set_idxs.ptr[thrd.pc] + 1;
+  u32 idx = r->prog_set_idxs.ptr[thrd.pc];
   u32 *memo = n->pri_stk.ptr + idx - 1;
   assert(idx > 0); /* save_slots_set_setidx() MUST have been called */
   assert(idx - 1 < n->pri_stk.size);
@@ -3298,8 +3299,9 @@ void progdump_range(re *r, u32 start, u32 end, int format)
     if (format == TERM) {
       static const int colors[] = {91, 92, 93, 94};
       printf(
-          "%04X \x1b[%im%s\x1b[0m \x1b[%im%04X\x1b[0m %04X %s", start,
-          colors[inst_opcode(ins)], ops[inst_opcode(ins)],
+          "%04X %01X \x1b[%im%s\x1b[0m \x1b[%im%04X\x1b[0m %04X %s", start,
+          r->prog_set_idxs.ptr[start], colors[inst_opcode(ins)],
+          ops[inst_opcode(ins)],
           inst_next(ins) ? (inst_next(ins) == start + 1 ? 90 : 0) : 91,
           inst_next(ins), inst_param(ins), labels[k]);
       if (inst_opcode(ins) == MATCH)
