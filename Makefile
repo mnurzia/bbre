@@ -3,12 +3,22 @@
 # default profile: debug
 PROFILE=debug
 
-# profiles:
-CFLAGS_PROFILE_debug=-O0 -fsanitize=address,undefined -DRE_CONFIG_HEADER_FILE=\"test_config.h\"
-CFLAGS_PROFILE_opt=-O3
-CFLAGS_PROFILE_cov=--coverage -DRE_COV -DRE_CONFIG_HEADER_FILE=test_config.h
+CFLAGS_debug=-O0 -fsanitize=address,undefined
+CFLAGS_opt=-O3
+CFLAGS_cov=--coverage -DRE_COV
 
-CFLAGS=-Wall -Werror -Wextra -Wshadow -pedantic -Wuninitialized -Wunused-variable -std=c89 -ferror-limit=0 $(CFLAGS_PROFILE_$(PROFILE))
+# tell em to bring out the whole... set of compiler flags!
+CFLAGS=\
+			 -Wall\
+			 -Werror\
+			 -Wextra\
+			 -Wshadow\
+			 -pedantic\
+			 -Wuninitialized\
+			 -Wunused-variable\
+			 -std=c89\
+			 -ferror-limit=0\
+			 $(CFLAGS_$(PROFILE))
 
 SRCS=re.c test.c test-gen.c
 GDB=lldb --
@@ -89,7 +99,7 @@ testdbgoom_%: $(OUT_DIR)/re_test
 build/compile_commands.json: build
 	bear --output $@ -- make -B build/$(PROFILE)/re_test
 
-## generate compile_commands.json for language servers (alias for build/compile_commands.json)
+## generate build/compile_commands.json for language servers 
 compile_commands: build/compile_commands.json
 
 build/cov/lcov.info:
@@ -155,7 +165,7 @@ help_targets:
 
 ## print a list of profiles
 help_profiles:
-	sed < Makefile -n -e '1s/^.*/PROFILE\&CFLAGS/p' -e 's/CFLAGS_PROFILE_\([a-z]*\)=\(.*\)/\1\&\2/p' | column -t -s '&'
+	sed < Makefile -n -e '1s/^.*/PROFILE\&CFLAGS/p' -e 's/CFLAGS_\([a-z]*\)=\(.*\)/\1\&\2/p' | column -t -s '&'
 
 ## build documentation
 docs: build build/viz

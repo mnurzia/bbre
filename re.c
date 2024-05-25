@@ -26,7 +26,8 @@ struct re {
   re_alloc alloc;
   stk ast;
   u32 ast_root, ast_sets;
-  stk arg_stk, op_stk, comp_stk, prog;
+  stk arg_stk, op_stk, comp_stk;
+  stk prog, prog_set_idxs;
   stk cc_stk_a, cc_stk_b;
   u32 entry[4];
   const u8 *expr;
@@ -163,7 +164,7 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
   r->ast_root = r->ast_sets = 0;
   stk_init(r, &r->arg_stk), stk_init(r, &r->op_stk), stk_init(r, &r->comp_stk);
   stk_init(r, &r->cc_stk_a), stk_init(r, &r->cc_stk_b);
-  stk_init(r, &r->prog);
+  stk_init(r, &r->prog), stk_init(r, &r->prog_set_idxs);
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
     if ((err = re_parse(r, (const u8 *)regex, n, &r->ast_root))) {
@@ -183,7 +184,7 @@ void re_destroy(re *r)
   stk_destroy(r, &r->op_stk), stk_destroy(r, &r->arg_stk),
       stk_destroy(r, &r->comp_stk);
   stk_destroy(r, &r->cc_stk_a), stk_destroy(r, &r->cc_stk_b);
-  stk_destroy(r, &r->prog);
+  stk_destroy(r, &r->prog), stk_destroy(r, &r->prog_set_idxs);
   r->alloc(sizeof(*r), 0, r, __FILE__, __LINE__);
 }
 
@@ -1126,20 +1127,21 @@ u32 re_prog_size(re *r) { return r->prog.size >> 1; }
 
 #define RE_PROG_MAX_INSTS 100000
 
-int re_emit(re *r, inst i)
+typedef struct compframe {
+  u32 root_ref, child_ref, idx, patch_head, patch_tail, pc, flags, set_idx;
+} compframe;
+
+int re_emit(re *r, inst i, compframe *frame)
 {
   int err = 0;
   if (re_prog_size(r) == RE_PROG_MAX_INSTS)
     return ERR_LIMIT;
-  if ((err = stk_push(r, &r->prog, 0)) || (err = stk_push(r, &r->prog, 0)))
+  if ((err = stk_push(r, &r->prog, 0)) || (err = stk_push(r, &r->prog, 0)) ||
+      (err = stk_push(r, &r->prog_set_idxs, frame->set_idx)))
     return err;
   re_prog_set(r, re_prog_size(r) - 1, i);
   return err;
 }
-
-typedef struct compframe {
-  u32 root_ref, child_ref, idx, patch_head, patch_tail, pc, flags;
-} compframe;
 
 int compframe_push(re *r, compframe c)
 {
@@ -1618,18 +1620,20 @@ int re_compcc_rendertree(
     if (node->sibling_ref) {
       /* need a split */
       split_from = my_pc;
-      if ((err = re_emit(r, inst_make(SPLIT, my_pc + 1, 0))))
+      if ((err = re_emit(r, inst_make(SPLIT, my_pc + 1, 0), frame)))
         return err;
     }
     if (!*my_out_pc)
       *my_out_pc = my_pc;
     range_pc = re_prog_size(r);
     if ((err = re_emit(
-             r, inst_make(
-                    RANGE, 0,
-                    byte_range_to_u32(byte_range_make(
-                        u32_to_byte_range(node->range).l,
-                        u32_to_byte_range(node->range).h))))))
+             r,
+             inst_make(
+                 RANGE, 0,
+                 byte_range_to_u32(byte_range_make(
+                     u32_to_byte_range(node->range).l,
+                     u32_to_byte_range(node->range).h))),
+             frame)))
       return err;
     if (node->child_ref) {
       /* need to down-compile */
@@ -1747,7 +1751,8 @@ int re_compcc(re *r, u32 root, compframe *frame, int reversed)
   if (!ccsize(&r->cc_stk_b)) {
     /* empty charclass */
     if ((err = re_emit(
-             r, inst_make(ASSERT, 0, WORD | NOT_WORD)))) /* never matches */
+             r, inst_make(ASSERT, 0, WORD | NOT_WORD),
+             frame))) /* never matches */
       return err;
     patch_add(r, frame, re_prog_size(r) - 1, 0);
     return err;
@@ -1822,9 +1827,11 @@ int re_compile(re *r, u32 root, u32 reverse)
         /*  in     out
          * ---> R ----> */
         if ((err = re_emit(
-                 r, inst_make(
-                        RANGE, 0,
-                        byte_range_to_u32(byte_range_make(args[0], args[0]))))))
+                 r,
+                 inst_make(
+                     RANGE, 0,
+                     byte_range_to_u32(byte_range_make(args[0], args[0]))),
+                 &frame)))
           return err;
         patch_add(r, &frame, my_pc, 0);
       } else { /* unicode */
@@ -1844,7 +1851,8 @@ int re_compile(re *r, u32 root, u32 reverse)
       if ((err = re_emit(
                r,
                inst_make(
-                   RANGE, 0, byte_range_to_u32(byte_range_make(0x00, 0xFF))))))
+                   RANGE, 0, byte_range_to_u32(byte_range_make(0x00, 0xFF))),
+               &frame)))
         return err;
       patch_add(r, &frame, my_pc, 0);
     } else if (type == CAT) {
@@ -1868,7 +1876,7 @@ int re_compile(re *r, u32 root, u32 reverse)
        *        --> [B] ----> */
       if (frame.idx == 0) { /* before left child */
         patch(r, &frame, frame.pc);
-        if ((err = re_emit(r, inst_make(SPLIT, 0, 0))))
+        if ((err = re_emit(r, inst_make(SPLIT, 0, 0), &frame)))
           return err;
         patch_add(r, &child_frame, frame.pc, 0);
         frame.child_ref = args[0], frame.idx++;
@@ -1893,7 +1901,7 @@ int re_compile(re *r, u32 root, u32 reverse)
         frame.child_ref = child;
       } else if (max == INFTY && frame.idx == min) { /* before inf. bound */
         patch(r, frame.idx ? &returned_frame : &frame, my_pc);
-        if ((err = re_emit(r, inst_make(SPLIT, 0, 0))))
+        if ((err = re_emit(r, inst_make(SPLIT, 0, 0), &frame)))
           return err;
         frame.pc = my_pc;
         patch_add(r, &child_frame, my_pc, !is_greedy);
@@ -1903,7 +1911,7 @@ int re_compile(re *r, u32 root, u32 reverse)
         patch(r, &returned_frame, frame.pc);
       } else if (frame.idx < max) { /* before maximum bound */
         patch(r, frame.idx ? &returned_frame : &frame, my_pc);
-        if ((err = re_emit(r, inst_make(SPLIT, 0, 0))))
+        if ((err = re_emit(r, inst_make(SPLIT, 0, 0), &frame)))
           return err;
         patch_add(r, &child_frame, my_pc, !is_greedy);
         patch_add(r, &frame, my_pc, is_greedy);
@@ -1925,14 +1933,15 @@ int re_compile(re *r, u32 root, u32 reverse)
         if (!(flags & NONCAPTURING)) {
           patch(r, &frame, my_pc);
           if (flags & SUBEXPRESSION)
-            grp_idx = 1;
+            grp_idx = 1, frame.set_idx = set_idx++;
           if ((err = re_emit(
-                   r, inst_make(
-                          MATCH, 0,
-                          inst_match_param_make(
-                              !(flags & SUBEXPRESSION), reverse,
-                              (flags & SUBEXPRESSION ? 1 + set_idx++
-                                                     : grp_idx++))))))
+                   r,
+                   inst_make(
+                       MATCH, 0,
+                       inst_match_param_make(
+                           !(flags & SUBEXPRESSION), reverse,
+                           (flags & SUBEXPRESSION ? set_idx : grp_idx++))),
+                   &frame)))
             return err;
           patch_add(r, &child_frame, my_pc, 0);
         } else
@@ -1942,12 +1951,14 @@ int re_compile(re *r, u32 root, u32 reverse)
         if (!(flags & NONCAPTURING)) {
           patch(r, &returned_frame, my_pc);
           if ((err = re_emit(
-                   r, inst_make(
-                          MATCH, 0,
-                          inst_match_param_make(
-                              !(flags & SUBEXPRESSION), !reverse,
-                              inst_match_param_idx(
-                                  inst_param(re_prog_get(r, frame.pc))))))))
+                   r,
+                   inst_make(
+                       MATCH, 0,
+                       inst_match_param_make(
+                           !(flags & SUBEXPRESSION), !reverse,
+                           inst_match_param_idx(
+                               inst_param(re_prog_get(r, frame.pc))))),
+                   &frame)))
             return err;
           if (!(flags & SUBEXPRESSION))
             patch_add(r, &frame, my_pc, 0);
@@ -1961,7 +1972,7 @@ int re_compile(re *r, u32 root, u32 reverse)
     } else if (type == AASSERT) {
       u32 assert_flag = args[0];
       patch(r, &frame, my_pc);
-      if ((err = re_emit(r, inst_make(ASSERT, 0, assert_flag))))
+      if ((err = re_emit(r, inst_make(ASSERT, 0, assert_flag), &frame)))
         return err;
       patch_add(r, &frame, my_pc, 0);
     } else {
@@ -1975,6 +1986,7 @@ int re_compile(re *r, u32 root, u32 reverse)
       child_frame.idx = 0;
       child_frame.pc = re_prog_size(r);
       child_frame.flags = frame.flags;
+      child_frame.set_idx = frame.set_idx;
       if ((err = compframe_push(r, child_frame)))
         return err;
     }
@@ -1986,14 +1998,18 @@ int re_compile(re *r, u32 root, u32 reverse)
     u32 dstar =
         r->entry[PROG_ENTRY_DOTSTAR | (reverse ? PROG_ENTRY_REVERSE : 0)] =
             re_prog_size(r);
+    compframe frame = {0};
     if ((err = re_emit(
-             r, inst_make(
-                    SPLIT, r->entry[reverse ? PROG_ENTRY_REVERSE : 0],
-                    dstar + 1))))
+             r,
+             inst_make(
+                 SPLIT, r->entry[reverse ? PROG_ENTRY_REVERSE : 0], dstar + 1),
+             &frame)))
       return err;
     if ((err = re_emit(
-             r, inst_make(
-                    RANGE, dstar, byte_range_to_u32(byte_range_make(0, 255))))))
+             r,
+             inst_make(
+                 RANGE, dstar, byte_range_to_u32(byte_range_make(0, 255))),
+             &frame)))
       return err;
   }
   return 0;
@@ -2369,7 +2385,7 @@ int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
 int nfa_matchend(re *r, nfa *n, thrdspec thrd, size_t pos, unsigned int ch)
 {
   int err = 0;
-  u32 idx = save_slots_get_setidx(&n->slots, thrd.slot);
+  u32 idx = r->prog_set_idxs.ptr[thrd.pc] + 1;
   u32 *memo = n->pri_stk.ptr + idx - 1;
   assert(idx > 0); /* save_slots_set_setidx() MUST have been called */
   assert(idx - 1 < n->pri_stk.size);
@@ -2397,11 +2413,9 @@ int nfa_chr(re *r, nfa *n, unsigned int ch, size_t pos)
   for (i = 0; i < n->b.dense_size; i++) {
     thrdspec thrd = n->b.dense[i];
     inst op = re_prog_get(r, thrd.pc);
-    int pri =
-        save_slots_perthrd(&n->slots)
-            ? bmp_get(
-                  &n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot))
-            : 0;
+    int pri = save_slots_perthrd(&n->slots)
+                  ? bmp_get(&n->pri_bmp_tmp, r->prog_set_idxs.ptr[thrd.pc])
+                  : 0;
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
     switch (inst_opcode(op)) {
@@ -2420,7 +2434,7 @@ int nfa_chr(re *r, nfa *n, unsigned int ch, size_t pos)
       if ((err = nfa_matchend(r, n, thrd, pos, ch)))
         return err;
       if (save_slots_perthrd(&n->slots) && n->pri)
-        bmp_set(&n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot));
+        bmp_set(&n->pri_bmp_tmp, r->prog_set_idxs.ptr[thrd.pc]);
       break;
     }
     default:
@@ -2685,11 +2699,9 @@ int dfa_construct_chr(
   for (i = 0; i < n->b.dense_size; i++) {
     thrdspec thrd = n->b.dense[i];
     inst op = re_prog_get(r, thrd.pc);
-    int pri =
-        save_slots_perthrd(&n->slots)
-            ? bmp_get(
-                  &n->pri_bmp_tmp, save_slots_get_setidx(&n->slots, thrd.slot))
-            : 0;
+    int pri = save_slots_perthrd(&n->slots)
+                  ? bmp_get(&n->pri_bmp_tmp, r->prog_set_idxs.ptr[thrd.pc])
+                  : 0;
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
     switch (inst_opcode(op)) {
