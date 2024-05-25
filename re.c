@@ -2721,7 +2721,7 @@ int re_match_dfa(
                                        : 0;
   u32 incoming_assert_flag = FROM_TEXT_BEGIN | FROM_LINE_BEGIN;
   assert(max_span == 0 || max_span == 1);
-  assert(anchor == A_BOTH);
+  assert(anchor == A_BOTH || anchor == A_START || anchor == A_END);
   if ((err = nfa_start(
            r, nfa, r->entry[entry], 0, entry & PROG_ENTRY_REVERSE,
            entry & PROG_ENTRY_DOTSTAR)))
@@ -2729,14 +2729,24 @@ int re_match_dfa(
   dfa_init(r, &dfa);
   if (!(state = dfa.entry[entry][incoming_assert_flag]) &&
       (err = dfa_construct_start(
-           r, &dfa, nfa, entry, FROM_TEXT_BEGIN | FROM_LINE_BEGIN, &state)))
+           r, &dfa, nfa, entry, incoming_assert_flag, &state)))
     goto done;
-  for (i = 0; i < n; i++) {
-    if (!state->ptrs[s[i]]) {
-      if ((err = dfa_construct_chr(r, &dfa, nfa, state, s[i], &state)))
-        goto done;
-    } else
-      state = state->ptrs[s[i]];
+  if (entry & PROG_ENTRY_REVERSE) {
+    for (i = n; i > 0; i--) {
+      if (!state->ptrs[s[i - 1]]) {
+        if ((err = dfa_construct_chr(r, &dfa, nfa, state, s[i - 1], &state)))
+          goto done;
+      } else
+        state = state->ptrs[s[i - 1]];
+    }
+  } else {
+    for (i = 0; i < n; i++) {
+      if (!state->ptrs[s[i]]) {
+        if ((err = dfa_construct_chr(r, &dfa, nfa, state, s[i], &state)))
+          goto done;
+      } else
+        state = state->ptrs[s[i]];
+    }
   }
   if (!state->ptrs[SENT_CH]) {
     if ((err = dfa_construct_chr(r, &dfa, nfa, state, SENT_CH, &state)))
@@ -2744,8 +2754,12 @@ int re_match_dfa(
   } else
     state = state->ptrs[s[i]];
   for (i = 0; i < state->nset; i++) {
-    if (max_span)
-      out_span[i].begin = 0, out_span[i].end = n;
+    if (max_span) {
+      if (entry & PROG_ENTRY_REVERSE)
+        out_span[i].begin = 0, out_span[i].end = n;
+      else
+        out_span[i].begin = 0, out_span[i].end = n;
+    }
     if (i < max_set)
       out_set[i] = dfa_state_data(state)[state->nstate + i];
   }
@@ -2788,7 +2802,7 @@ int re_match(
                            (err = re_compile(r, r->ast_root, 1))))
     return err;
   nfa_init(r, &nfa);
-  if (1 && anchor == A_BOTH && (max_span == 0 || max_span == 1)) {
+  if (1 && !(entry & PROG_ENTRY_DOTSTAR) && (max_span == 0 || max_span == 1)) {
     err = re_match_dfa(
         r, &nfa, (u8 *)s, n, max_span, max_set, out_span, out_set, anchor);
     goto done;
