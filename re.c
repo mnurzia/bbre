@@ -2101,7 +2101,7 @@ void save_slots_destroy(re *r, save_slots *s)
 void save_slots_clear(save_slots *s, size_t per_thrd)
 {
   s->slots_size = 0, s->last_empty = 0,
-  s->per_thrd = per_thrd + 2 /* for refcnt and setidx */;
+  s->per_thrd = per_thrd + 1 /* for refcnt */;
 }
 
 int save_slots_new(re *r, save_slots *s, u32 *next)
@@ -2160,7 +2160,7 @@ int save_slots_set_internal(
 {
   int err;
   *out = ref;
-  assert(idx < s->per_thrd - 1);
+  assert(idx < s->per_thrd);
   if (!s->per_thrd) {
     /* not saving anything */
     assert(0);
@@ -2186,7 +2186,7 @@ int save_slots_set_internal(
 
 u32 save_slots_perthrd(save_slots *s)
 {
-  return s->per_thrd ? s->per_thrd - 2 : s->per_thrd;
+  return s->per_thrd ? s->per_thrd - 1 : s->per_thrd;
 }
 
 int save_slots_set(re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
@@ -2195,20 +2195,10 @@ int save_slots_set(re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
   return save_slots_set_internal(r, s, ref, idx, v, out);
 }
 
-int save_slots_set_setidx(re *r, save_slots *s, u32 ref, u32 setidx, u32 *out)
-{
-  return save_slots_set_internal(r, s, ref, s->per_thrd - 2, (u32)setidx, out);
-}
-
 u32 save_slots_get(save_slots *s, u32 ref, u32 idx)
 {
   assert(idx < save_slots_perthrd(s));
   return s->slots[ref * s->per_thrd + idx];
-}
-
-u32 save_slots_get_setidx(save_slots *s, u32 ref)
-{
-  return s->slots[ref * s->per_thrd + s->per_thrd - 2];
 }
 
 typedef struct nfa {
@@ -2331,11 +2321,6 @@ int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
                  : 0) *
                 2 +
             inst_match_param_end(inst_param(op));
-        if (!inst_match_param_slot(inst_param(op)) &&
-            (err = save_slots_set_setidx(
-                 r, &n->slots, top.slot, inst_match_param_idx(inst_param(op)),
-                 &top.slot)))
-          return err;
         if (idx < save_slots_perthrd(&n->slots) &&
             (err = save_slots_set(r, &n->slots, top.slot, idx, pos, &top.slot)))
           return err;
@@ -2388,7 +2373,7 @@ int nfa_matchend(re *r, nfa *n, thrdspec thrd, size_t pos, unsigned int ch)
   int err = 0;
   u32 idx = r->prog_set_idxs.ptr[thrd.pc];
   u32 *memo = n->pri_stk.ptr + idx - 1;
-  assert(idx > 0); /* save_slots_set_setidx() MUST have been called */
+  assert(idx > 0);
   assert(idx - 1 < n->pri_stk.size);
   if (!n->pri && ch < 256)
     return err;

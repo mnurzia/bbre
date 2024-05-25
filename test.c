@@ -406,7 +406,8 @@ u32 matchspec(const char *spec, rrange *ranges)
 {
   u32 n = 0;
   while (*spec) {
-    const char *comma = strchr(spec, ','), *nextspec = comma + 1;
+    const char *comma = strchr(spec, ',');
+    const char *nextspec = comma ? comma + 1 : comma;
     const char *space = strchr(spec, ' ');
     char tmp_buf[16];
     if (!comma)
