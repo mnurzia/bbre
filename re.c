@@ -124,11 +124,11 @@ void *stk_getn(stk *s, u32 idx)
   return s->ptr + idx;
 }
 
-u32 stk_peek(re *r, stk *s, u32 idx)
+u32 *stk_peek(re *r, stk *s, u32 idx)
 {
   (void)(r);
   assert(idx < s->size);
-  return s->ptr[s->size - 1 - idx];
+  return &(s->ptr[s->size - 1 - idx]);
 }
 
 u32 stk_size(stk *s, u32 n)
@@ -291,12 +291,6 @@ byte_range u32_to_byte_range(u32 u)
   return byte_range_make(u & 0xFF, u >> 8 & 0xFF);
 }
 
-/* Check if two byte ranges intersect. */
-int byte_range_is_intersecting(byte_range r, byte_range clip)
-{
-  return r.l <= clip.h && clip.l <= r.h;
-}
-
 /* Check if two byte ranges are adjacent (right directly supersedes left) */
 int byte_range_is_adjacent(byte_range left, byte_range right)
 {
@@ -340,7 +334,7 @@ int re_union(re *r, const char *regex, size_t n)
   int err = 0;
   if (!r->ast_sets && (err = re_parse(r, (const u8 *)regex, n, &r->ast_root))) {
     return err;
-  } else if (!r->ast_sets) {
+  } else {
     u32 next_reg, next_root;
     if ((err = re_parse(r, (const u8 *)regex, n, &next_reg)) ||
         (err = re_ast_make(r, ALT, r->ast_root, next_reg, 0, &next_root)))
@@ -453,10 +447,10 @@ int re_fold(re *r)
     /* arg_stk: | ... | R_N-1 | R_N | */
     u32 right, left, rest;
     right = stk_pop(r, &r->arg_stk);
-    left = stk_pop(r, &r->arg_stk);
-    if ((err = re_ast_make(r, CAT, left, right, 0, &rest)) ||
-        (err = stk_push(r, &r->arg_stk, rest)))
+    left = *stk_peek(r, &r->arg_stk, 0);
+    if ((err = re_ast_make(r, CAT, left, right, 0, &rest)))
       return err;
+    *stk_peek(r, &r->arg_stk, 0) = rest;
     /* arg_stk: | ... | R_N-1R_N | */
   }
   /* arg_stk: | R1R2...Rn | */
@@ -467,54 +461,53 @@ int re_fold(re *r)
  * the end of the operator stack, fold and finish each ALT node into a single
  * resulting ALT node on the argument stack.
  * Returns `ERR_MEM` if out of memory. */
-int re_fold_alts(re *r, u32 *flags)
+void re_fold_alts(re *r, u32 *flags)
 {
   int err = 0;
   assert(r->arg_stk.size == 1);
   /* First pop all inline groups. */
   while (r->op_stk.size &&
-         *re_ast_type(r, stk_peek(r, &r->op_stk, 0)) == IGROUP) {
+         *re_ast_type(r, *stk_peek(r, &r->op_stk, 0)) == IGROUP) {
     /* arg_stk: |  R  | */
     /* op_stk:  | ... | (S) | */
-    u32 igrp = stk_pop(r, &r->op_stk), prev = *re_ast_param(r, igrp, 0), cat,
+    u32 igrp = stk_pop(r, &r->op_stk), cat = *re_ast_param(r, igrp, 0),
         old_flags = *re_ast_param(r, igrp, 2);
-    *re_ast_param(r, igrp, 0) = stk_pop(r, &r->arg_stk);
+    *re_ast_param(r, igrp, 0) = *stk_peek(r, &r->arg_stk, 0);
     *flags = old_flags;
-    if ((err = re_ast_make(r, CAT, prev, igrp, 0, &cat)) ||
-        (err = stk_push(r, &r->arg_stk, cat)))
-      return err;
+    *re_ast_param(r, cat, 1) = igrp;
+    *stk_peek(r, &r->arg_stk, 0) = cat;
     /* arg_stk: | S(R)| */
     /* op_stk:  | ... | */
   }
   assert(r->arg_stk.size == 1);
   /* arg_stk: |  R  | */
   /* op_stk:  | ... | */
-  if (r->op_stk.size && *re_ast_type(r, stk_peek(r, &r->op_stk, 0)) == ALT) {
+  if (r->op_stk.size && *re_ast_type(r, *stk_peek(r, &r->op_stk, 0)) == ALT) {
     /* op_stk:  | ... |  A  | */
     /* finish the last alt */
-    *re_ast_param(r, stk_peek(r, &r->op_stk, 0), 1) = stk_pop(r, &r->arg_stk);
+    *re_ast_param(r, *stk_peek(r, &r->op_stk, 0), 1) = stk_pop(r, &r->arg_stk);
     /* arg_stk: | */
     /* op_stk:  | ... | */
   }
   while (r->op_stk.size > 1 &&
-         *re_ast_type(r, stk_peek(r, &r->op_stk, 0)) == ALT &&
-         *re_ast_type(r, stk_peek(r, &r->op_stk, 1)) == ALT) {
+         *re_ast_type(r, *stk_peek(r, &r->op_stk, 0)) == ALT &&
+         *re_ast_type(r, *stk_peek(r, &r->op_stk, 1)) == ALT) {
     /* op_stk:  | ... | A_1 | A_2 | */
-    u32 right = stk_pop(r, &r->op_stk), left = stk_pop(r, &r->op_stk);
+    u32 right = stk_pop(r, &r->op_stk), left = *stk_peek(r, &r->op_stk, 0);
     *re_ast_param(r, left, 1) = right;
-    if ((err = stk_push(r, &r->op_stk, left)))
-      return err;
+    *stk_peek(r, &r->op_stk, 0) = left;
     /* op_stk:  | ... | A_1(|A_2) | */
   }
   if (r->op_stk.size &&
       *re_ast_type(r, r->op_stk.ptr[r->op_stk.size - 1]) == ALT) {
     /* op_stk:  | ... |  A  | */
-    if ((err = stk_push(r, &r->arg_stk, stk_pop(r, &r->op_stk))))
-      return err;
+    assert(r->arg_stk.size == 0);
+    err = stk_push(r, &r->arg_stk, stk_pop(r, &r->op_stk));
+    assert(!err); /* we have space on the stack so this should never fail */
+    (void)err;
     /* arg_stk: |  A  | */
     /* op_stk:  | ... | */
   }
-  return 0;
 }
 
 /* Add the CLS node `rest` to the CLS node `first`. */
@@ -559,6 +552,13 @@ int re_hexdig(u32 ch)
     return -1;
 }
 
+int re_octdig(u32 ch)
+{
+  if (ch >= '0' && ch <= '7')
+    return ch - '0';
+  return -1;
+}
+
 typedef struct ccdef {
   u8 name_len, cc_len;
   const char *name;
@@ -599,8 +599,8 @@ int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert)
     }
   }
   assert(cur_max < UTFMAX); /* builtin charclasses never reach UTFMAX */
-  if (invert && i &&
-      (err = re_ast_make(r, CLS, res, cur_max + 1, UTFMAX, &res)))
+  assert(i);                /* builtin charclasses are not length zero */
+  if (invert && (err = re_ast_make(r, CLS, res, cur_max + 1, UTFMAX, &res)))
     return err;
   if ((err = stk_push(r, &r->arg_stk, res)))
     return err;
@@ -636,14 +636,14 @@ int re_parse_escape(re *r, u32 allowed_outputs)
       (ch == '-') ||                /* dash */
       (ch == '\\') /* escaped slash */) {
     return re_parse_escape_addchr(r, ch, allowed_outputs);
-  } else if (ch >= '0' && ch <= '7') { /* octal escape */
+  } else if (re_octdig(ch) >= 0) { /* octal escape */
     int digs = 1;
     u32 ord = ch - '0';
     while (digs++ < 3 && re_parse_has_more(r) &&
-           !(err = re_peek_next(r, &ch)) && ch >= '0' && ch <= '7') {
+           !(err = re_peek_next(r, &ch)) && re_octdig(ch) >= 0) {
       err = re_parse_next(r, &ch, NULL);
-      assert(!err && ch >= '0' && ch <= '7');
-      ord = ord * 8 + ch - '0';
+      assert(!err && re_octdig(ch) >= 0);
+      ord = ord * 8 + re_octdig(ch);
     }
     if (err)
       return err; /* malformed */
@@ -654,8 +654,8 @@ int re_parse_escape(re *r, u32 allowed_outputs)
              r, &ch, "expected two hex characters or a bracketed hex literal")))
       return err;
     if (ch == '{') { /* bracketed hex lit */
-      u32 i;
-      for (i = 0; i < 8; i++) {
+      u32 i = 0;
+      while (1) {
         if ((i == 7) ||
             (err = re_parse_next(r, &ch, "expected up to six hex characters")))
           return re_parse_err(r, "expected up to six hex characters");
@@ -664,6 +664,7 @@ int re_parse_escape(re *r, u32 allowed_outputs)
         if ((err = re_hexdig(ch)) == -1)
           return re_parse_err(r, "invalid hex digit");
         ord = ord * 16 + err;
+        i++;
       }
       if (!i)
         return re_parse_err(r, "expected at least one hex character");
@@ -720,8 +721,9 @@ int re_parse_escape(re *r, u32 allowed_outputs)
       ch == 'w') {
     /* Perl builtin character classes */
     const char *cc_name;
-    int inverted = ch >= 'A' && ch <= 'Z'; /* uppercase are inverted */
-    ch = inverted ? ch - 'A' + 'a' : ch;   /* convert to lowercase */
+    int inverted =
+        ch == 'D' || ch == 'S' || ch == 'W'; /* uppercase are inverted */
+    ch = inverted ? ch - 'A' + 'a' : ch;     /* convert to lowercase */
     cc_name = ch == 'd' ? "digit" : ch == 's' ? "perl_space" : "word";
     if (!(allowed_outputs & (1 << CLS)))
       return re_parse_err(r, "cannot use a character class here");
@@ -754,13 +756,16 @@ int re_parse_number(re *r, u32 *out, u32 max_digits)
   u32 ch, acc = 0, ndigs = 0;
   if (!re_parse_has_more(r))
     return re_parse_err(r, "expected at least one decimal digit");
-  while (re_parse_has_more(r) && !(err = re_peek_next(r, &ch)) && ch >= '0' &&
-         ch <= '9' && (re_parse_next(r, &ch, NULL), ++ndigs < max_digits))
-    acc = acc * 10 + (ch - '0');
+  while (ndigs < max_digits && re_parse_has_more(r) &&
+         !(err = re_peek_next(r, &ch)) && ch >= '0' && ch <= '9' &&
+         !re_parse_next(r, &ch, NULL))
+    acc = acc * 10 + (ch - '0'), ndigs++;
   if (err)
     return err;
-  if (!ndigs && !(ch >= '0' && ch <= '9'))
+  if (!ndigs)
     return re_parse_err(r, "expected at least one decimal digit");
+  if (ndigs == max_digits)
+    return re_parse_err(r, "too many digits for decimal number");
   *out = acc;
   return err;
 }
@@ -790,10 +795,11 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         }
       }
       if ((err = re_ast_make(
-               r, greedy ? QUANT : UQUANT, stk_pop(r, &r->arg_stk) /* child */,
-               q == '+' /* min */, q == '?' ? 1 : INFTY /* max */, &res)) ||
-          (err = stk_push(r, &r->arg_stk, res)))
+               r, greedy ? QUANT : UQUANT,
+               *stk_peek(r, &r->arg_stk, 0) /* child */, q == '+' /* min */,
+               q == '?' ? 1 : INFTY /* max */, &res)))
         return err;
+      *stk_peek(r, &r->arg_stk, 0) = res;
       /* arg_stk: | ... | *(R) | */
     } else if (ch == '|') {
       /* fold the arg stk into a concat, create alt, push it to the arg stk */
@@ -810,7 +816,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* arg_stk: | */
       /* op_stk:  | ... | R(|) | */
     } else if (ch == '(') {
-      u32 old_flags = flags, inline_group = 0;
+      u32 old_flags = flags, inline_group = 0, child;
       if (!re_parse_has_more(r))
         return re_parse_err(r, "expected ')' to close group");
       if ((err = re_peek_next(r, &ch)))
@@ -839,7 +845,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
               break;
           }
         } else {
-          u32 neg = 0, flag;
+          u32 neg = 0, flag = UNGREEDY;
           while (1) {
             if (ch == ':' || ch == ')')
               break;
@@ -850,8 +856,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
             } else if (
                 (ch == 'i' && (flag = INSENSITIVE)) ||
                 (ch == 'm' && (flag = MULTILINE)) ||
-                (ch == 's' && (flag = DOTNEWLINE)) ||
-                (ch == 'u' && (flag = UNGREEDY))) {
+                (ch == 's' && (flag = DOTNEWLINE)) || (ch == 'u')) {
               flags = neg ? flags & ~flag : flags | flag;
             } else {
               return re_parse_err(
@@ -871,10 +876,13 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* arg_stk: | R_1 | R_2 | ... | R_N | */
       if ((err = re_fold(r)))
         return err;
+      child = stk_pop(r, &r->arg_stk);
+      if (inline_group && (err = re_ast_make(r, CAT, child, 0, 0, &child)))
+        return err;
       /* arg_stk: |  R  | */
       if ((err = re_ast_make(
-               r, inline_group ? IGROUP : GROUP, stk_pop(r, &r->arg_stk), flags,
-               old_flags, &res)) ||
+               r, inline_group ? IGROUP : GROUP, child, flags, old_flags,
+               &res)) ||
           (err = stk_push(r, &r->op_stk, res)))
         return err;
       /* op_stk:  | ... | (R) | */
@@ -884,28 +892,28 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* op_stk:  | ... | (R) | ... | */
       /* fold the arg stk into a concat, fold remaining alts, create group,
        * push it to the arg stk */
-      if ((err = re_fold(r)) || (err = re_fold_alts(r, &flags)))
+      if ((err = re_fold(r)))
         return err;
+      re_fold_alts(r, &flags);
       /* arg_stk has one value */
       assert(r->arg_stk.size == 1);
       if (!r->op_stk.size)
         return re_parse_err(r, "extra close parenthesis");
       /* arg_stk: |  S  | */
       /* op_stk:  | ... | (R) | */
-      grp = stk_peek(r, &r->op_stk, 0);
+      grp = *stk_peek(r, &r->op_stk, 0);
       /* retrieve the previous contents of arg_stk */
       prev = *re_ast_param(r, grp, 0);
       /* add it to the group */
-      *(re_ast_param(r, grp, 0)) = stk_pop(r, &r->arg_stk);
+      *(re_ast_param(r, grp, 0)) = *stk_peek(r, &r->arg_stk, 0);
       /* restore group flags */
       flags = *(re_ast_param(r, grp, 2));
       /* push the saved contents of arg_stk */
-      if (prev && (err = stk_push(r, &r->arg_stk, prev)))
-        return err;
+      *stk_peek(r, &r->arg_stk, 0) = prev;
       /* pop the group frame into arg_stk */
-      if ((err = stk_push(r, &r->arg_stk, stk_pop(r, &r->op_stk))))
-        return err;
-      /* arg_stk: |  S  |  R  | */
+      err = stk_push(r, &r->arg_stk, stk_pop(r, &r->op_stk));
+      assert(!err); /* the stack always has space for this */
+      /* arg_stk: |  R  | (S) | */
       /* op_stk:  | ... | */
     } else if (ch == '.') { /* any char */
       /* arg_stk: | ... | */
@@ -943,7 +951,8 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
           assert(*re_ast_type(r, next) == CHR || *re_ast_type(r, next) == CLS);
           if (*re_ast_type(r, next) == CHR)
             min = *re_ast_param(r, next, 0); /* single-character escape */
-          else if (*re_ast_type(r, next) == CLS) {
+          else {
+            assert(*re_ast_type(r, next) == CLS);
             res = re_ast_cls_union(r, res, next);
             /* we parsed an entire class, so there's no ending character */
             continue;
@@ -1047,9 +1056,9 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       if (!r->arg_stk.size)
         return re_parse_err(r, "cannot apply quantifier to empty regex");
       if ((err = re_ast_make(
-               r, QUANT, stk_pop(r, &r->arg_stk), min, max, &res)) ||
-          (err = stk_push(r, &r->arg_stk, res)))
+               r, QUANT, *stk_peek(r, &r->arg_stk, 0), min, max, &res)))
         return err;
+      *stk_peek(r, &r->arg_stk, 0) = res;
     } else if (ch == '^' || ch == '$') { /* beginning/end of text/line */
       if ((err = re_ast_make(
                r, AASSERT,
@@ -1066,8 +1075,9 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* arg_stk: | ... | chr | */
     }
   }
-  if ((err = re_fold(r)) || (err = re_fold_alts(r, &flags)))
+  if ((err = re_fold(r)))
     return err;
+  re_fold_alts(r, &flags);
   if (r->op_stk.size)
     return re_parse_err(r, "unmatched open parenthesis");
   if ((err = re_ast_make(
@@ -1380,10 +1390,10 @@ int re_compcc_buildtree_split(
       assert(parent);
       parent_node = cc_treeref(cc_out, parent);
       if (parent_node->child_ref &&
-          byte_range_is_intersecting(
+          u32_to_byte_range(brs[i]).l <=
               u32_to_byte_range(
-                  cc_treeref(cc_out, parent_node->child_ref)->range),
-              u32_to_byte_range(brs[i]))) {
+                  cc_treeref(cc_out, parent_node->child_ref)->range)
+                  .h) {
         child_ref = parent_node->child_ref;
       } else {
         if ((err = cc_treeappend(r, cc_out, brs[i], parent, &child_ref)))

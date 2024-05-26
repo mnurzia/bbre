@@ -5,7 +5,7 @@ PROFILE=debug
 
 CFLAGS_debug=-O0 -fsanitize=address,undefined -g
 CFLAGS_opt=-O3
-CFLAGS_cov=--coverage -DRE_COV
+CFLAGS_cov=--coverage -DRE_COV -DNDEBUG
 
 # tell em to bring out the whole... set of compiler flags!
 CFLAGS=\
@@ -102,7 +102,7 @@ build/compile_commands.json: build
 ## generate build/compile_commands.json for language servers 
 compile_commands: build/compile_commands.json
 
-build/cov/lcov.info:
+build/cov/lcov.info: build/$(PROFILE)/re_test
 	$(MAKE) PROFILE=cov build/cov/re_test
 	rm -rf $@ build/cov/*.gcda
 	cd build/cov; ./re_test --leak-check --fault-check

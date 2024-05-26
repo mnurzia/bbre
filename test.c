@@ -482,6 +482,20 @@ TEST(init_some)
   PASS();
 }
 
+extern void *re_default_alloc(
+    size_t prev, size_t next, void *ptr, const char *file, int line);
+
+TEST(init_full_default_alloc)
+{
+  re *r;
+  int err = re_init_full(&r, "abc", 3, re_default_alloc);
+  re_destroy(r);
+  if (err == ERR_MEM)
+    OOM();
+  ASSERT_EQ(err, 0);
+  return err;
+}
+
 /*
 currently, we have no way of differentiating between a parse error and OOM
 TEST(init_bad)
@@ -498,6 +512,7 @@ SUITE(init)
   RUN_TEST(init_empty);
   RUN_TEST(init_some);
   /*RUN_TEST(init_bad);*/
+  RUN_TEST(init_full_default_alloc);
 }
 
 TEST(chr_1)
@@ -660,11 +675,25 @@ SUITE(plus)
   RUN_TEST(plus_two);
 }
 
+TEST(quant_of_nothing)
+{
+  ASSERT_NOPARSE("*");
+  PASS();
+}
+
+TEST(quant_ungreedy_malformed)
+{
+  ASSERT_NOPARSE("b*\xff");
+  PASS();
+}
+
 SUITE(quant)
 {
   RUN_SUITE(star);
   RUN_SUITE(quest);
   RUN_SUITE(plus);
+  RUN_TEST(quant_of_nothing);
+  RUN_TEST(quant_ungreedy_malformed);
 }
 
 TEST(alt_empty_empty)
@@ -721,6 +750,18 @@ TEST(alt_some_some_second)
   PASS();
 }
 
+TEST(alt_many)
+{
+  ASSERT_MATCH("a|b|c|d|e|f|g|h|i|j|k|l", "k");
+  PASS();
+}
+
+TEST(alt_many_empty_second)
+{
+  ASSERT_MATCH("a|b|c|||||||", "c");
+  PASS();
+}
+
 SUITE(alt)
 {
   RUN_TEST(alt_empty_empty);
@@ -732,6 +773,8 @@ SUITE(alt)
   RUN_TEST(alt_single_single_second);
   RUN_TEST(alt_some_some_first);
   RUN_TEST(alt_some_some_second);
+  RUN_TEST(alt_many);
+  RUN_TEST(alt_many_empty_second);
 }
 
 TEST(anychar_unicode_1)
@@ -868,9 +911,45 @@ TEST(cls_ending_right_bracket)
   PASS();
 }
 
+TEST(cls_ending_right_bracket_inverted)
+{
+  ASSERT_CC_MATCH("[^]]", "0x0 0x5C,0x5E 0x10FFFF");
+  PASS();
+}
+
+TEST(cls_left_bracket_unfinished)
+{
+  ASSERT_NOPARSE("[[");
+  PASS();
+}
+
+TEST(cls_left_bracket_malformed)
+{
+  ASSERT_NOPARSE("[[\xff");
+  PASS();
+}
+
+TEST(cls_left_bracket_invalid_notcolon)
+{
+  ASSERT_CC_MATCH("[[p]", "[ [,p p");
+  PASS();
+}
+
 TEST(cls_single)
 {
   ASSERT_CC_MATCH("[a]", "a");
+  PASS();
+}
+
+TEST(cls_single_malformed)
+{
+  ASSERT_NOPARSE("[a\xff]");
+  PASS();
+}
+
+TEST(cls_single_unfinished)
+{
+  ASSERT_NOPARSE("[a");
   PASS();
 }
 
@@ -886,6 +965,18 @@ TEST(cls_range_one_inverted)
   PASS();
 }
 
+TEST(cls_range_one_unfinished)
+{
+  ASSERT_NOPARSE("[a-]");
+  PASS();
+}
+
+TEST(cls_range_one_malformed)
+{
+  ASSERT_NOPARSE("[a-\xff]");
+  PASS();
+}
+
 TEST(cls_ending_dash)
 {
   ASSERT_CC_MATCH("[-]", "-");
@@ -895,6 +986,30 @@ TEST(cls_ending_dash)
 TEST(cls_named_unfinished)
 {
   ASSERT_NOPARSE("[[:");
+  PASS();
+}
+
+TEST(cls_named_malformed)
+{
+  ASSERT_NOPARSE("[[:\xff");
+  PASS();
+}
+
+TEST(cls_named_unfinished_aftername)
+{
+  ASSERT_NOPARSE("[[:alnum");
+  PASS();
+}
+
+TEST(cls_named_unfinished_aftercolon)
+{
+  ASSERT_NOPARSE("[[:alnum:");
+  PASS();
+}
+
+TEST(cls_named_invalid_norightbracket)
+{
+  ASSERT_NOPARSE("[[:alnum:p");
   PASS();
 }
 
@@ -916,6 +1031,12 @@ TEST(cls_subclass)
   PASS();
 }
 
+TEST(cls_subclass_range_end)
+{
+  ASSERT_NOPARSE("[a-\\w]");
+  PASS();
+}
+
 TEST(cls_nevermatch)
 {
   ASSERT_NMATCH("[^\\x00-\\x{10FFFF}]", "a");
@@ -934,22 +1055,42 @@ TEST(cls_reversed_nonmatch)
   PASS();
 }
 
+TEST(cls_assert)
+{
+  ASSERT_NOPARSE("[\\A]");
+  PASS();
+}
+
 SUITE(cls)
 {
   RUN_SUITE(cls_escape);
   RUN_TEST(cls_empty);
   RUN_TEST(cls_ending_right_bracket);
+  RUN_TEST(cls_ending_right_bracket_inverted);
+  RUN_TEST(cls_left_bracket_unfinished);
+  RUN_TEST(cls_left_bracket_malformed);
+  RUN_TEST(cls_left_bracket_invalid_notcolon);
   RUN_TEST(cls_single);
+  RUN_TEST(cls_single_malformed);
+  RUN_TEST(cls_single_unfinished);
   RUN_TEST(cls_range_one);
   RUN_TEST(cls_range_one_inverted);
+  RUN_TEST(cls_range_one_unfinished);
+  RUN_TEST(cls_range_one_malformed);
   RUN_TEST(cls_ending_dash);
   RUN_TEST(cls_named_unfinished);
+  RUN_TEST(cls_named_malformed);
+  RUN_TEST(cls_named_unfinished_aftername);
+  RUN_TEST(cls_named_unfinished_aftercolon);
+  RUN_TEST(cls_named_invalid_norightbracket);
   RUN_TEST(cls_named_unknown);
   RUN_TEST(cls_insensitive);
   RUN_TEST(cls_subclass);
+  RUN_TEST(cls_subclass_range_end);
   RUN_TEST(cls_nevermatch);
   RUN_TEST(cls_reversed);
   RUN_TEST(cls_reversed_nonmatch);
+  RUN_TEST(cls_assert);
 }
 
 TEST(escape_null)
@@ -1177,6 +1318,18 @@ TEST(escape_hex_invalid_1)
   PASS();
 }
 
+TEST(escape_hex_invalid_2)
+{
+  ASSERT_NOPARSE("\\x/");
+  PASS();
+}
+
+TEST(escape_hex_lowercase)
+{
+  ASSERT_MATCH("\\x5b", "[");
+  PASS();
+}
+
 SUITE(escape_hex)
 {
   RUN_TEST(escape_hex);
@@ -1186,6 +1339,8 @@ SUITE(escape_hex)
   RUN_TEST(escape_hex_malformed_1);
   RUN_TEST(escape_hex_invalid);
   RUN_TEST(escape_hex_invalid_1);
+  RUN_TEST(escape_hex_lowercase);
+  RUN_TEST(escape_hex_invalid_2);
 }
 
 TEST(escape_hex_long_1)
@@ -1250,6 +1405,18 @@ TEST(escape_hex_long_out_of_range)
   PASS();
 }
 
+TEST(escape_hex_long_invalid)
+{
+  ASSERT_NOPARSE("\\x{&&}");
+  PASS();
+}
+
+TEST(escape_hex_long_empty)
+{
+  ASSERT_NOPARSE("\\x{}");
+  PASS();
+}
+
 SUITE(escape_hex_long)
 {
   RUN_TEST(escape_hex_long_1);
@@ -1262,6 +1429,8 @@ SUITE(escape_hex_long)
   RUN_TEST(escape_hex_long_unfinished_aftersome);
   RUN_TEST(escape_hex_long_too_long);
   RUN_TEST(escape_hex_long_out_of_range);
+  RUN_TEST(escape_hex_long_invalid);
+  RUN_TEST(escape_hex_long_empty);
 }
 
 TEST(escape_any_byte)
@@ -1317,6 +1486,26 @@ TEST(escape_quote_single_slash_with_non_E)
   PASS();
 }
 
+TEST(escape_quote_malformed)
+{
+  ASSERT_NOPARSE("\\Q\xff");
+  PASS();
+}
+
+TEST(escape_quote_malformed_afterslash)
+{
+  ASSERT_NOPARSE("\\Q\\\xff");
+  PASS();
+}
+
+TEST(escape_quote_many)
+{
+  ASSERT_MATCH(
+      "\\QThe industrial revolution and its consequences",
+      "The industrial revolution and its consequences");
+  PASS();
+}
+
 SUITE(escape_quote)
 {
   RUN_TEST(escape_quote_empty);
@@ -1326,6 +1515,9 @@ SUITE(escape_quote)
   RUN_TEST(escape_quote_single_slash_unfinished);
   RUN_TEST(escape_quote_double_slash);
   RUN_TEST(escape_quote_single_slash_with_non_E);
+  RUN_TEST(escape_quote_malformed);
+  RUN_TEST(escape_quote_malformed_afterslash);
+  RUN_TEST(escape_quote_many);
 }
 
 SUITE(escape_perlclass); /* provided by test-gen.c */
@@ -1333,6 +1525,12 @@ SUITE(escape_perlclass); /* provided by test-gen.c */
 TEST(escape_unfinished)
 {
   ASSERT_NOPARSE("\\");
+  PASS();
+}
+
+TEST(escape_invalid)
+{
+  ASSERT_NOPARSE("\\/");
   PASS();
 }
 
@@ -1366,6 +1564,7 @@ SUITE(escape)
   RUN_SUITE(escape_quote);
   RUN_SUITE(escape_perlclass);
   RUN_TEST(escape_unfinished);
+  RUN_TEST(escape_invalid);
 }
 
 TEST(repetition_zero_empty)
@@ -1572,6 +1771,102 @@ TEST(repetition_zero_zero_nonmatch)
   PASS();
 }
 
+TEST(repetition_malformed)
+{
+  ASSERT_NOPARSE("a{\xff}");
+  PASS();
+}
+
+TEST(repetition_malformed_afterdigit)
+{
+  ASSERT_NOPARSE("a{1\xff}");
+  PASS();
+}
+
+TEST(repetition_unfinished)
+{
+  ASSERT_NOPARSE("a{");
+  PASS();
+}
+
+TEST(repetition_unfinished_afterdigit)
+{
+  ASSERT_NOPARSE("a{1");
+  PASS();
+}
+
+TEST(repetition_nomin)
+{
+  ASSERT_NOPARSE("a{,");
+  PASS();
+}
+
+TEST(repetition_toomanydigits)
+{
+  ASSERT_NOPARSE("a{123412341234123412341234}");
+  PASS();
+}
+
+TEST(repetition_empty)
+{
+  ASSERT_NOPARSE("a{}");
+  PASS();
+}
+
+TEST(repetition_upper_unfinished)
+{
+  ASSERT_NOPARSE("w{5,");
+  PASS();
+}
+
+TEST(repetition_upper_malformed)
+{
+  ASSERT_NOPARSE("l{5,\xff}");
+  PASS();
+}
+
+TEST(repetition_upper_unfinished_afternumber)
+{
+  ASSERT_NOPARSE("j{100,5");
+  PASS();
+}
+
+TEST(repetition_upper_malformed_afternumber)
+{
+  ASSERT_NOPARSE("q{100,5\xff}");
+  PASS();
+}
+
+TEST(repetition_upper_invalid_afternumber)
+{
+  ASSERT_NOPARSE("w{97,677a}");
+  PASS();
+}
+
+TEST(repetition_upper_invalid)
+{
+  ASSERT_NOPARSE("9{5,5223222111}");
+  PASS();
+}
+
+TEST(repetition_upper_badsep)
+{
+  ASSERT_NOPARSE("p{5a11}");
+  PASS();
+}
+
+TEST(repetition_empty_regex)
+{
+  ASSERT_NOPARSE("{2,3}");
+  PASS();
+}
+
+TEST(repetition_many)
+{
+  ASSERT_MATCH("a{2,3}b{10,20}c{1,2}d{3,5}", "aabbbbbbbbbbbbbbbccdddd");
+  PASS();
+}
+
 SUITE(repetition)
 {
   RUN_TEST(repetition_zero_empty);
@@ -1608,6 +1903,21 @@ SUITE(repetition)
   RUN_TEST(repetition_one_three_nonmatch);
   RUN_TEST(repetition_zero_zero_match);
   RUN_TEST(repetition_zero_zero_nonmatch);
+  RUN_TEST(repetition_malformed);
+  RUN_TEST(repetition_malformed_afterdigit);
+  RUN_TEST(repetition_unfinished);
+  RUN_TEST(repetition_unfinished_afterdigit);
+  RUN_TEST(repetition_toomanydigits);
+  RUN_TEST(repetition_empty);
+  RUN_TEST(repetition_upper_unfinished);
+  RUN_TEST(repetition_upper_malformed);
+  RUN_TEST(repetition_upper_invalid);
+  RUN_TEST(repetition_upper_badsep);
+  RUN_TEST(repetition_upper_unfinished_afternumber);
+  RUN_TEST(repetition_upper_malformed_afternumber);
+  RUN_TEST(repetition_upper_invalid_afternumber);
+  RUN_TEST(repetition_empty_regex);
+  RUN_TEST(repetition_many);
 }
 
 TEST(grp_flag_i_match)
@@ -1824,6 +2134,18 @@ TEST(grp_unfinished)
   PASS();
 }
 
+TEST(grp_unfinished_afterspecial)
+{
+  ASSERT_NOPARSE("(?");
+  PASS();
+}
+
+TEST(grp_unfinished_afterflag)
+{
+  ASSERT_NOPARSE("(?i");
+  PASS();
+}
+
 TEST(grp_malformed)
 {
   ASSERT_NOPARSE("(\xff");
@@ -1905,14 +2227,53 @@ TEST(grp_flag_set_then_reset)
   PASS();
 }
 
+TEST(grp_flag_invalid)
+{
+  ASSERT_NOPARSE("(?x)");
+  PASS();
+}
+
+TEST(grp_concat)
+{
+  ASSERT_MATCH("(abcdefghijklmnop)", "abcdefghijklmnop");
+  PASS();
+}
+
+TEST(grp_concat_alts)
+{
+  ASSERT_MATCH("(abc|def|ghi|jkl)", "jkl");
+  PASS();
+}
+
+TEST(grp_nested_inlines)
+{
+  ASSERT_MATCH("((?i)abc(?u)def(?m)ghi(?s)jkl)", "abcdefghijkl");
+  PASS();
+}
+
+TEST(grp_invalid_unmatched_rparen)
+{
+  ASSERT_NOPARSE(")");
+  PASS();
+}
+
+TEST(grp_invalid_unmatched_lparen)
+{
+  ASSERT_NOPARSE("(abc");
+  PASS();
+}
+
 SUITE(grp)
 {
   RUN_SUITE(grp_flag_i);
   RUN_SUITE(grp_flag_s);
   RUN_SUITE(grp_flag_m);
   RUN_SUITE(grp_flag_u);
+  RUN_TEST(grp_flag_invalid);
   RUN_SUITE(grp_named);
   RUN_TEST(grp_unfinished);
+  RUN_TEST(grp_unfinished_afterspecial);
+  RUN_TEST(grp_unfinished_afterflag);
   RUN_TEST(grp_empty);
   RUN_TEST(grp_nonmatching_unfinished);
   RUN_TEST(grp_nonmatching_malformed);
@@ -1921,6 +2282,12 @@ SUITE(grp)
   RUN_SUITE(grp_inline_flag);
   RUN_TEST(grp_after_cat);
   RUN_TEST(grp_flag_set_then_reset);
+  RUN_TEST(grp_malformed);
+  RUN_TEST(grp_concat);
+  RUN_TEST(grp_concat_alts);
+  RUN_TEST(grp_nested_inlines);
+  RUN_TEST(grp_invalid_unmatched_rparen);
+  RUN_TEST(grp_invalid_unmatched_lparen);
 }
 
 TEST(set_two_char)
@@ -1941,11 +2308,35 @@ TEST(set_two_char_grp)
   PASS();
 }
 
+TEST(set_many)
+{
+  re *r;
+  int err = re_init_full(&r, NULL, 0, NULL);
+  u32 i;
+  if (err == ERR_MEM)
+    goto oom;
+  ASSERT_EQ(err, 0);
+  for (i = 0; i < 26; i++) {
+    char reg[] = "a";
+    reg[0] += i;
+    err = re_union(r, reg, 1);
+    if (err == ERR_MEM)
+      goto oom;
+    ASSERT_EQ(err, 0);
+  }
+  re_destroy(r);
+  PASS();
+oom:
+  re_destroy(r);
+  OOM();
+}
+
 SUITE(set)
 {
   RUN_TEST(set_two_char);
   RUN_TEST(set_two_char_bounds);
   RUN_TEST(set_two_char_grp);
+  RUN_TEST(set_many);
 }
 
 TEST(assert_line_begin_empty)
