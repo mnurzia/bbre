@@ -1194,30 +1194,33 @@ size_t i_lc(size_t i) { return 2 * i + 1; }
 
 size_t i_rc(size_t i) { return 2 * i + 2; }
 
-u32 cckey(buf *cc, size_t idx) { return buf_at(cc, u32, idx * 2); }
+typedef struct rune_range {
+  u32 min, max;
+} rune_range;
+
+u32 cckey(buf *cc, size_t idx) { return buf_at(cc, rune_range, idx).min; }
 
 int ccpush(re *r, buf *cc, u32 min, u32 max)
 {
-  int err = 0;
-  (err = buf_push(r, cc, u32, min)) || (err = buf_push(r, cc, u32, max));
-  return err;
+  rune_range rr;
+  rr.min = min, rr.max = max;
+  return buf_push(r, cc, rune_range, rr);
 }
 
 void ccget(buf *cc, size_t idx, u32 *min, u32 *max)
 {
-  *min = buf_at(cc, u32, idx * 2), *max = buf_at(cc, u32, idx * 2 + 1);
+  rune_range rr = buf_at(cc, rune_range, idx);
+  *min = rr.min, *max = rr.max;
 }
 
 void ccswap(buf *cc, size_t a, size_t b)
 {
-  size_t t0 = buf_at(cc, u32, a * 2), t1 = buf_at(cc, u32, a * 2 + 1);
-  buf_at(cc, u32, a * 2) = buf_at(cc, u32, b * 2);
-  buf_at(cc, u32, a * 2 + 1) = buf_at(cc, u32, b * 2 + 1);
-  buf_at(cc, u32, b * 2) = t0;
-  buf_at(cc, u32, b * 2 + 1) = t1;
+  rune_range tmp = buf_at(cc, rune_range, a);
+  buf_at(cc, rune_range, a) = buf_at(cc, rune_range, b);
+  buf_at(cc, rune_range, b) = tmp;
 }
 
-size_t ccsize(buf *cc) { return buf_size(*cc, u32) >> 1; }
+size_t ccsize(buf *cc) { return buf_size(*cc, rune_range); }
 
 void re_compcc_hsort(buf *cc, size_t n)
 {
