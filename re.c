@@ -286,6 +286,19 @@ int byte_range_is_adjacent(byte_range left, byte_range right)
   return ((u32)left.h) + 1 == ((u32)right.l);
 }
 
+/* Represents an inclusive range of runes. */
+typedef struct rune_range {
+  u32 l, h;
+} rune_range;
+
+/* Make a rune range inline. */
+rune_range rune_range_make(u32 l, u32 h)
+{
+  rune_range out;
+  out.l = l, out.h = h;
+  return out;
+}
+
 /* Make a new AST node within the regular expression. */
 int re_ast_make(re *r, ast_type type, u32 p0, u32 p1, u32 p2, u32 *out_node)
 {
@@ -1194,24 +1207,7 @@ size_t i_lc(size_t i) { return 2 * i + 1; }
 
 size_t i_rc(size_t i) { return 2 * i + 2; }
 
-typedef struct rune_range {
-  u32 min, max;
-} rune_range;
-
-u32 cckey(buf *cc, size_t idx) { return buf_at(cc, rune_range, idx).min; }
-
-int ccpush(re *r, buf *cc, u32 min, u32 max)
-{
-  rune_range rr;
-  rr.min = min, rr.max = max;
-  return buf_push(r, cc, rune_range, rr);
-}
-
-void ccget(buf *cc, size_t idx, u32 *min, u32 *max)
-{
-  rune_range rr = buf_at(cc, rune_range, idx);
-  *min = rr.min, *max = rr.max;
-}
+u32 cckey(buf *cc, size_t idx) { return buf_at(cc, rune_range, idx).l; }
 
 void ccswap(buf *cc, size_t a, size_t b)
 {
@@ -1219,8 +1215,6 @@ void ccswap(buf *cc, size_t a, size_t b)
   buf_at(cc, rune_range, a) = buf_at(cc, rune_range, b);
   buf_at(cc, rune_range, b) = tmp;
 }
-
-size_t ccsize(buf *cc) { return buf_size(*cc, rune_range); }
 
 void re_compcc_hsort(buf *cc, size_t n)
 {
@@ -1397,21 +1391,21 @@ int re_compcc_buildtree(re *r, buf *cc_in, buf *cc_out)
   buf_clear(cc_out);
   if ((err = cc_treenew(r, cc_out, root_node, &root_ref)))
     return err;
-  for (i = 0, j = 0; i < ccsize(cc_in) && j < 4;) {
+  for (i = 0, j = 0; i < buf_size(*cc_in, rune_range) && j < 4;) {
     static const u32 y_bits[4] = {7, 5, 4, 3};
     static const u32 x_bits[4] = {0, 6, 12, 18};
-    u32 max_bound = (1 << (x_bits[j] + y_bits[j])) - 1, min, max;
-    ccget(cc_in, i, &min, &max);
-    if (min_bound <= max && min <= max_bound) {
+    u32 max_bound = (1 << (x_bits[j] + y_bits[j])) - 1;
+    rune_range rr = buf_at(cc_in, rune_range, i);
+    if (min_bound <= rr.h && rr.l <= max_bound) {
       /* [min,max] intersects [min_bound,max_bound] */
-      u32 clamped_min = min < min_bound ? min_bound : min, /* clamp range */
-          clamped_max = max > max_bound ? max_bound : max;
+      u32 clamped_min = rr.l < min_bound ? min_bound : rr.l, /* clamp range */
+          clamped_max = rr.h > max_bound ? max_bound : rr.h;
       if ((err = re_compcc_buildtree_split(
                r, cc_out, root_ref, clamped_min, clamped_max, x_bits[j],
                y_bits[j])))
         return err;
     }
-    if (max < max_bound)
+    if (rr.h < max_bound)
       /* range is less than [min_bound,max_bound] */
       i++;
     else
@@ -1681,35 +1675,35 @@ int re_compcc(re *r, u32 root, compframe *frame, int reversed)
   }
   do {
     /* sort ranges */
-    re_compcc_hsort(&r->cc_stk_a, ccsize(&r->cc_stk_a));
+    re_compcc_hsort(&r->cc_stk_a, buf_size(r->cc_stk_a, rune_range));
     /* normalize ranges */
     {
-      u32 min, max, cur_min, cur_max;
       size_t i;
-      for (i = 0; i < ccsize(&r->cc_stk_a); i++) {
-        ccget(&r->cc_stk_a, i, &cur_min, &cur_max);
-        assert(cur_min <= cur_max);
+      rune_range cur, next;
+      for (i = 0; i < buf_size(r->cc_stk_a, rune_range); i++) {
+        cur = buf_at(&r->cc_stk_a, rune_range, i);
+        assert(cur.l <= cur.h);
         if (!i)
-          min = cur_min, max = cur_max; /* first range */
-        else if (cur_min <= max + 1) {
-          max = cur_max > max ? cur_max : max; /* intersection */
+          next = rune_range_make(cur.l, cur.h); /* first range */
+        else if (cur.l <= next.h + 1) {
+          next.h = cur.h > next.h ? cur.h : next.h; /* intersection */
         } else {
           /* disjoint */
-          if ((err = ccpush(r, &r->cc_stk_b, min, max)))
+          if ((err = buf_push(r, &r->cc_stk_b, rune_range, next)))
             return err;
-          min = cur_min, max = cur_max;
+          next.l = cur.l, next.h = cur.h;
         }
       }
-      if (i && (err = ccpush(r, &r->cc_stk_b, min, max)))
+      if (i && (err = buf_push(r, &r->cc_stk_b, rune_range, next)))
         return err;
       if (insensitive) {
         /* casefold normalized ranges */
         buf_clear(&r->cc_stk_a);
-        for (i = 0; i < ccsize(&r->cc_stk_b); i++) {
-          ccget(&r->cc_stk_a, i, &cur_min, &cur_max);
-          if ((err = ccpush(r, &r->cc_stk_a, cur_min, cur_max)))
+        for (i = 0; i < buf_size(r->cc_stk_b, rune_range); i++) {
+          cur = buf_at(&r->cc_stk_a, rune_range, i);
+          if ((err = buf_push(r, &r->cc_stk_a, rune_range, cur)))
             return err;
-          if ((err = casefold_fold_range(r, cur_min, cur_max, &r->cc_stk_a)))
+          if ((err = casefold_fold_range(r, cur.l, cur.h, &r->cc_stk_a)))
             return err;
         }
       }
@@ -1717,22 +1711,25 @@ int re_compcc(re *r, u32 root, compframe *frame, int reversed)
   } while (insensitive && insensitive-- /* re-normalize by looping again */);
   /* invert ranges */
   if (inverted) {
-    u32 max = 0, cur_min, cur_max, i, old_size = ccsize(&r->cc_stk_b);
+    u32 max = 0, i, old_size = buf_size(r->cc_stk_b, rune_range);
+    rune_range cur;
     buf_clear(&r->cc_stk_b); /* TODO: this is shitty code */
     for (i = 0; i < old_size; i++) {
-      ccget(&r->cc_stk_b, i, &cur_min, &cur_max);
-      if (cur_min > max) {
-        if ((err = ccpush(r, &r->cc_stk_b, max, cur_min - 1)))
+      cur = buf_at(&r->cc_stk_b, rune_range, i);
+      if (cur.l > max) {
+        if ((err = buf_push(
+                 r, &r->cc_stk_b, rune_range, rune_range_make(max, cur.l - 1))))
           return err;
         else
-          max = cur_max + 1;
+          max = cur.h + 1;
       }
     }
-    if (cur_max < UTFMAX &&
-        (err = ccpush(r, &r->cc_stk_b, cur_max + 1, UTFMAX)))
+    if (cur.h < UTFMAX &&
+        (err = buf_push(
+             r, &r->cc_stk_b, rune_range, rune_range_make(cur.h + 1, UTFMAX))))
       return err;
   }
-  if (!ccsize(&r->cc_stk_b)) {
+  if (!buf_size(r->cc_stk_b, rune_range)) {
     /* empty charclass */
     if ((err = re_emit(
              r, inst_make(ASSERT, 0, WORD | NOT_WORD),
@@ -3137,7 +3134,9 @@ int casefold_fold_range(re *r, u32 begin, u32 end, buf *cc_out)
               }
               current = begin + a0;
               while (current != begin) {
-                if ((err = ccpush(r, cc_out, current, current)))
+                if ((err = buf_push(
+                         r, cc_out, rune_range,
+                         rune_range_make(current, current))))
                   return err;
                 current = (u32)((s32)current + casefold_next(current));
               }
