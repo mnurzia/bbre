@@ -22,8 +22,8 @@ typedef struct stk {
 } stk;
 
 typedef struct buf {
-  char *ptr;
-  size_t size, alloc;
+  char *_ptr;
+  size_t _size, alloc;
 } buf;
 
 /* A set of regular expressions. */
@@ -31,7 +31,7 @@ struct re {
   re_alloc alloc;
   buf ast;
   u32 ast_root, ast_sets;
-  stk arg_stk, op_stk, comp_stk;
+  buf arg_stk, op_stk, comp_stk;
   buf prog, prog_set_idxs;
   stk cc_stk_a, cc_stk_b;
   u32 entry[4];
@@ -74,46 +74,46 @@ void *re_default_alloc(
 
 void buf_init(buf *b)
 {
-  b->ptr = NULL;
-  b->size = b->alloc = 0;
+  b->_ptr = NULL;
+  b->_size = b->alloc = 0;
 }
 
-void buf_destroy(re *r, buf *b) { re_ialloc(r, b->alloc, 0, b->ptr); }
+void buf_destroy(re *r, buf *b) { re_ialloc(r, b->alloc, 0, b->_ptr); }
 
 int buf_reserven(re *r, buf *b, size_t size)
 {
   size_t next_alloc = b->alloc ? b->alloc : 1 /* initial allocation */;
   void *next_ptr;
   if (size <= b->alloc) {
-    b->size = size;
+    b->_size = size;
     return 0;
   }
   while (next_alloc < size)
     next_alloc *= 2;
-  next_ptr = re_ialloc(r, b->alloc, next_alloc, b->ptr);
+  next_ptr = re_ialloc(r, b->alloc, next_alloc, b->_ptr);
   if (!next_ptr)
     return ERR_MEM;
   b->alloc = next_alloc;
-  b->ptr = next_ptr;
-  b->size = size;
+  b->_ptr = next_ptr;
+  b->_size = size;
   return 0;
 }
 
 int buf_grown(re *r, buf *b, size_t incr)
 {
-  return buf_reserven(r, b, b->size + incr);
+  return buf_reserven(r, b, b->_size + incr);
 }
 
 char *buf_tailn(buf *b, size_t elem_size)
 {
-  return b->ptr + b->size - elem_size;
+  return b->_ptr + b->_size - elem_size;
 }
 
 char *buf_popn(buf *b, size_t elem_size)
 {
   void *out = buf_tailn(b, elem_size);
-  assert(b->size >= elem_size);
-  b->size -= elem_size;
+  assert(b->_size >= elem_size);
+  b->_size -= elem_size;
   return out;
 }
 
@@ -123,9 +123,10 @@ char *buf_popn(buf *b, size_t elem_size)
        ? ERR_MEM                                                               \
        : (*buf_ptr(T, buf_tailn((b), sizeof(T))) = (e), 0))
 #define buf_reserve(r, b, T, n) (buf_reserven(r, b, sizeof(T)))
-#define buf_pop(b, T)           (*buf_popn((b), sizeof(T)))
-#define buf_at(b, T, i)         (buf_ptr(T, (b)->ptr)[(i)])
-#define buf_size(b, T)          ((b).size / sizeof(T))
+#define buf_pop(b, T)           (*buf_ptr(T, buf_popn((b), sizeof(T))))
+#define buf_peek(b, T, n)       ((buf_ptr(T, buf_tailn((b), sizeof(T)))) - n)
+#define buf_at(b, T, i)         (buf_ptr(T, (b)->_ptr)[(i)])
+#define buf_size(b, T)          ((b)._size / sizeof(T))
 
 void stk_init(re *r, stk *s)
 {
@@ -222,7 +223,7 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
   r->alloc = alloc;
   buf_init(&r->ast);
   r->ast_root = r->ast_sets = 0;
-  stk_init(r, &r->arg_stk), stk_init(r, &r->op_stk), stk_init(r, &r->comp_stk);
+  buf_init(&r->arg_stk), buf_init(&r->op_stk), buf_init(&r->comp_stk);
   stk_init(r, &r->cc_stk_a), stk_init(r, &r->cc_stk_b);
   buf_init(&r->prog), buf_init(&r->prog_set_idxs);
   memset(r->entry, 0, sizeof(r->entry));
@@ -241,8 +242,8 @@ void re_destroy(re *r)
   if (!r)
     return;
   buf_destroy(r, &r->ast);
-  stk_destroy(r, &r->op_stk), stk_destroy(r, &r->arg_stk),
-      stk_destroy(r, &r->comp_stk);
+  buf_destroy(r, &r->op_stk), buf_destroy(r, &r->arg_stk),
+      buf_destroy(r, &r->comp_stk);
   stk_destroy(r, &r->cc_stk_a), stk_destroy(r, &r->cc_stk_b);
   buf_destroy(r, &r->prog), buf_destroy(r, &r->prog_set_idxs);
   r->alloc(sizeof(*r), 0, r, __FILE__, __LINE__);
@@ -512,19 +513,19 @@ u32 re_peek_next_new(re *r)
 int re_fold(re *r)
 {
   int err = 0;
-  if (!r->arg_stk.size) {
+  if (!buf_size(r->arg_stk, u32)) {
     /* arg_stk: | */
-    return stk_push(r, &r->arg_stk, REF_NONE);
+    return buf_push(r, &r->arg_stk, u32, REF_NONE);
     /* arg_stk: | eps |*/
   }
-  while (r->arg_stk.size > 1) {
+  while (buf_size(r->arg_stk, u32) > 1) {
     /* arg_stk: | ... | R_N-1 | R_N | */
     u32 right, left, rest;
-    right = stk_pop(r, &r->arg_stk);
-    left = *stk_peek(r, &r->arg_stk, 0);
+    right = buf_pop(&r->arg_stk, u32);
+    left = *buf_peek(&r->arg_stk, u32, 0);
     if ((err = re_ast_make(r, CAT, left, right, 0, &rest)))
       return err;
-    *stk_peek(r, &r->arg_stk, 0) = rest;
+    *buf_peek(&r->arg_stk, u32, 0) = rest;
     /* arg_stk: | ... | R_N-1R_N | */
   }
   /* arg_stk: | R1R2...Rn | */
@@ -538,50 +539,53 @@ int re_fold(re *r)
 void re_fold_alts(re *r, u32 *flags)
 {
   int err = 0;
-  assert(r->arg_stk.size == 1);
+  assert(buf_size(r->arg_stk, u32) == 1);
   /* First pop all inline groups. */
-  while (r->op_stk.size &&
-         *re_ast_type(r, *stk_peek(r, &r->op_stk, 0)) == IGROUP) {
+  while (buf_size(r->op_stk, u32) &&
+         *re_ast_type(r, *buf_peek(&r->op_stk, u32, 0)) == IGROUP) {
     /* arg_stk: |  R  | */
     /* op_stk:  | ... | (S) | */
-    u32 igrp = stk_pop(r, &r->op_stk), cat = *re_ast_param(r, igrp, 0),
+    u32 igrp = buf_pop(&r->op_stk, u32), cat = *re_ast_param(r, igrp, 0),
         old_flags = *re_ast_param(r, igrp, 2);
-    *re_ast_param(r, igrp, 0) = *stk_peek(r, &r->arg_stk, 0);
+    *re_ast_param(r, igrp, 0) = *buf_peek(&r->arg_stk, u32, 0);
     *flags = old_flags;
     *re_ast_param(r, cat, 1) = igrp;
-    *stk_peek(r, &r->arg_stk, 0) = cat;
+    *buf_peek(&r->arg_stk, u32, 0) = cat;
     /* arg_stk: | S(R)| */
     /* op_stk:  | ... | */
   }
-  assert(r->arg_stk.size == 1);
+  assert(buf_size(r->arg_stk, u32) == 1);
   /* arg_stk: |  R  | */
   /* op_stk:  | ... | */
-  if (r->op_stk.size && *re_ast_type(r, *stk_peek(r, &r->op_stk, 0)) == ALT) {
+  if (buf_size(r->op_stk, u32) &&
+      *re_ast_type(r, *buf_peek(&r->op_stk, u32, 0)) == ALT) {
     /* op_stk:  | ... |  A  | */
     /* finish the last alt */
-    *re_ast_param(r, *stk_peek(r, &r->op_stk, 0), 1) = stk_pop(r, &r->arg_stk);
+    *re_ast_param(r, *buf_peek(&r->op_stk, u32, 0), 1) =
+        buf_pop(&r->arg_stk, u32);
     /* arg_stk: | */
     /* op_stk:  | ... | */
   }
-  while (r->op_stk.size > 1 &&
-         *re_ast_type(r, *stk_peek(r, &r->op_stk, 0)) == ALT &&
-         *re_ast_type(r, *stk_peek(r, &r->op_stk, 1)) == ALT) {
+  while (buf_size(r->op_stk, u32) > 1 &&
+         *re_ast_type(r, *buf_peek(&r->op_stk, u32, 0)) == ALT &&
+         *re_ast_type(r, *buf_peek(&r->op_stk, u32, 1)) == ALT) {
     /* op_stk:  | ... | A_1 | A_2 | */
-    u32 right = stk_pop(r, &r->op_stk), left = *stk_peek(r, &r->op_stk, 0);
+    u32 right = buf_pop(&r->op_stk, u32), left = *buf_peek(&r->op_stk, u32, 0);
     *re_ast_param(r, left, 1) = right;
-    *stk_peek(r, &r->op_stk, 0) = left;
+    *buf_peek(&r->op_stk, u32, 0) = left;
     /* op_stk:  | ... | A_1(|A_2) | */
   }
-  if (r->op_stk.size &&
-      *re_ast_type(r, r->op_stk.ptr[r->op_stk.size - 1]) == ALT) {
+  if (buf_size(r->op_stk, u32) &&
+      *re_ast_type(r, *buf_peek(&r->op_stk, u32, 0)) == ALT) {
     /* op_stk:  | ... |  A  | */
-    assert(r->arg_stk.size == 0);
-    err = stk_push(r, &r->arg_stk, stk_pop(r, &r->op_stk));
+    assert(buf_size(r->arg_stk, u32) == 0);
+    err = buf_push(r, &r->arg_stk, u32, buf_pop(&r->op_stk, u32));
     assert(!err); /* we have space on the stack so this should never fail */
     (void)err;
     /* arg_stk: |  A  | */
     /* op_stk:  | ... | */
   }
+  assert(buf_size(r->arg_stk, u32) == 1);
 }
 
 /* Add the CLS node `rest` to the CLS node `first`. */
@@ -606,7 +610,7 @@ int re_parse_escape_addchr(re *r, u32 ch, u32 allowed_outputs)
   (void)allowed_outputs, assert(allowed_outputs & (1 << CHR));
   args[0] = ch;
   if ((err = re_ast_make(r, CHR, ch, 0, 0, &res)) ||
-      (err = stk_push(r, &r->arg_stk, res)))
+      (err = buf_push(r, &r->arg_stk, u32, res)))
     return err;
   return 0;
 }
@@ -676,7 +680,7 @@ int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert)
   assert(i);                /* builtin charclasses are not length zero */
   if (invert && (err = re_ast_make(r, CLS, res, cur_max + 1, UTFMAX, &res)))
     return err;
-  if ((err = stk_push(r, &r->arg_stk, res)))
+  if ((err = buf_push(r, &r->arg_stk, u32, res)))
     return err;
   return 0;
 }
@@ -758,7 +762,7 @@ int re_parse_escape(re *r, u32 allowed_outputs)
     if (!(allowed_outputs & (1 << ANYBYTE)))
       return re_parse_err(r, "cannot use \\C here");
     if ((err = re_ast_make(r, ANYBYTE, 0, 0, 0, &res)) ||
-        (err = stk_push(r, &r->arg_stk, res)))
+        (err = buf_push(r, &r->arg_stk, u32, res)))
       return err;
   } else if (ch == 'Q') { /* quote string */
     u32 cat = REF_NONE, chr = REF_NONE;
@@ -771,7 +775,7 @@ int re_parse_escape(re *r, u32 allowed_outputs)
         if (ch == 'E') {
           ch = re_parse_next(r);
           assert(ch == 'E');
-          return stk_push(r, &r->arg_stk, cat);
+          return buf_push(r, &r->arg_stk, u32, cat);
         } else if (ch == '\\') {
           ch = re_parse_next(r);
           assert(ch == '\\');
@@ -784,7 +788,7 @@ int re_parse_escape(re *r, u32 allowed_outputs)
       if ((err = re_ast_make(r, CAT, cat, chr, 0, &cat)))
         return err;
     }
-    if ((err = stk_push(r, &r->arg_stk, cat)))
+    if ((err = buf_push(r, &r->arg_stk, u32, cat)))
       return err;
   } else if (
       ch == 'D' || ch == 'd' || ch == 'S' || ch == 's' || ch == 'W' ||
@@ -812,7 +816,7 @@ int re_parse_escape(re *r, u32 allowed_outputs)
              : ch == 'B' ? NOT_WORD
                          : WORD,
              0, 0, &res)) ||
-        (err = stk_push(r, &r->arg_stk, res)))
+        (err = buf_push(r, &r->arg_stk, u32, res)))
       return err;
   } else {
     return re_parse_err(r, "invalid escape sequence");
@@ -851,16 +855,16 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       u32 q = ch, greedy = 1;
       /* arg_stk: | ... |  R  | */
       /* pop one from arg stk, create quant, push to arg stk */
-      if (!r->arg_stk.size)
+      if (!buf_size(r->arg_stk, u32))
         return re_parse_err(r, "cannot apply quantifier to empty regex");
       if (re_parse_has_more(r) && re_peek_next_new(r) == '?')
         re_parse_next(r), greedy = 0;
       if ((err = re_ast_make(
                r, greedy ? QUANT : UQUANT,
-               *stk_peek(r, &r->arg_stk, 0) /* child */, q == '+' /* min */,
+               *buf_peek(&r->arg_stk, u32, 0) /* child */, q == '+' /* min */,
                q == '?' ? 1 : INFTY /* max */, &res)))
         return err;
-      *stk_peek(r, &r->arg_stk, 0) = res;
+      *buf_peek(&r->arg_stk, u32, 0) = res;
       /* arg_stk: | ... | *(R) | */
     } else if (ch == '|') {
       /* fold the arg stk into a concat, create alt, push it to the arg stk */
@@ -870,9 +874,9 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         return err;
       /* arg_stk: |  R  | */
       if ((err = re_ast_make(
-               r, ALT, stk_pop(r, &r->arg_stk) /* left */, REF_NONE /* right */,
-               0, &res)) ||
-          (err = stk_push(r, &r->op_stk, res)))
+               r, ALT, buf_pop(&r->arg_stk, u32) /* left */,
+               REF_NONE /* right */, 0, &res)) ||
+          (err = buf_push(r, &r->op_stk, u32, res)))
         return err;
       /* arg_stk: | */
       /* op_stk:  | ... | R(|) | */
@@ -937,14 +941,14 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* arg_stk: | R_1 | R_2 | ... | R_N | */
       if ((err = re_fold(r)))
         return err;
-      child = stk_pop(r, &r->arg_stk);
+      child = buf_pop(&r->arg_stk, u32);
       if (inline_group && (err = re_ast_make(r, CAT, child, 0, 0, &child)))
         return err;
       /* arg_stk: |  R  | */
       if ((err = re_ast_make(
                r, inline_group ? IGROUP : GROUP, child, flags, old_flags,
                &res)) ||
-          (err = stk_push(r, &r->op_stk, res)))
+          (err = buf_push(r, &r->op_stk, u32, res)))
         return err;
       /* op_stk:  | ... | (R) | */
     } else if (ch == ')') {
@@ -957,22 +961,22 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         return err;
       re_fold_alts(r, &flags);
       /* arg_stk has one value */
-      assert(r->arg_stk.size == 1);
-      if (!r->op_stk.size)
+      assert(buf_size(r->arg_stk, u32) == 1);
+      if (!buf_size(r->op_stk, u32))
         return re_parse_err(r, "extra close parenthesis");
       /* arg_stk: |  S  | */
       /* op_stk:  | ... | (R) | */
-      grp = *stk_peek(r, &r->op_stk, 0);
+      grp = *buf_peek(&r->op_stk, u32, 0);
       /* retrieve the previous contents of arg_stk */
       prev = *re_ast_param(r, grp, 0);
       /* add it to the group */
-      *(re_ast_param(r, grp, 0)) = *stk_peek(r, &r->arg_stk, 0);
+      *(re_ast_param(r, grp, 0)) = *buf_peek(&r->arg_stk, u32, 0);
       /* restore group flags */
       flags = *(re_ast_param(r, grp, 2));
       /* push the saved contents of arg_stk */
-      *stk_peek(r, &r->arg_stk, 0) = prev;
+      *buf_peek(&r->arg_stk, u32, 0) = prev;
       /* pop the group frame into arg_stk */
-      err = stk_push(r, &r->arg_stk, stk_pop(r, &r->op_stk));
+      err = buf_push(r, &r->arg_stk, u32, buf_pop(&r->op_stk, u32));
       assert(!err); /* the stack always has space for this */
       /* arg_stk: |  R  | (S) | */
       /* op_stk:  | ... | */
@@ -983,7 +987,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
           (!(flags & DOTNEWLINE) &&
            ((err = re_ast_make(r, CLS, REF_NONE, 0, '\n' - 1, &res)) ||
             (err = re_ast_make(r, CLS, res, '\n' + 1, UTFMAX, &res)))) ||
-          (err = stk_push(r, &r->arg_stk, res)))
+          (err = buf_push(r, &r->arg_stk, u32, res)))
         return err;
       /* arg_stk: | ... |  .  | */
     } else if (ch == '[') { /* charclass */
@@ -1008,7 +1012,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         } else if (ch == '\\') { /* escape */
           if ((err = re_parse_escape(r, (1 << CHR) | (1 << CLS))))
             return err;
-          next = stk_pop(r, &r->arg_stk);
+          next = buf_pop(&r->arg_stk, u32);
           assert(*re_ast_type(r, next) == CHR || *re_ast_type(r, next) == CLS);
           if (*re_ast_type(r, next) == CHR)
             min = *re_ast_param(r, next, 0); /* single-character escape */
@@ -1051,7 +1055,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
                    r, r->expr + name_start, (name_end - name_start),
                    named_inverted)))
             return err;
-          next = stk_pop(r, &r->arg_stk);
+          next = buf_pop(&r->arg_stk, u32);
           assert(next && *re_ast_type(r, next) == CLS);
           res = re_ast_cls_union(r, res, next);
           continue;
@@ -1065,7 +1069,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
           if (ch == '\\') { /* start of escape */
             if ((err = re_parse_escape(r, (1 << CHR))))
               return err;
-            next = stk_pop(r, &r->arg_stk);
+            next = buf_pop(&r->arg_stk, u32);
             assert(*re_ast_type(r, next) == CHR);
             max = *re_ast_param(r, next, 0);
           } else {
@@ -1078,7 +1082,7 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       assert(res);  /* charclass cannot be empty */
       if (inverted) /* inverted character class */
         *re_ast_type(r, res) = ICLS;
-      if ((err = stk_push(r, &r->arg_stk, res)))
+      if ((err = buf_push(r, &r->arg_stk, u32, res)))
         return err;
     } else if (ch == '\\') { /* escape */
       if ((err = re_parse_escape(
@@ -1112,24 +1116,24 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         }
       } else
         return re_parse_err(r, "expected } or , for repetition expression");
-      if (!r->arg_stk.size)
+      if (!buf_size(r->arg_stk, u32))
         return re_parse_err(r, "cannot apply quantifier to empty regex");
       if ((err = re_ast_make(
-               r, QUANT, *stk_peek(r, &r->arg_stk, 0), min, max, &res)))
+               r, QUANT, *buf_peek(&r->arg_stk, u32, 0), min, max, &res)))
         return err;
-      *stk_peek(r, &r->arg_stk, 0) = res;
+      *buf_peek(&r->arg_stk, u32, 0) = res;
     } else if (ch == '^' || ch == '$') { /* beginning/end of text/line */
       if ((err = re_ast_make(
                r, AASSERT,
                ch == '^' ? (flags & MULTILINE ? LINE_BEGIN : TEXT_BEGIN)
                          : (flags & MULTILINE ? LINE_END : TEXT_END),
                0, 0, &res)) ||
-          (err = stk_push(r, &r->arg_stk, res)))
+          (err = buf_push(r, &r->arg_stk, u32, res)))
         return err;
     } else { /* char: push to the arg stk */
       /* arg_stk: | ... | */
       if ((err = re_ast_make(r, CHR, ch, 0, 0, &res)) ||
-          (err = stk_push(r, &r->arg_stk, res)))
+          (err = buf_push(r, &r->arg_stk, u32, res)))
         return err;
       /* arg_stk: | ... | chr | */
     }
@@ -1137,10 +1141,10 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
   if ((err = re_fold(r)))
     return err;
   re_fold_alts(r, &flags);
-  if (r->op_stk.size)
+  if (buf_size(r->op_stk, u32))
     return re_parse_err(r, "unmatched open parenthesis");
   if ((err = re_ast_make(
-           r, GROUP, stk_pop(r, &r->arg_stk), SUBEXPRESSION, 0, root)))
+           r, GROUP, buf_pop(&r->arg_stk, u32), SUBEXPRESSION, 0, root)))
     return err;
   return 0;
 }
@@ -1201,15 +1205,10 @@ int re_emit(re *r, inst i, compframe *frame)
 
 int compframe_push(re *r, compframe c)
 {
-  return stk_pushn(r, &r->comp_stk, &c, sizeof(c));
+  return buf_push(r, &r->comp_stk, compframe, c);
 }
 
-compframe compframe_pop(re *r)
-{
-  compframe v;
-  stk_popn(r, &r->comp_stk, &v, sizeof(v));
-  return v;
-}
+compframe compframe_pop(re *r) { return buf_pop(&r->comp_stk, compframe); }
 
 inst patch_set(re *r, u32 pc, u32 val)
 {
@@ -1864,7 +1863,7 @@ int re_compile(re *r, u32 root, u32 reverse)
   r->entry[reverse ? PROG_ENTRY_REVERSE : 0] = initial_frame.pc;
   if ((err = compframe_push(r, initial_frame)))
     return err;
-  while (r->comp_stk.size) {
+  while (buf_size(r->comp_stk, compframe)) {
     compframe frame = compframe_pop(r);
     ast_type type;
     u32 args[4], my_pc = re_prog_size(r);
@@ -2046,7 +2045,7 @@ int re_compile(re *r, u32 root, u32 reverse)
     }
     returned_frame = frame;
   }
-  assert(!r->comp_stk.size);
+  assert(!buf_size(r->comp_stk, compframe));
   assert(!returned_frame.patch_head && !returned_frame.patch_tail);
   {
     u32 dstar =
