@@ -397,15 +397,15 @@ u32 *re_ast_param(re *r, u32 node, u32 n)
 int re_union(re *r, const char *regex, size_t n)
 {
   int err = 0;
-  if (!r->ast_sets && (err = re_parse(r, (const u8 *)regex, n, &r->ast_root))) {
-    return err;
-  } else {
-    u32 next_reg, next_root;
-    if ((err = re_parse(r, (const u8 *)regex, n, &next_reg)) ||
-        (err = re_ast_make(r, ALT, r->ast_root, next_reg, 0, &next_root)))
-      return err;
-    r->ast_root = next_root;
+  u32 next_reg, next_root;
+  if (!r->ast_sets) {
+    r->ast_sets++;
+    return re_parse(r, (const u8 *)regex, n, &r->ast_root);
   }
+  if ((err = re_parse(r, (const u8 *)regex, n, &next_reg)) ||
+      (err = re_ast_make(r, ALT, r->ast_root, next_reg, 0, &next_root)))
+    return err;
+  r->ast_root = next_root;
   r->ast_sets++;
   return err;
 }
@@ -2257,70 +2257,71 @@ u32 save_slots_get(save_slots *s, u32 ref, u32 idx)
 
 typedef struct nfa {
   sset a, b, c;
-  stk thrd_stk;
+  buf thrd_stk;
   save_slots slots;
-  stk pri_stk, pri_bmp_tmp;
+  buf pri_stk, pri_bmp_tmp;
   int reversed, pri;
 } nfa;
 
 void nfa_init(re *r, nfa *n)
 {
   sset_init(r, &n->a), sset_init(r, &n->b), sset_init(r, &n->c);
-  stk_init(r, &n->thrd_stk);
+  buf_init(&n->thrd_stk);
   save_slots_init(r, &n->slots);
-  stk_init(r, &n->pri_stk), stk_init(r, &n->pri_bmp_tmp);
+  buf_init(&n->pri_stk), buf_init(&n->pri_bmp_tmp);
   n->reversed = 0;
 }
 
 void nfa_destroy(re *r, nfa *n)
 {
   sset_destroy(r, &n->a), sset_destroy(r, &n->b), sset_destroy(r, &n->c);
-  stk_destroy(r, &n->thrd_stk);
+  buf_destroy(r, &n->thrd_stk);
   save_slots_destroy(r, &n->slots);
-  stk_destroy(r, &n->pri_stk), stk_destroy(r, &n->pri_bmp_tmp);
+  buf_destroy(r, &n->pri_stk), buf_destroy(r, &n->pri_bmp_tmp);
 }
 
-int thrdstk_push(re *r, stk *s, thrdspec t)
+int thrdstk_push(re *r, buf *b, thrdspec t)
 {
   int err = 0;
   assert(t.pc);
-  (err = stk_push(r, s, t.pc)) || (err = stk_push(r, s, t.slot));
+  (err = buf_push(r, b, u32, t.pc)) || (err = buf_push(r, b, u32, t.slot));
   return err;
 }
 
-thrdspec thrdstk_pop(re *r, stk *s)
+thrdspec thrdstk_pop(buf *b)
 {
   thrdspec out;
-  out.slot = stk_pop(r, s);
-  out.pc = stk_pop(r, s);
+  out.slot = buf_pop(b, u32);
+  out.pc = buf_pop(b, u32);
   return out;
 }
 
 #define BITS_PER_U32 (sizeof(u32) * CHAR_BIT)
 
-int bmp_init(re *r, stk *s, u32 size)
+int bmp_init(re *r, buf *b, u32 size)
 {
   u32 i;
   int err = 0;
-  s->size = 0;
+  buf_clear(b);
   for (i = 0; i < (size + BITS_PER_U32) / BITS_PER_U32; i++)
-    if ((err = stk_push(r, s, 0))) /* TODO: change this to a bulk allocation */
+    if ((err = buf_push(
+             r, b, u32, 0))) /* TODO: change this to a bulk allocation */
       return err;
   return err;
 }
 
-void bmp_clear(stk *s) { memset(s->ptr, 0, s->size * sizeof(u32)); }
+void bmp_clear(buf *b) { memset(b->_ptr, 0, b->alloc); }
 
-void bmp_set(stk *s, u32 idx)
+void bmp_set(buf *b, u32 idx)
 {
   /* TODO: assert idx < nsets */
-  s->ptr[idx / BITS_PER_U32] |= (1 << (idx % BITS_PER_U32));
+  buf_at(b, u32, idx / BITS_PER_U32) |= (1 << (idx % BITS_PER_U32));
 }
 
 /* returns 0 or a positive value (not necessarily 1) */
-u32 bmp_get(stk *s, u32 idx)
+u32 bmp_get(buf *b, u32 idx)
 {
-  return s->ptr[idx / BITS_PER_U32] & (1 << (idx % BITS_PER_U32));
+  return buf_at(b, u32, idx / BITS_PER_U32) & (1 << (idx % BITS_PER_U32));
 }
 
 int nfa_start(re *r, nfa *n, u32 pc, u32 noff, int reversed, int pri)
@@ -2332,7 +2333,7 @@ int nfa_start(re *r, nfa *n, u32 pc, u32 noff, int reversed, int pri)
       (err = sset_reset(r, &n->b, re_prog_size(r))) ||
       (err = sset_reset(r, &n->c, re_prog_size(r))))
     return err;
-  n->thrd_stk.size = 0, n->pri_stk.size = 0;
+  buf_clear(&n->thrd_stk), buf_clear(&n->pri_stk);
   save_slots_clear(&n->slots, noff);
   initial_thrd.pc = pc;
   if ((err = save_slots_new(r, &n->slots, &initial_thrd.slot)))
@@ -2340,7 +2341,7 @@ int nfa_start(re *r, nfa *n, u32 pc, u32 noff, int reversed, int pri)
   sset_add(&n->a, initial_thrd);
   initial_thrd.pc = initial_thrd.slot = 0;
   for (i = 0; i < r->ast_sets; i++)
-    if ((err = stk_push(r, &n->pri_stk, 0)))
+    if ((err = buf_push(r, &n->pri_stk, u32, 0)))
       return err;
   if ((err = bmp_init(r, &n->pri_bmp_tmp, r->ast_sets)))
     return err;
@@ -2359,8 +2360,8 @@ int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
     if ((err = thrdstk_push(r, &n->thrd_stk, dense_thrd)))
       return err;
     sset_clear(&n->c);
-    while (n->thrd_stk.size) {
-      thrdspec thrd = thrdstk_pop(r, &n->thrd_stk);
+    while (buf_size(n->thrd_stk, u32)) {
+      thrdspec thrd = thrdstk_pop(&n->thrd_stk);
       inst op = re_prog_get(r, thrd.pc);
       assert(thrd.pc);
       if (sset_memb(&n->c, thrd.pc))
@@ -2377,7 +2378,9 @@ int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
           return err;
         if (inst_next(op)) {
           if (inst_match_param_idx(inst_param(op)) > 0 ||
-              !n->pri_stk.ptr[buf_at(&r->prog_set_idxs, u32, thrd.pc) - 1]) {
+              !buf_at(
+                  &n->pri_stk, u32,
+                  buf_at(&r->prog_set_idxs, u32, thrd.pc) - 1)) {
             thrd.pc = inst_next(op);
             if ((err = thrdstk_push(r, &n->thrd_stk, thrd)))
               return err;
@@ -2423,9 +2426,9 @@ int nfa_matchend(re *r, nfa *n, thrdspec thrd, size_t pos, unsigned int ch)
 {
   int err = 0;
   u32 idx = buf_at(&r->prog_set_idxs, u32, thrd.pc);
-  u32 *memo = n->pri_stk.ptr + idx - 1;
+  u32 *memo = &buf_at(&n->pri_stk, u32, idx - 1);
   assert(idx > 0);
-  assert(idx - 1 < n->pri_stk.size);
+  assert(idx - 1 < buf_size(n->pri_stk, u32));
   if (!n->pri && ch < 256)
     return err;
   if (n->slots.per_thrd) {
@@ -2519,7 +2522,7 @@ int nfa_end(
     return err;
   for (sets = 0; sets < r->ast_sets && (max_set ? nset < max_set : nset < 1);
        sets++) {
-    u32 slot = n->pri_stk.ptr[sets];
+    u32 slot = buf_at(&n->pri_stk, u32, sets);
     if (!slot)
       continue; /* no match for this set */
     for (j = 0; (j < max_span) && out_span; j++) {
@@ -2564,7 +2567,8 @@ typedef struct dfa {
   dfa_state *entry[PROG_ENTRY_MAX][DFA_STATE_FLAG_MAX]; /* program entry type *
                                                            dfa_state_flag */
   stk set_buf;
-  stk loc_buf, set_bmp;
+  stk loc_buf;
+  buf set_bmp;
 } dfa;
 
 void dfa_init(re *r, dfa *d)
@@ -2572,7 +2576,7 @@ void dfa_init(re *r, dfa *d)
   d->states = NULL;
   d->states_size = d->num_active_states = 0;
   memset(d->entry, 0, sizeof(d->entry));
-  stk_init(r, &d->set_buf), stk_init(r, &d->loc_buf), stk_init(r, &d->set_bmp);
+  stk_init(r, &d->set_buf), stk_init(r, &d->loc_buf), buf_init(&d->set_bmp);
 }
 
 void dfa_destroy(re *r, dfa *d)
@@ -2583,7 +2587,7 @@ void dfa_destroy(re *r, dfa *d)
       re_ialloc(r, sizeof(dfa_state), 0, d->states[i]);
   re_ialloc(r, d->states_size * sizeof(dfa_state *), 0, d->states);
   stk_destroy(r, &d->set_buf), stk_destroy(r, &d->loc_buf),
-      stk_destroy(r, &d->set_bmp);
+      buf_destroy(r, &d->set_bmp);
 }
 
 size_t dfa_state_size(u32 nstate, u32 nset)
