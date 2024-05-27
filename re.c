@@ -29,7 +29,7 @@ typedef struct buf {
 /* A set of regular expressions. */
 struct re {
   re_alloc alloc;
-  stk ast;
+  buf ast;
   u32 ast_root, ast_sets;
   stk arg_stk, op_stk, comp_stk;
   buf prog, prog_set_idxs;
@@ -220,7 +220,7 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
   if (!r)
     return (err = ERR_MEM);
   r->alloc = alloc;
-  stk_init(r, &r->ast);
+  buf_init(&r->ast);
   r->ast_root = r->ast_sets = 0;
   stk_init(r, &r->arg_stk), stk_init(r, &r->op_stk), stk_init(r, &r->comp_stk);
   stk_init(r, &r->cc_stk_a), stk_init(r, &r->cc_stk_b);
@@ -240,7 +240,7 @@ void re_destroy(re *r)
 {
   if (!r)
     return;
-  stk_destroy(r, &r->ast);
+  buf_destroy(r, &r->ast);
   stk_destroy(r, &r->op_stk), stk_destroy(r, &r->arg_stk),
       stk_destroy(r, &r->comp_stk);
   stk_destroy(r, &r->cc_stk_a), stk_destroy(r, &r->cc_stk_b);
@@ -358,34 +358,37 @@ int byte_range_is_adjacent(byte_range left, byte_range right)
 }
 
 /* Make a new AST node within the regular expression. */
-int re_ast_make(re *re, ast_type type, u32 p0, u32 p1, u32 p2, u32 *out_node)
+int re_ast_make(re *r, ast_type type, u32 p0, u32 p1, u32 p2, u32 *out_node)
 {
-  u32 args[4];
+  u32 args[4], i;
   int err;
   args[0] = type, args[1] = p0, args[2] = p1, args[3] = p2;
-  if (type && !re->ast.size &&
-      (err = re_ast_make(re, 0, 0, 0, 0, out_node))) /* sentinel node */
+  if (type && !buf_size(r->ast, u32) &&
+      (err = re_ast_make(r, 0, 0, 0, 0, out_node))) /* sentinel node */
     return err;
-  *out_node = re->ast.size;
-  return stk_pushn(re, &re->ast, args, (1 + ast_type_lens[type]) * sizeof(u32));
+  *out_node = buf_size(r->ast, u32);
+  for (i = 0; i < 1 + ast_type_lens[type]; i++)
+    if ((err = buf_push(r, &r->ast, u32, args[i])))
+      return err;
+  return 0;
 }
 
 /* Decompose a given AST node, given its reference, into `out_args`. */
-void re_ast_decompose(re *re, u32 node, u32 *out_args)
+void re_ast_decompose(re *r, u32 node, u32 *out_args)
 {
-  u32 *in_args = stk_getn(&re->ast, node);
+  u32 *in_args = &buf_at(&r->ast, u32, node);
   memcpy(out_args, in_args + 1, ast_type_lens[*in_args] * sizeof(u32));
 }
 
-/* Get a pointer to the `n`'th parameter of the given AST node. */
-u32 *re_ast_param(re *re, u32 node, u32 n)
-{
-  assert(ast_type_lens[re->ast.ptr[node]] > n);
-  return re->ast.ptr + node + 1 + n;
-}
-
 /* Get the type of the given AST node. */
-u32 *re_ast_type(re *re, u32 node) { return re->ast.ptr + node; }
+u32 *re_ast_type(re *r, u32 node) { return &buf_at(&r->ast, u32, node); }
+
+/* Get a pointer to the `n`'th parameter of the given AST node. */
+u32 *re_ast_param(re *r, u32 node, u32 n)
+{
+  assert(ast_type_lens[*re_ast_type(r, node)] > n);
+  return &buf_at(&r->ast, u32, node + 1 + n);
+}
 
 /* Add another regular expression to the set of regular expressions matched by
  * this `re` instance. */
@@ -3306,7 +3309,7 @@ char *dump_quant(char *buf, u32 quantval)
 void astdump_i(re *r, u32 root, u32 ilvl, int format)
 {
   const char *colors[] = {"1", "2", "3", "4"};
-  u32 i, first = root ? r->ast.ptr[root] : 0;
+  u32 i, first = root ? *re_ast_type(r, root) : 0;
   u32 sub[2] = {0xFF, 0xFF};
   char buf[32] = {0}, buf2[32] = {0};
   const char *node_name = root == REF_NONE     ? "\xc9\x9b" /* epsilon */
