@@ -1662,8 +1662,9 @@ int re_compcc(re *r, u32 root, compframe *frame, int reversed)
     re_ast_decompose(r, root, args);
     root = args[0], min = args[1], max = args[2];
     /* handle out-of-order ranges (min > max) */
-    if ((err = buf_push(r, &r->cc_stk_a, u32, min > max ? max : min)) ||
-        (err = buf_push(r, &r->cc_stk_a, u32, min > max ? min : max)))
+    if ((err = buf_push(
+             r, &r->cc_stk_a, rune_range,
+             rune_range_make(min > max ? max : min, min > max ? min : max))))
       return err;
   }
   do {
