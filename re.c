@@ -977,8 +977,8 @@ int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* push the saved contents of arg_stk */
       *buf_peek(&r->arg_stk, u32, 0) = prev;
       /* pop the group frame into arg_stk */
-      err = buf_push(r, &r->arg_stk, u32, buf_pop(&r->op_stk, u32));
-      assert(!err); /* the stack always has space for this */
+      if ((err = buf_push(r, &r->arg_stk, u32, buf_pop(&r->op_stk, u32))))
+        return err;
       /* arg_stk: |  R  | (S) | */
       /* op_stk:  | ... | */
     } else if (ch == '.') { /* any char */
@@ -2566,17 +2566,17 @@ typedef struct dfa {
   size_t states_size, num_active_states;
   dfa_state *entry[PROG_ENTRY_MAX][DFA_STATE_FLAG_MAX]; /* program entry type *
                                                            dfa_state_flag */
-  stk set_buf;
-  stk loc_buf;
+  buf set_buf;
+  buf loc_buf;
   buf set_bmp;
 } dfa;
 
-void dfa_init(re *r, dfa *d)
+void dfa_init(dfa *d)
 {
   d->states = NULL;
   d->states_size = d->num_active_states = 0;
   memset(d->entry, 0, sizeof(d->entry));
-  stk_init(r, &d->set_buf), stk_init(r, &d->loc_buf), buf_init(&d->set_bmp);
+  buf_init(&d->set_buf), buf_init(&d->loc_buf), buf_init(&d->set_bmp);
 }
 
 void dfa_destroy(re *r, dfa *d)
@@ -2586,7 +2586,7 @@ void dfa_destroy(re *r, dfa *d)
     if (d->states[i])
       re_ialloc(r, sizeof(dfa_state), 0, d->states[i]);
   re_ialloc(r, d->states_size * sizeof(dfa_state *), 0, d->states);
-  stk_destroy(r, &d->set_buf), stk_destroy(r, &d->loc_buf),
+  buf_destroy(r, &d->set_buf), buf_destroy(r, &d->loc_buf),
       buf_destroy(r, &d->set_bmp);
 }
 
@@ -2609,11 +2609,11 @@ int dfa_construct(
   /* check threads in n, and look them up in the dfa cache */
   hash = hashington(prev_flag);
   hash = hashington(hash + n->a.dense_size);
-  hash = hashington(hash + d->set_buf.size);
+  hash = hashington(hash + buf_size(d->set_buf, u32));
   for (i = 0; i < n->a.dense_size; i++)
     hash = hashington(hash + n->a.dense[i].pc);
-  for (i = 0; i < d->set_buf.size; i++)
-    hash = hashington(hash + d->set_buf.size);
+  for (i = 0; i < buf_size(d->set_buf, u32); i++)
+    hash = hashington(hash + buf_at(&d->set_buf, u32, i));
   if (!d->states_size) {
     /* need to allocate initial cache */
     dfa_state **next_cache =
@@ -2636,13 +2636,13 @@ int dfa_construct(
       goto not_found;
     if (next_state->nstate != n->a.dense_size)
       goto not_found;
-    if (next_state->nset != d->set_buf.size)
+    if (next_state->nset != buf_size(d->set_buf, u32))
       goto not_found;
     for (i = 0; i < n->a.dense_size; i++)
       if (state_data[i] != n->a.dense[i].pc)
         goto not_found;
-    for (i = 0; i < d->set_buf.size; i++)
-      if (state_data[n->a.dense_size + i] != d->set_buf.ptr[i])
+    for (i = 0; i < buf_size(d->set_buf, u32); i++)
+      if (state_data[n->a.dense_size + i] != buf_at(&d->set_buf, u32, i))
         goto not_found;
     /* state found! */
     break;
@@ -2668,19 +2668,21 @@ int dfa_construct(
       prev_state = NULL;
     }
     /* allocate new state */
-    next_state =
-        re_ialloc(r, 0, dfa_state_size(n->a.dense_size, d->set_buf.size), NULL);
+    next_state = re_ialloc(
+        r, 0, dfa_state_size(n->a.dense_size, buf_size(d->set_buf, u32)), NULL);
     if (!next_state)
       return ERR_MEM;
-    memset(next_state, 0, dfa_state_size(n->a.dense_size, d->set_buf.size));
+    memset(
+        next_state, 0,
+        dfa_state_size(n->a.dense_size, buf_size(d->set_buf, u32)));
     next_state->flags = prev_flag;
     next_state->nstate = n->a.dense_size;
-    next_state->nset = d->set_buf.size;
+    next_state->nset = buf_size(d->set_buf, u32);
     state_data = dfa_state_data(next_state);
     for (i = 0; i < n->a.dense_size; i++)
       state_data[i] = n->a.dense[i].pc;
-    for (i = 0; i < d->set_buf.size; i++)
-      state_data[n->a.dense_size + i] = d->set_buf.ptr[i];
+    for (i = 0; i < buf_size(d->set_buf, u32); i++)
+      state_data[n->a.dense_size + i] = buf_at(&d->set_buf, u32, i);
     d->states[table_pos] = next_state;
   }
   assert(next_state);
@@ -2696,7 +2698,7 @@ int dfa_construct_start(
 {
   int err = 0;
   /* clear the set buffer so that it can be used to compare dfa states later */
-  d->set_buf.size = 0;
+  buf_clear(&d->set_buf);
   *out_next_state = d->entry[entry][prev_flag];
   if (!*out_next_state) {
     thrdspec spec;
@@ -2716,7 +2718,7 @@ int dfa_construct_chr(
   int err;
   size_t i;
   /* clear the set buffer so that it can be used to compare dfa states later */
-  d->set_buf.size = 0;
+  buf_clear(&d->set_buf);
   /* we only care about `ch` if `prev_state != NULL`. we only care about
    * `prev_flag` if `prev_state == NULL` */
   /* import prev_state into n */
@@ -2757,8 +2759,9 @@ int dfa_construct_chr(
       assert(!inst_next(op));
       /* NOTE: since there only exists one match instruction for a set n, we
        * don't need to check if we've already pushed the match instruction. */
-      if ((err = stk_push(
-               r, &d->set_buf, buf_at(&r->prog_set_idxs, u32, thrd.pc) - 1)))
+      if ((err = buf_push(
+               r, &d->set_buf, u32,
+               buf_at(&r->prog_set_idxs, u32, thrd.pc) - 1)))
         return err;
       if (n->pri)
         bmp_set(&n->pri_bmp_tmp, buf_at(&r->prog_set_idxs, u32, thrd.pc));
@@ -2781,8 +2784,8 @@ void dfa_save_matches(dfa *dfa, dfa_state *state, size_t pos)
 {
   u32 i;
   for (i = 0; i < state->nset; i++) {
-    *(size_t *)stk_getn(
-        &dfa->loc_buf, dfa_state_data(state)[state->nstate + i]) = pos;
+    buf_at(&dfa->loc_buf, size_t, dfa_state_data(state)[state->nstate + i]) =
+        pos;
     bmp_set(&dfa->set_bmp, i);
   }
 }
@@ -2806,14 +2809,14 @@ int re_match_dfa(
            r, nfa, r->entry[entry], 0, entry & PROG_ENTRY_REVERSE,
            entry & PROG_ENTRY_DOTSTAR)))
     return err;
-  dfa_init(r, &dfa);
+  dfa_init(&dfa);
   if (pri) {
-    dfa.loc_buf.size = 0;
+    buf_clear(&dfa.loc_buf);
     if ((err = bmp_init(r, &dfa.set_bmp, r->ast_sets)))
       return err;
     for (i = 0; i < r->ast_sets; i++) {
       size_t p = 0;
-      if ((err = stk_pushn(r, &dfa.loc_buf, &p, sizeof(p))))
+      if ((err = buf_push(r, &dfa.loc_buf, size_t, p)))
         return err;
     }
   }
@@ -2859,7 +2862,7 @@ int re_match_dfa(
       if ((unsigned)err == max_set && max_set)
         break;
       if (max_span) {
-        size_t spos = *(size_t *)stk_getn(&dfa.loc_buf, i);
+        size_t spos = buf_at(&dfa.loc_buf, size_t, i);
         out_span[i].begin = entry & PROG_ENTRY_REVERSE ? 0 : spos,
         out_span[i].end = entry & PROG_ENTRY_REVERSE ? spos : n;
       }
