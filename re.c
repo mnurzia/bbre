@@ -118,7 +118,7 @@ char *buf_popn(buf *b, size_t elem_size)
   (buf_grown((r), (b), sizeof(T))                                              \
        ? ERR_MEM                                                               \
        : (*buf_ptr(T, buf_tailn((b), sizeof(T))) = (e), 0))
-#define buf_reserve(r, b, T, n) (buf_reserven(r, b, sizeof(T)))
+#define buf_reserve(r, b, T, n) (buf_reserven(r, b, sizeof(T) * (n)))
 #define buf_pop(b, T)           (*buf_ptr(T, buf_popn((b), sizeof(T))))
 #define buf_peek(b, T, n)       ((buf_ptr(T, buf_tailn((b), sizeof(T)))) - n)
 #define buf_at(b, T, i)         (buf_ptr(T, (b)->_ptr)[(i)])
@@ -479,7 +479,6 @@ int re_fold(re *r)
  * Returns `ERR_MEM` if out of memory. */
 void re_fold_alts(re *r, u32 *flags)
 {
-  int err = 0;
   assert(buf_size(r->arg_stk, u32) == 1);
   /* First pop all inline groups. */
   while (buf_size(r->op_stk, u32) &&
@@ -503,26 +502,21 @@ void re_fold_alts(re *r, u32 *flags)
     /* op_stk:  | ... |  A  | */
     /* finish the last alt */
     *re_ast_param(r, *buf_peek(&r->op_stk, u32, 0), 1) =
-        buf_pop(&r->arg_stk, u32);
+        *buf_peek(&r->arg_stk, u32, 0);
     /* arg_stk: | */
     /* op_stk:  | ... | */
-  }
-  while (buf_size(r->op_stk, u32) > 1 &&
-         *re_ast_type(r, *buf_peek(&r->op_stk, u32, 0)) == ALT &&
-         *re_ast_type(r, *buf_peek(&r->op_stk, u32, 1)) == ALT) {
-    /* op_stk:  | ... | A_1 | A_2 | */
-    u32 right = buf_pop(&r->op_stk, u32), left = *buf_peek(&r->op_stk, u32, 0);
-    *re_ast_param(r, left, 1) = right;
-    *buf_peek(&r->op_stk, u32, 0) = left;
-    /* op_stk:  | ... | A_1(|A_2) | */
-  }
-  if (buf_size(r->op_stk, u32) &&
-      *re_ast_type(r, *buf_peek(&r->op_stk, u32, 0)) == ALT) {
+    while (buf_size(r->op_stk, u32) > 1 &&
+           *re_ast_type(r, *buf_peek(&r->op_stk, u32, 1)) == ALT) {
+      /* op_stk:  | ... | A_1 | A_2 | */
+      u32 right = buf_pop(&r->op_stk, u32),
+          left = *buf_peek(&r->op_stk, u32, 0);
+      *re_ast_param(r, left, 1) = right;
+      *buf_peek(&r->op_stk, u32, 0) = left;
+      /* op_stk:  | ... | A_1(|A_2) | */
+    }
     /* op_stk:  | ... |  A  | */
-    assert(buf_size(r->arg_stk, u32) == 0);
-    err = buf_push(r, &r->arg_stk, u32, buf_pop(&r->op_stk, u32));
-    assert(!err); /* we have space on the stack so this should never fail */
-    (void)err;
+    assert(buf_size(r->arg_stk, u32) == 1);
+    *buf_peek(&r->arg_stk, u32, 0) = buf_pop(&r->op_stk, u32);
     /* arg_stk: |  A  | */
     /* op_stk:  | ... | */
   }
@@ -1198,8 +1192,6 @@ void patch(re *r, compframe *p, u32 dest_pc)
 
 size_t i_lc(size_t i) { return 2 * i + 1; }
 
-size_t i_rc(size_t i) { return 2 * i + 2; }
-
 u32 cckey(buf *cc, size_t idx) { return buf_at(cc, rune_range, idx).l; }
 
 void ccswap(buf *cc, size_t a, size_t b)
@@ -1448,16 +1440,21 @@ u32 hashington(u32 x)
 /* hash table */
 /* pairs of <key, loc> */
 
-u32 cc_htsize(buf *cc_ht) { return buf_size(*cc_ht, u32) / 2; }
+typedef struct cc_htentry {
+  u32 key;
+  u32 loc;
+} cc_htentry;
+
+u32 cc_htsize(buf *cc_ht) { return buf_size(*cc_ht, cc_htentry); }
 
 int cc_htinit(re *r, buf *cc_tree_in, buf *cc_ht_out)
 {
   int err = 0;
-  while (cc_htsize(cc_ht_out) < (buf_size(*cc_tree_in, compcc_node) +
-                                 (buf_size(*cc_tree_in, compcc_node) >> 1)))
-    if ((err = buf_push(r, cc_ht_out, u32, 0)) ||
-        (err = buf_push(r, cc_ht_out, u32, 0)))
-      return err;
+  if ((err = buf_reserve(
+           r, cc_ht_out, cc_htentry,
+           (buf_size(*cc_tree_in, compcc_node) +
+            (buf_size(*cc_tree_in, compcc_node) >> 1)))))
+    return err;
   memset(cc_ht_out->_ptr, 0, cc_ht_out->alloc);
   return 0;
 }
@@ -1528,11 +1525,14 @@ void re_compcc_reducetree(
   while (node_ref) {
     compcc_node *node = &buf_at(cc_tree_in, compcc_node, node_ref);
     u32 probe, found, child_ref = 0;
-    probe = node->aux << 1;
+    probe = node->aux;
     node->aux = 0;
     /* check if child is in the hash table */
     while (1) {
-      if (!((found = buf_at(cc_ht, u32, probe % buf_size(*cc_ht, u32)) & 1)))
+      if (!((found =
+                 buf_at(cc_ht, cc_htentry, probe % buf_size(*cc_ht, cc_htentry))
+                     .key &
+                 1)))
         /* child is NOT in the cache */
         break;
       else {
@@ -1546,9 +1546,10 @@ void re_compcc_reducetree(
           return;
         }
       }
-      probe += 1 << 1; /* linear probe */
+      probe += 1; /* linear probe */
     }
-    buf_at(cc_ht, u32, (probe % buf_size(*cc_ht, u32)) + 0) = node_ref << 1 | 1;
+    buf_at(cc_ht, cc_htentry, (probe % buf_size(*cc_ht, cc_htentry))).key =
+        node_ref << 1 | 1;
     if (!*my_out_ref)
       *my_out_ref = node_ref;
     if (node->child_ref) {

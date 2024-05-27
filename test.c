@@ -1061,6 +1061,53 @@ TEST(cls_assert)
   PASS();
 }
 
+TEST(cls_utf8_same_first_byte_and_full_second_byte)
+{
+  ASSERT_CC_MATCH("[\\x{800}-\\x{83F}]", "0x800 0x83F");
+  PASS();
+}
+
+TEST(cls_utf8_same_first_byte_and_almost_full_second_byte)
+{
+  ASSERT_CC_MATCH("[\\x{800}-\\x{83E}]", "0x800 0x83E");
+  PASS();
+}
+
+TEST(cls_utf8_same_first_byte_and_almost_full_second_byte_1)
+{
+  ASSERT_CC_MATCH("[\\x{801}-\\x{83F}]", "0x801 0x83F");
+  PASS();
+}
+
+TEST(cls_utf8_adjacent_first_bytes_and_almost_full_second_byte)
+{
+  ASSERT_CC_MATCH("[\\x{800}-\\x{87E}]", "0x800 0x87E");
+  PASS();
+}
+
+TEST(cls_utf8_adjacent_first_bytes_and_nonfull_second_byte)
+{
+  ASSERT_CC_MATCH("[\\x{801}-\\x{87E}]", "0x800 0x87E");
+  PASS();
+}
+
+TEST(cls_utf8_two_subsequent_ranges_with_same_first_bytes)
+{
+  ASSERT_CC_MATCH(
+      "[\\x{800}-\\x{870}\\x{872}-\\x{8BF}]", "0x800 0x870,0x872 0x8BF");
+  PASS();
+}
+
+SUITE(cls_utf8)
+{
+  RUN_TEST(cls_utf8_same_first_byte_and_full_second_byte);
+  RUN_TEST(cls_utf8_same_first_byte_and_almost_full_second_byte);
+  RUN_TEST(cls_utf8_same_first_byte_and_almost_full_second_byte_1);
+  RUN_TEST(cls_utf8_adjacent_first_bytes_and_almost_full_second_byte);
+  RUN_TEST(cls_utf8_adjacent_first_bytes_and_nonfull_second_byte);
+  RUN_TEST(cls_utf8_two_subsequent_ranges_with_same_first_bytes);
+}
+
 SUITE(cls)
 {
   RUN_SUITE(cls_escape);
@@ -1091,6 +1138,7 @@ SUITE(cls)
   RUN_TEST(cls_reversed);
   RUN_TEST(cls_reversed_nonmatch);
   RUN_TEST(cls_assert);
+  RUN_SUITE(cls_utf8);
 }
 
 TEST(escape_null)
