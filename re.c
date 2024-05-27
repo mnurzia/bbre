@@ -17,10 +17,6 @@
 #define UTFMAX   0x10FFFF
 
 /* A general-purpose growable buffer. */
-typedef struct stk {
-  u32 *ptr, size, alloc;
-} stk;
-
 typedef struct buf {
   char *_ptr;
   size_t _size, alloc;
@@ -128,75 +124,6 @@ char *buf_popn(buf *b, size_t elem_size)
 #define buf_at(b, T, i)         (buf_ptr(T, (b)->_ptr)[(i)])
 #define buf_size(b, T)          ((b)._size / sizeof(T))
 #define buf_clear(b)            ((b)->_size = 0)
-
-void stk_init(re *r, stk *s)
-{
-  (void)(r);
-  s->ptr = NULL;
-  s->size = s->alloc = 0;
-}
-
-void stk_destroy(re *r, stk *s)
-{
-  re_ialloc(r, sizeof(*s->ptr) * s->alloc, 0, s->ptr);
-}
-
-int stk_pushn(re *r, stk *s, void *p, u32 n)
-{
-  u32 words = (n + (sizeof(u32) - 1)) / sizeof(u32); /* ceil */
-  size_t next_alloc = s->alloc ? s->alloc : 16;
-  while (s->size + words > next_alloc)
-    next_alloc *= 2;
-  if (next_alloc > s->alloc) {
-    u32 *out = re_ialloc(
-        r, sizeof(*s->ptr) * s->alloc, sizeof(*s->ptr) * next_alloc, s->ptr);
-    if (!out)
-      return ERR_MEM;
-    s->alloc = next_alloc;
-    s->ptr = out;
-  }
-  memcpy(s->ptr + s->size, p, n);
-  s->size += words;
-  return 0;
-}
-
-int stk_push(re *r, stk *s, u32 v) { return stk_pushn(r, s, &v, sizeof(v)); }
-
-u32 stk_elemsize(size_t n) { return ((n + sizeof(u32) - 1) / sizeof(u32)); }
-
-void stk_popn(re *r, stk *s, void *p, u32 n)
-{
-  u32 words = (n + (sizeof(u32) - 1)) / sizeof(u32); /* ceil */
-  (void)(r);
-  assert(s->size >= words);
-  memcpy(p, s->ptr + s->size - words, n);
-  s->size -= words;
-}
-
-u32 stk_pop(re *r, stk *s)
-{
-  u32 v;
-  stk_popn(r, s, &v, sizeof(v));
-  return v;
-}
-
-void *stk_getn(stk *s, u32 idx)
-{
-  assert(idx < s->size);
-  return s->ptr + idx;
-}
-
-u32 *stk_peek(re *r, stk *s, u32 idx)
-{
-  (void)(r);
-  assert(idx < s->size);
-  return &(s->ptr[s->size - 1 - idx]);
-}
-
-u32 stk_size(stk *s, u32 n)
-{
-  return s->size / ((n + sizeof(u32) - 1) / sizeof(u32));
-}
 
 int re_parse(re *r, const u8 *s, size_t sz, u32 *root);
 
