@@ -21,13 +21,18 @@ typedef struct stk {
   u32 *ptr, size, alloc;
 } stk;
 
+typedef struct buf {
+  char *ptr;
+  size_t size, alloc;
+} buf;
+
 /* A set of regular expressions. */
 struct re {
   re_alloc alloc;
   stk ast;
   u32 ast_root, ast_sets;
   stk arg_stk, op_stk, comp_stk;
-  stk prog, prog_set_idxs;
+  buf prog, prog_set_idxs;
   stk cc_stk_a, cc_stk_b;
   u32 entry[4];
   const u8 *expr;
@@ -67,11 +72,6 @@ void *re_default_alloc(
 #define re_ialloc(re, prev, next, ptr)                                         \
   (re)->alloc((prev), (next), (ptr), __FILE__, __LINE__)
 
-typedef struct buf {
-  char *ptr;
-  size_t size, alloc;
-} buf;
-
 void buf_init(buf *b)
 {
   b->ptr = NULL;
@@ -84,8 +84,10 @@ int buf_reserven(re *r, buf *b, size_t size)
 {
   size_t next_alloc = b->alloc ? b->alloc : 1 /* initial allocation */;
   void *next_ptr;
-  if (size < b->alloc)
+  if (size <= b->alloc) {
+    b->size = size;
     return 0;
+  }
   while (next_alloc < size)
     next_alloc *= 2;
   next_ptr = re_ialloc(r, b->alloc, next_alloc, b->ptr);
@@ -102,12 +104,12 @@ int buf_grown(re *r, buf *b, size_t incr)
   return buf_reserven(r, b, b->size + incr);
 }
 
-void *buf_tailn(buf *b, size_t elem_size)
+char *buf_tailn(buf *b, size_t elem_size)
 {
   return b->ptr + b->size - elem_size;
 }
 
-void *buf_popn(buf *b, size_t elem_size)
+char *buf_popn(buf *b, size_t elem_size)
 {
   void *out = buf_tailn(b, elem_size);
   assert(b->size >= elem_size);
@@ -115,14 +117,15 @@ void *buf_popn(buf *b, size_t elem_size)
   return out;
 }
 
-#define buf_ptr(T, ptr) (((T) *)(ptr))
+#define buf_ptr(T, ptr) ((T *)(ptr))
 #define buf_push(r, b, T, e)                                                   \
-  (buf_grow((r), (b), sizeof(T))                                               \
-       ? (buf_ptr(T, buf_tailn((b), sizeof(T))) = (e), 0)                      \
-       : ERR_MEM)
+  (buf_grown((r), (b), sizeof(T))                                              \
+       ? ERR_MEM                                                               \
+       : (*buf_ptr(T, buf_tailn((b), sizeof(T))) = (e), 0))
 #define buf_reserve(r, b, T, n) (buf_reserven(r, b, sizeof(T)))
 #define buf_pop(b, T)           (*buf_popn((b), sizeof(T)))
 #define buf_at(b, T, i)         (buf_ptr(T, (b)->ptr)[(i)])
+#define buf_size(b, T)          ((b).size / sizeof(T))
 
 void stk_init(re *r, stk *s)
 {
@@ -221,7 +224,7 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
   r->ast_root = r->ast_sets = 0;
   stk_init(r, &r->arg_stk), stk_init(r, &r->op_stk), stk_init(r, &r->comp_stk);
   stk_init(r, &r->cc_stk_a), stk_init(r, &r->cc_stk_b);
-  stk_init(r, &r->prog), stk_init(r, &r->prog_set_idxs);
+  buf_init(&r->prog), buf_init(&r->prog_set_idxs);
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
     if ((err = re_parse(r, (const u8 *)regex, n, &r->ast_root))) {
@@ -241,7 +244,7 @@ void re_destroy(re *r)
   stk_destroy(r, &r->op_stk), stk_destroy(r, &r->arg_stk),
       stk_destroy(r, &r->comp_stk);
   stk_destroy(r, &r->cc_stk_a), stk_destroy(r, &r->cc_stk_b);
-  stk_destroy(r, &r->prog), stk_destroy(r, &r->prog_set_idxs);
+  buf_destroy(r, &r->prog), buf_destroy(r, &r->prog_set_idxs);
   r->alloc(sizeof(*r), 0, r, __FILE__, __LINE__);
 }
 
@@ -1170,17 +1173,11 @@ u32 inst_match_param_end(u32 param) { return param & 1; }
 
 u32 inst_match_param_idx(u32 param) { return param >> 1; }
 
-void re_prog_set(re *r, u32 pc, inst i)
-{
-  *(inst *)stk_getn(&r->prog, pc * sizeof(inst) / sizeof(u32)) = i;
-}
+void re_prog_set(re *r, u32 pc, inst i) { buf_at(&r->prog, inst, pc) = i; }
 
-inst re_prog_get(re *r, u32 pc)
-{
-  return *(inst *)stk_getn(&r->prog, pc * sizeof(inst) / sizeof(u32));
-}
+inst re_prog_get(re *r, u32 pc) { return buf_at(&r->prog, inst, pc); }
 
-u32 re_prog_size(re *r) { return r->prog.size >> 1; }
+u32 re_prog_size(re *r) { return buf_size(r->prog, inst); }
 
 #define RE_PROG_MAX_INSTS 100000
 
@@ -1193,10 +1190,9 @@ int re_emit(re *r, inst i, compframe *frame)
   int err = 0;
   if (re_prog_size(r) == RE_PROG_MAX_INSTS)
     return ERR_LIMIT;
-  if ((err = stk_pushn(r, &r->prog, &i, sizeof(i))) ||
-      (err = stk_push(r, &r->prog_set_idxs, frame->set_idx)))
+  if ((err = buf_push(r, &r->prog, inst, i)) ||
+      (err = buf_push(r, &r->prog_set_idxs, u32, frame->set_idx)))
     return err;
-  re_prog_set(r, re_prog_size(r) - 1, i);
   return err;
 }
 
@@ -1852,10 +1848,11 @@ int re_compile(re *r, u32 root, u32 reverse)
   int err = 0;
   compframe initial_frame = {0}, returned_frame = {0}, child_frame = {0};
   u32 set_idx = 0, grp_idx = 1, tmp_cc_ast = REF_NONE;
-  if (!r->prog.size &&
-      ((err = stk_push(r, &r->prog, 0)) || (err = stk_push(r, &r->prog, 0)) ||
-       (err = stk_push(r, &r->prog_set_idxs, 0))))
+  if (!re_prog_size(r) &&
+      ((err = buf_push(r, &r->prog, inst, inst_make(RANGE, 0, 0))) ||
+       (err = buf_push(r, &r->prog_set_idxs, u32, 0))))
     return err;
+  assert(re_prog_size(r) > 0);
   initial_frame.root_ref = root;
   initial_frame.child_ref = initial_frame.patch_head =
       initial_frame.patch_tail = REF_NONE;
@@ -2376,7 +2373,7 @@ int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
           return err;
         if (inst_next(op)) {
           if (inst_match_param_idx(inst_param(op)) > 0 ||
-              !n->pri_stk.ptr[r->prog_set_idxs.ptr[thrd.pc] - 1]) {
+              !n->pri_stk.ptr[buf_at(&r->prog_set_idxs, u32, thrd.pc) - 1]) {
             thrd.pc = inst_next(op);
             if ((err = thrdstk_push(r, &n->thrd_stk, thrd)))
               return err;
@@ -2421,7 +2418,7 @@ int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
 int nfa_matchend(re *r, nfa *n, thrdspec thrd, size_t pos, unsigned int ch)
 {
   int err = 0;
-  u32 idx = r->prog_set_idxs.ptr[thrd.pc];
+  u32 idx = buf_at(&r->prog_set_idxs, u32, thrd.pc);
   u32 *memo = n->pri_stk.ptr + idx - 1;
   assert(idx > 0);
   assert(idx - 1 < n->pri_stk.size);
@@ -2449,7 +2446,7 @@ int nfa_chr(re *r, nfa *n, unsigned int ch, size_t pos)
   for (i = 0; i < n->b.dense_size; i++) {
     thrdspec thrd = n->b.dense[i];
     inst op = re_prog_get(r, thrd.pc);
-    int pri = bmp_get(&n->pri_bmp_tmp, r->prog_set_idxs.ptr[thrd.pc]);
+    int pri = bmp_get(&n->pri_bmp_tmp, buf_at(&r->prog_set_idxs, u32, thrd.pc));
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
     switch (inst_opcode(op)) {
@@ -2467,7 +2464,7 @@ int nfa_chr(re *r, nfa *n, unsigned int ch, size_t pos)
       if ((err = nfa_matchend(r, n, thrd, pos, ch)))
         return err;
       if (n->pri)
-        bmp_set(&n->pri_bmp_tmp, r->prog_set_idxs.ptr[thrd.pc]);
+        bmp_set(&n->pri_bmp_tmp, buf_at(&r->prog_set_idxs, u32, thrd.pc));
       break;
     }
     default:
@@ -2735,7 +2732,7 @@ int dfa_construct_chr(
   for (i = 0; i < n->b.dense_size; i++) {
     thrdspec thrd = n->b.dense[i];
     inst op = re_prog_get(r, thrd.pc);
-    int pri = bmp_get(&n->pri_bmp_tmp, r->prog_set_idxs.ptr[thrd.pc]);
+    int pri = bmp_get(&n->pri_bmp_tmp, buf_at(&r->prog_set_idxs, u32, thrd.pc));
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
     switch (inst_opcode(op)) {
@@ -2752,10 +2749,11 @@ int dfa_construct_chr(
       assert(!inst_next(op));
       /* NOTE: since there only exists one match instruction for a set n, we
        * don't need to check if we've already pushed the match instruction. */
-      if ((err = stk_push(r, &d->set_buf, r->prog_set_idxs.ptr[thrd.pc] - 1)))
+      if ((err = stk_push(
+               r, &d->set_buf, buf_at(&r->prog_set_idxs, u32, thrd.pc) - 1)))
         return err;
       if (n->pri)
-        bmp_set(&n->pri_bmp_tmp, r->prog_set_idxs.ptr[thrd.pc]);
+        bmp_set(&n->pri_bmp_tmp, buf_at(&r->prog_set_idxs, u32, thrd.pc));
       break;
     }
     default:
@@ -3393,7 +3391,7 @@ void progdump_range(re *r, u32 start, u32 end, int format)
       static const int colors[] = {91, 92, 93, 94};
       printf(
           "%04X %01X \x1b[%im%s\x1b[0m \x1b[%im%04X\x1b[0m %04X %s", start,
-          r->prog_set_idxs.ptr[start], colors[inst_opcode(ins)],
+          buf_at(&r->prog_set_idxs, u32, start), colors[inst_opcode(ins)],
           ops[inst_opcode(ins)],
           inst_next(ins) ? (inst_next(ins) == start + 1 ? 90 : 0) : 91,
           inst_next(ins), inst_param(ins), labels[k]);
