@@ -1244,13 +1244,6 @@ typedef struct compcc_node {
   u32 range, child_ref, sibling_ref, aux;
 } compcc_node;
 
-compcc_node *cc_treeref(buf *cc, u32 ref)
-{
-  return &buf_at(cc, compcc_node, ref);
-}
-
-u32 cc_treesize(buf *cc) { return buf_size(*cc, compcc_node); }
-
 int cc_treenew(re *r, buf *cc_out, compcc_node node, u32 *out)
 {
   int err = 0;
@@ -1272,11 +1265,11 @@ int cc_treeappend(re *r, buf *cc, u32 range, u32 parent, u32 *out)
   compcc_node *parent_node, child_node = {0};
   u32 child_ref;
   int err;
-  parent_node = cc_treeref(cc, parent);
+  parent_node = &buf_at(cc, compcc_node, parent);
   child_node.sibling_ref = parent_node->child_ref, child_node.range = range;
   if ((err = cc_treenew(r, cc, child_node, &child_ref)))
     return err;
-  parent_node = cc_treeref(cc, parent); /* ref could be stale */
+  parent_node = &buf_at(cc, compcc_node, parent); /* ref could be stale */
   parent_node->child_ref = child_ref;
   assert(parent_node->child_ref != parent);
   assert(parent_node->sibling_ref != parent);
@@ -1365,11 +1358,11 @@ int re_compcc_buildtree_split(
       u32 child_ref;
       /* check if previous child intersects and then compute intersection */
       assert(parent);
-      parent_node = cc_treeref(cc_out, parent);
+      parent_node = &buf_at(cc_out, compcc_node, parent);
       if (parent_node->child_ref &&
           u32_to_byte_range(brs[i]).l <=
               u32_to_byte_range(
-                  cc_treeref(cc_out, parent_node->child_ref)->range)
+                  (&buf_at(cc_out, compcc_node, parent_node->child_ref))->range)
                   .h) {
         child_ref = parent_node->child_ref;
       } else {
@@ -1428,8 +1421,8 @@ int re_compcc_buildtree(re *r, buf *cc_in, buf *cc_out)
 int re_compcc_treeeq(re *r, buf *cc_tree_in, u32 a_ref, u32 b_ref)
 {
   while (a_ref && b_ref) {
-    compcc_node *a = cc_treeref(cc_tree_in, a_ref),
-                *b = cc_treeref(cc_tree_in, b_ref);
+    compcc_node *a = &buf_at(cc_tree_in, compcc_node, a_ref),
+                *b = &buf_at(cc_tree_in, compcc_node, b_ref);
     if (!re_compcc_treeeq(r, cc_tree_in, a->child_ref, b->child_ref))
       return 0;
     if (a->range != b->range)
@@ -1442,8 +1435,8 @@ int re_compcc_treeeq(re *r, buf *cc_tree_in, u32 a_ref, u32 b_ref)
 
 void re_compcc_merge_one(buf *cc_tree_in, u32 child_ref, u32 sibling_ref)
 {
-  compcc_node *child = cc_treeref(cc_tree_in, child_ref),
-              *sibling = cc_treeref(cc_tree_in, sibling_ref);
+  compcc_node *child = &buf_at(cc_tree_in, compcc_node, child_ref),
+              *sibling = &buf_at(cc_tree_in, compcc_node, sibling_ref);
   child->sibling_ref = sibling->sibling_ref;
   assert(byte_range_is_adjacent(
       u32_to_byte_range(child->range), u32_to_byte_range(sibling->range)));
@@ -1470,8 +1463,8 @@ u32 cc_htsize(buf *cc_ht) { return buf_size(*cc_ht, u32) / 2; }
 int cc_htinit(re *r, buf *cc_tree_in, buf *cc_ht_out)
 {
   int err = 0;
-  while (cc_htsize(cc_ht_out) <
-         (cc_treesize(cc_tree_in) + (cc_treesize(cc_tree_in) >> 1)))
+  while (cc_htsize(cc_ht_out) < (buf_size(*cc_tree_in, compcc_node) +
+                                 (buf_size(*cc_tree_in, compcc_node) >> 1)))
     if ((err = buf_push(r, cc_ht_out, u32, 0)) ||
         (err = buf_push(r, cc_ht_out, u32, 0)))
       return err;
@@ -1482,16 +1475,17 @@ int cc_htinit(re *r, buf *cc_tree_in, buf *cc_ht_out)
 void re_compcc_hashtree(re *r, buf *cc_tree_in, buf *cc_ht_out, u32 parent_ref)
 {
   /* flip links and hash everything */
-  compcc_node *parent_node = cc_treeref(cc_tree_in, parent_ref);
+  compcc_node *parent_node = &buf_at(cc_tree_in, compcc_node, parent_ref);
   u32 child_ref, next_child_ref, sibling_ref = 0;
   child_ref = parent_node->child_ref;
   while (child_ref) {
-    compcc_node *child_node = cc_treeref(cc_tree_in, child_ref), *sibling_node;
+    compcc_node *child_node = &buf_at(cc_tree_in, compcc_node, child_ref),
+                *sibling_node;
     next_child_ref = child_node->sibling_ref;
     child_node->sibling_ref = sibling_ref;
     re_compcc_hashtree(r, cc_tree_in, cc_ht_out, child_ref);
     if (sibling_ref) {
-      sibling_node = cc_treeref(cc_tree_in, sibling_ref);
+      sibling_node = &buf_at(cc_tree_in, compcc_node, sibling_ref);
       if (byte_range_is_adjacent(
               u32_to_byte_range(child_node->range),
               u32_to_byte_range(sibling_node->range))) {
@@ -1516,12 +1510,12 @@ void re_compcc_hashtree(re *r, buf *cc_tree_in, buf *cc_ht_out, u32 parent_ref)
       hash_plain[0] ^= child_node->range;
       if (child_node->sibling_ref) {
         compcc_node *child_sibling_node =
-            cc_treeref(cc_tree_in, child_node->sibling_ref);
+            &buf_at(cc_tree_in, compcc_node, child_node->sibling_ref);
         hash_plain[1] = child_sibling_node->aux;
       }
       if (child_node->child_ref) {
         compcc_node *child_child_node =
-            cc_treeref(cc_tree_in, child_node->child_ref);
+            &buf_at(cc_tree_in, compcc_node, child_node->child_ref);
         hash_plain[2] = child_child_node->aux;
       }
       child_node->aux = hashington(
@@ -1542,7 +1536,7 @@ void re_compcc_reducetree(
   assert(node_ref);
   assert(!*my_out_ref);
   while (node_ref) {
-    compcc_node *node = cc_treeref(cc_tree_in, node_ref);
+    compcc_node *node = &buf_at(cc_tree_in, compcc_node, node_ref);
     u32 probe, found, child_ref = 0;
     probe = node->aux << 1;
     node->aux = 0;
@@ -1555,7 +1549,8 @@ void re_compcc_reducetree(
         /* something is in the cache, but it might not be a child */
         if (re_compcc_treeeq(r, cc_tree_in, node_ref, found >> 1)) {
           if (prev_sibling_ref)
-            cc_treeref(cc_tree_in, prev_sibling_ref)->sibling_ref = found >> 1;
+            (&buf_at(cc_tree_in, compcc_node, prev_sibling_ref))->sibling_ref =
+                found >> 1;
           if (!*my_out_ref)
             *my_out_ref = found >> 1;
           return;
@@ -1583,7 +1578,7 @@ int re_compcc_rendertree(
   int err = 0;
   u32 split_from = 0, my_pc = 0, range_pc = 0;
   while (node_ref) {
-    compcc_node *node = cc_treeref(cc_tree_in, node_ref);
+    compcc_node *node = &buf_at(cc_tree_in, compcc_node, node_ref);
     if (node->aux) {
       if (split_from) {
         inst i = re_prog_get(r, split_from);
@@ -1644,17 +1639,19 @@ void re_compcc_xposetree(
 {
   compcc_node *src_node, *dst_node, *parent_node;
   assert(node_ref != REF_NONE);
-  assert(cc_treesize(cc_tree_out) == cc_treesize(cc_tree_in));
+  assert(
+      buf_size(*cc_tree_out, compcc_node) ==
+      buf_size(*cc_tree_in, compcc_node));
   while (node_ref) {
     u32 parent_ref = root_ref;
-    src_node = cc_treeref(cc_tree_in, node_ref);
-    dst_node = cc_treeref(cc_tree_out, node_ref);
+    src_node = &buf_at(cc_tree_in, compcc_node, node_ref);
+    dst_node = &buf_at(cc_tree_out, compcc_node, node_ref);
     dst_node->sibling_ref = dst_node->child_ref = REF_NONE;
     if (src_node->child_ref != REF_NONE)
       re_compcc_xposetree(
           cc_tree_in, cc_tree_out, (parent_ref = src_node->child_ref),
           root_ref);
-    parent_node = cc_treeref(cc_tree_out, parent_ref);
+    parent_node = &buf_at(cc_tree_out, compcc_node, parent_ref);
     dst_node->sibling_ref = parent_node->child_ref;
     parent_node->child_ref = node_ref;
     node_ref = src_node->sibling_ref;
@@ -1755,14 +1752,16 @@ int re_compcc(re *r, u32 root, compframe *frame, int reversed)
     u32 i;
     buf tmp;
     buf_clear(&r->cc_stk_b);
-    for (i = 1 /* skip sentinel */; i < cc_treesize(&r->cc_stk_a); i++) {
+    for (i = 1 /* skip sentinel */; i < buf_size(r->cc_stk_a, compcc_node);
+         i++) {
       if ((err = cc_treenew(
-               r, &r->cc_stk_b, *cc_treeref(&r->cc_stk_a, i), NULL)) == ERR_MEM)
+               r, &r->cc_stk_b, buf_at(&r->cc_stk_a, compcc_node, i), NULL)) ==
+          ERR_MEM)
         return err;
       assert(!err);
     }
     /* detach new root */
-    cc_treeref(&r->cc_stk_b, 1)->child_ref = REF_NONE;
+    buf_at(&r->cc_stk_b, compcc_node, 1).child_ref = REF_NONE;
     re_compcc_xposetree(&r->cc_stk_a, &r->cc_stk_b, 2, 1);
     /* potench reverse the tree if needed */
     tmp = r->cc_stk_a;
@@ -3389,7 +3388,7 @@ void progdump_gv(re *r)
 void cctreedump_i(buf *cc_tree, u32 ref, u32 lvl)
 {
   u32 i;
-  compcc_node *node = cc_treeref(cc_tree, ref);
+  compcc_node *node = &buf_at(cc_tree, compcc_node, ref);
   printf("%04X [%08X] ", ref, node->aux);
   for (i = 0; i < lvl; i++)
     printf("  ");
