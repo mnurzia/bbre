@@ -1144,13 +1144,6 @@ int re_emit(re *r, inst i, compframe *frame)
   return err;
 }
 
-int compframe_push(re *r, compframe c)
-{
-  return buf_push(r, &r->comp_stk, compframe, c);
-}
-
-compframe compframe_pop(re *r) { return buf_pop(&r->comp_stk, compframe); }
-
 inst patch_set(re *r, u32 pc, u32 val)
 {
   inst prev = re_prog_get(r, pc >> 1);
@@ -1789,10 +1782,10 @@ int re_compile(re *r, u32 root, u32 reverse)
   initial_frame.idx = 0;
   initial_frame.pc = re_prog_size(r);
   r->entry[reverse ? PROG_ENTRY_REVERSE : 0] = initial_frame.pc;
-  if ((err = compframe_push(r, initial_frame)))
+  if ((err = buf_push(r, &r->comp_stk, compframe, initial_frame)))
     return err;
   while (buf_size(r->comp_stk, compframe)) {
-    compframe frame = compframe_pop(r);
+    compframe frame = buf_pop(&r->comp_stk, compframe);
     ast_type type;
     u32 args[4], my_pc = re_prog_size(r);
     frame.child_ref = frame.root_ref;
@@ -1961,14 +1954,14 @@ int re_compile(re *r, u32 root, u32 reverse)
     }
     if (frame.child_ref != frame.root_ref) {
       /* should we push a child? */
-      if ((err = compframe_push(r, frame)))
+      if ((err = buf_push(r, &r->comp_stk, compframe, frame)))
         return err;
       child_frame.root_ref = frame.child_ref;
       child_frame.idx = 0;
       child_frame.pc = re_prog_size(r);
       child_frame.flags = frame.flags;
       child_frame.set_idx = frame.set_idx;
-      if ((err = compframe_push(r, child_frame)))
+      if ((err = buf_push(r, &r->comp_stk, compframe, child_frame)))
         return err;
     }
     returned_frame = frame;
