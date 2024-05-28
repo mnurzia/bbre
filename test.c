@@ -140,74 +140,75 @@ int check_matches_n(
     ASSERT_GTE(err, 0);
     for (idx = 0; idx < (unsigned)err; idx++) {
       re *r2;
+      int err2;
       span found_span_2[1];
       u32 found_set_2[1];
-      if ((err = re_init_full(
+      if ((err2 = re_init_full(
                &r2, regexes[found_set[idx]], regex_n[found_set[idx]], NULL)) ==
           ERR_MEM) {
         re_destroy(r2);
         goto oom_re;
       }
-      ASSERT_EQm(err, 0, "re_init_full() returned nonzero value");
+      ASSERT_EQm(err2, 0, "re_init_full() returned nonzero value");
       /* both anchors */
-      if ((err = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'B')) ==
+      if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'B')) ==
           ERR_MEM) {
         re_destroy(r2);
         goto oom_re;
       }
-      ASSERT_GTE(err, 0);
-      if (err == 1) {
+      ASSERT_GTE(err2, 0);
+      if (err2 == 1) {
         ASSERT_EQ(found_set_2[0], 0);
         ASSERT_EQ(found_span_2[0].begin, 0);
         ASSERT_EQ(found_span_2[0].end, n);
       }
       if (anchor == 'B') {
-        ASSERT_EQ(err, 1);
+        ASSERT_EQ(err2, 1);
         ASSERT_EQ(found_span_2[0].begin, found_span[idx].begin);
         ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
       }
       /* start anchored */
-      if ((err = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'S')) ==
+      if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'S')) ==
           ERR_MEM) {
         re_destroy(r2);
         goto oom_re;
       }
-      if (err == 1) {
+      if (err2 == 1) {
         ASSERT_EQ(found_span_2[0].begin, 0);
         ASSERT_EQ(found_set_2[0], 0);
       }
       if (anchor == 'S') {
-        ASSERT_EQ(err, 1);
+        ASSERT_EQ(err2, 1);
         ASSERT_EQ(found_span_2[0].begin, found_span[idx].begin);
         ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
         ASSERT_EQ(found_set_2[0], 0);
       }
       /* end anchored */
-      if ((err = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'E')) ==
+      if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'E')) ==
           ERR_MEM) {
         re_destroy(r2);
         goto oom_re;
       }
-      if (err == 1) {
+      if (err2 == 1) {
         ASSERT_EQ(found_span_2[0].end, n);
         ASSERT_EQ(found_set_2[0], 0);
       }
       if (anchor == 'E') {
-        ASSERT_EQ(err, 1);
+        ASSERT_EQ(err2, 1);
         ASSERT_EQ(found_span_2[0].begin, found_span[idx].begin);
         ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
       }
       /* unanchored */
-      if ((err = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'U')) ==
+      if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'U')) ==
           ERR_MEM) {
         re_destroy(r2);
         goto oom_re;
       }
-      if (err == 1) {
+      if (err2 == 1) {
         ASSERT_EQ(found_set_2[0], 0);
       }
       if (anchor == 'U') {
-        ASSERT_EQ(err, 1);
+        ASSERT_EQ(err2, 1);
         ASSERT_EQ(found_span_2[0].begin, found_span[idx].begin);
         ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
       }
@@ -614,6 +615,12 @@ TEST(star_ungreedy_then_greedy)
   PASS();
 }
 
+TEST(star_ungreedy_with_assert)
+{
+  ASSERT_MATCH_G1_A("a*?\\b a*", "a a b", 0, 3, A_START);
+  PASS();
+}
+
 SUITE(star)
 {
   RUN_TEST(star_empty);
@@ -623,6 +630,7 @@ SUITE(star)
   RUN_TEST(star_ungreedy);
   RUN_TEST(star_greedy_then_ungreedy);
   RUN_TEST(star_ungreedy_then_greedy);
+  RUN_TEST(star_ungreedy_with_assert);
 }
 
 TEST(quest_empty)
@@ -1098,6 +1106,81 @@ TEST(cls_utf8_two_subsequent_ranges_with_same_first_bytes)
   PASS();
 }
 
+TEST(cls_utf8_two_nonadjacent_ranges_with_adjacent_second_bytes)
+{
+  ASSERT_CC_MATCH(
+      "[\\x{800}-\\x{83E}\\x{840}-\\x{87E}]", "0x800 0x83E,0x840 0x87E");
+  PASS();
+}
+
+TEST(cls_utf8_two_nonadjacent_ranges_with_adjacent_single_second_bytes)
+{
+  ASSERT_CC_MATCH(
+      "[\\x{80}-\\x{9E}\\x{100}-\\x{11E}]", "0x80 0x9E,0x100 0x11E");
+  PASS();
+}
+
+TEST(cls_utf8_range_with_common_suffixes)
+{
+  ASSERT_CC_MATCH(
+      "[\\x{800}-\\x{83E}\\x{900}-\\x{93E}]", "0x800 0x83E,0x900 0x93E");
+  PASS();
+}
+
+TEST(cls_utf8_range_with_common_suffixes_1)
+{
+  ASSERT_CC_MATCH(
+      "[\\x{800}\\x{803}-\\x{83F}\\x{901}\\x{903}-\\x{93F}]",
+      "0x800 0x800,0x803 0x83F,0x901 0x901,0x903 0x93F");
+  PASS();
+}
+
+TEST(cls_utf8_ranges_with_intersections)
+{
+  ASSERT_CC_MATCH("[\\x{800}-\\x{801}\\x{801}-\\x{802}]", "0x800 0x802");
+  PASS();
+}
+
+TEST(cls_utf8_ranges_redundant)
+{
+  ASSERT_CC_MATCH("[\\x{800}-\\x{840}\\x{820}-\\x{830}]", "0x800 0x840");
+  PASS();
+}
+
+TEST(cls_utf8_insensitive_whole_plane)
+{
+  ASSERT_CC_MATCH("(?is).", "0x0 0x10FFFF");
+  PASS();
+}
+
+TEST(cls_utf8_insensitive_ascii)
+{
+  ASSERT_CC_MATCH("(?i)[abcd]", "a a,b b,c c,d d,A A,B B,C C,D D");
+  PASS();
+}
+
+TEST(cls_utf8_insensitive_ascii_many_non_adjacent)
+{
+  ASSERT_CC_MATCH(
+      "(?i)[acegiknpr]", "A A,C C,E E,G G,I I,K K,N N,P P,R R,a a,c c,e e,g "
+                         "g,i i,k k,n n,p p,r r");
+  PASS();
+}
+
+TEST(cls_utf8_insensitive_ascii_many_non_adjacent_1)
+{
+  ASSERT_CC_MATCH(
+      "(?i)[!A%CEG_]",
+      "0x21 0x21,A A,0x25 0x25,C C,E E,G G,_ _,a a,c c,e e,g g");
+  PASS();
+}
+
+TEST(cls_utf8_insensitive_inverted)
+{
+  ASSERT_CC_MATCH("(?i)[^BDF]", "0 A,C C,E E,G a,c c,e e,g 0x10FFFF");
+  PASS();
+}
+
 SUITE(cls_utf8)
 {
   RUN_TEST(cls_utf8_same_first_byte_and_full_second_byte);
@@ -1106,6 +1189,17 @@ SUITE(cls_utf8)
   RUN_TEST(cls_utf8_adjacent_first_bytes_and_almost_full_second_byte);
   RUN_TEST(cls_utf8_adjacent_first_bytes_and_nonfull_second_byte);
   RUN_TEST(cls_utf8_two_subsequent_ranges_with_same_first_bytes);
+  RUN_TEST(cls_utf8_two_nonadjacent_ranges_with_adjacent_second_bytes);
+  RUN_TEST(cls_utf8_two_nonadjacent_ranges_with_adjacent_single_second_bytes);
+  RUN_TEST(cls_utf8_range_with_common_suffixes);
+  RUN_TEST(cls_utf8_range_with_common_suffixes_1);
+  RUN_TEST(cls_utf8_ranges_with_intersections);
+  RUN_TEST(cls_utf8_ranges_redundant);
+  RUN_TEST(cls_utf8_insensitive_whole_plane);
+  RUN_TEST(cls_utf8_insensitive_ascii);
+  RUN_TEST(cls_utf8_insensitive_ascii_many_non_adjacent);
+  RUN_TEST(cls_utf8_insensitive_ascii_many_non_adjacent_1);
+  RUN_TEST(cls_utf8_insensitive_inverted);
 }
 
 SUITE(cls)

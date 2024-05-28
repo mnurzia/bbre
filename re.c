@@ -52,6 +52,7 @@ typedef enum prog_entry {
 void *re_default_alloc(
     size_t prev, size_t next, void *ptr, const char *file, int line)
 {
+  (void)file, (void)line;
   if (next) {
     (void)prev, assert(IMPLIES(!prev, !ptr));
     return realloc(ptr, next);
@@ -1438,20 +1439,11 @@ u32 hashington(u32 x)
 }
 
 /* hash table */
-/* pairs of <key, loc> */
-
-typedef struct cc_htentry {
-  u32 key;
-  u32 loc;
-} cc_htentry;
-
-u32 cc_htsize(buf *cc_ht) { return buf_size(*cc_ht, cc_htentry); }
-
 int cc_htinit(re *r, buf *cc_tree_in, buf *cc_ht_out)
 {
   int err = 0;
   if ((err = buf_reserve(
-           r, cc_ht_out, cc_htentry,
+           r, cc_ht_out, u32,
            (buf_size(*cc_tree_in, compcc_node) +
             (buf_size(*cc_tree_in, compcc_node) >> 1)))))
     return err;
@@ -1476,19 +1468,12 @@ void re_compcc_hashtree(re *r, buf *cc_tree_in, buf *cc_ht_out, u32 parent_ref)
       if (byte_range_is_adjacent(
               u32_to_byte_range(child_node->range),
               u32_to_byte_range(sibling_node->range))) {
-        if (!sibling_node->child_ref) {
-          if (!child_node->child_ref) {
-            re_compcc_merge_one(cc_tree_in, child_ref, sibling_ref);
-          }
-        } else {
-          if (child_node->child_ref) {
-            if (re_compcc_treeeq(
-                    r, cc_tree_in, child_node->child_ref,
-                    sibling_node->child_ref)) {
-              re_compcc_merge_one(cc_tree_in, child_ref, sibling_ref);
-            }
-          }
-        }
+        /* Since the input ranges are normalized, terminal nodes (nodes with no
+         * concatenation) are NOT adjacent. */
+        assert(sibling_node->child_ref && child_node->child_ref);
+        if (re_compcc_treeeq(
+                r, cc_tree_in, child_node->child_ref, sibling_node->child_ref))
+          re_compcc_merge_one(cc_tree_in, child_ref, sibling_ref);
       }
     }
     {
@@ -1529,10 +1514,7 @@ void re_compcc_reducetree(
     node->aux = 0;
     /* check if child is in the hash table */
     while (1) {
-      if (!((found =
-                 buf_at(cc_ht, cc_htentry, probe % buf_size(*cc_ht, cc_htentry))
-                     .key &
-                 1)))
+      if (!((found = buf_at(cc_ht, u32, probe % buf_size(*cc_ht, u32))) & 1))
         /* child is NOT in the cache */
         break;
       else {
@@ -1548,8 +1530,7 @@ void re_compcc_reducetree(
       }
       probe += 1; /* linear probe */
     }
-    buf_at(cc_ht, cc_htentry, (probe % buf_size(*cc_ht, cc_htentry))).key =
-        node_ref << 1 | 1;
+    buf_at(cc_ht, u32, (probe % buf_size(*cc_ht, u32))) = node_ref << 1 | 1;
     if (!*my_out_ref)
       *my_out_ref = node_ref;
     if (node->child_ref) {
@@ -1576,8 +1557,8 @@ int re_compcc_rendertree(
         /* found our child, patch into it */
         i = inst_make(inst_opcode(i), inst_next(i), node->aux);
         re_prog_set(r, split_from, i);
-      } else if (!*my_out_pc)
-        *my_out_pc = node->aux;
+      } else
+        assert(!*my_out_pc), *my_out_pc = node->aux;
       return 0;
     }
     my_pc = re_prog_size(r);
@@ -1668,6 +1649,7 @@ int re_compcc(re *r, u32 root, compframe *frame, int reversed)
              rune_range_make(min > max ? max : min, min > max ? min : max))))
       return err;
   }
+  assert(buf_size(r->cc_stk_a, rune_range));
   do {
     /* sort ranges */
     re_compcc_hsort(&r->cc_stk_a, buf_size(r->cc_stk_a, rune_range));
@@ -1689,40 +1671,42 @@ int re_compcc(re *r, u32 root, compframe *frame, int reversed)
           next.l = cur.l, next.h = cur.h;
         }
       }
-      if (i && (err = buf_push(r, &r->cc_stk_b, rune_range, next)))
+      assert(i); /* the charclass is never empty here */
+      if ((err = buf_push(r, &r->cc_stk_b, rune_range, next)))
         return err;
       if (insensitive) {
         /* casefold normalized ranges */
         buf_clear(&r->cc_stk_a);
         for (i = 0; i < buf_size(r->cc_stk_b, rune_range); i++) {
-          cur = buf_at(&r->cc_stk_a, rune_range, i);
+          cur = buf_at(&r->cc_stk_b, rune_range, i);
           if ((err = buf_push(r, &r->cc_stk_a, rune_range, cur)))
             return err;
           if ((err = casefold_fold_range(r, cur.l, cur.h, &r->cc_stk_a)))
             return err;
         }
+        buf_clear(&r->cc_stk_b);
       }
     }
   } while (insensitive && insensitive-- /* re-normalize by looping again */);
   /* invert ranges */
   if (inverted) {
-    u32 max = 0, i, old_size = buf_size(r->cc_stk_b, rune_range);
+    u32 max = 0, i, write = 0, old_size = buf_size(r->cc_stk_b, rune_range);
     rune_range cur;
-    buf_clear(&r->cc_stk_b); /* TODO: this is shitty code */
     for (i = 0; i < old_size; i++) {
       cur = buf_at(&r->cc_stk_b, rune_range, i);
+      assert(write <= i);
       if (cur.l > max) {
-        if ((err = buf_push(
-                 r, &r->cc_stk_b, rune_range, rune_range_make(max, cur.l - 1))))
-          return err;
-        else
-          max = cur.h + 1;
+        buf_at(&r->cc_stk_b, rune_range, write++) =
+            rune_range_make(max, cur.l - 1);
+        max = cur.h + 1;
       }
     }
-    if (cur.h < UTFMAX &&
-        (err = buf_push(
-             r, &r->cc_stk_b, rune_range, rune_range_make(cur.h + 1, UTFMAX))))
+    if ((err = buf_reserve(
+             r, &r->cc_stk_b, rune_range, write += (cur.h < UTFMAX))))
       return err;
+    if (cur.h < UTFMAX)
+      buf_at(&r->cc_stk_b, rune_range, write - 1) =
+          rune_range_make(cur.h + 1, UTFMAX);
   }
   if (!buf_size(r->cc_stk_b, rune_range)) {
     /* empty charclass */
@@ -1787,7 +1771,7 @@ int re_compile(re *r, u32 root, u32 reverse)
   if ((err = buf_push(r, &r->comp_stk, compframe, initial_frame)))
     return err;
   while (buf_size(r->comp_stk, compframe)) {
-    compframe frame = buf_pop(&r->comp_stk, compframe);
+    compframe frame = *buf_peek(&r->comp_stk, compframe, 0);
     ast_type type;
     u32 args[4], my_pc = re_prog_size(r);
     frame.child_ref = frame.root_ref;
@@ -1797,11 +1781,7 @@ int re_compile(re *r, u32 root, u32 reverse)
     type = *re_ast_type(r, frame.root_ref);
     if (frame.root_ref)
       re_ast_decompose(r, frame.root_ref, args);
-    if (!frame.root_ref) {
-      /* epsilon */
-      /*  in  out  */
-      /* --------> */
-    } else if (type == CHR) {
+    if (type == CHR) {
       patch(r, &frame, my_pc);
       if (args[0] < 128 && !(frame.flags & INSENSITIVE)) { /* ascii */
         /*  in     out
@@ -1838,6 +1818,7 @@ int re_compile(re *r, u32 root, u32 reverse)
     } else if (type == CAT) {
       /*  in              out
        * ---> [A] -> [B] ----> */
+      assert(frame.idx >= 0 && frame.idx <= 2);
       if (frame.idx == 0) {              /* before left child */
         frame.child_ref = args[reverse]; /* push left child */
         patch_xfer(&child_frame, &frame);
@@ -1846,7 +1827,7 @@ int re_compile(re *r, u32 root, u32 reverse)
         frame.child_ref = args[!reverse]; /* push right child */
         patch_xfer(&child_frame, &returned_frame);
         frame.idx++;
-      } else if (frame.idx == 2) { /* after right child */
+      } else /* if (frame.idx == 2) */ { /* after right child */
         patch_xfer(&frame, &returned_frame);
       }
     } else if (type == ALT) {
@@ -1854,6 +1835,7 @@ int re_compile(re *r, u32 root, u32 reverse)
        * ---> S --> [A] ---->
        *       \         out
        *        --> [B] ----> */
+      assert(frame.idx >= 0 && frame.idx <= 2);
       if (frame.idx == 0) { /* before left child */
         patch(r, &frame, frame.pc);
         if ((err = re_emit(r, inst_make(SPLIT, 0, 0), &frame)))
@@ -1864,7 +1846,7 @@ int re_compile(re *r, u32 root, u32 reverse)
         patch_merge(r, &frame, &returned_frame);
         patch_add(r, &child_frame, frame.pc, 1);
         frame.child_ref = args[1], frame.idx++;
-      } else if (frame.idx == 2) { /* after right child */
+      } else /* if (frame.idx == 2) */ { /* after right child */
         patch_merge(r, &frame, &returned_frame);
       }
     } else if (type == QUANT || type == UQUANT) {
@@ -1875,7 +1857,9 @@ int re_compile(re *r, u32 root, u32 reverse)
        *        +-----------------> */
       u32 child = args[0], min = args[1], max = args[2],
           is_greedy = !(frame.flags & UNGREEDY) ^ (type == UQUANT);
+      assert(min <= max);
       assert(IMPLIES((min == INFTY || max == INFTY), min != max));
+      assert(IMPLIES(max == INFTY, frame.idx <= min + 1));
       if (frame.idx < min) { /* before minimum bound */
         patch_xfer(&child_frame, frame.idx ? &returned_frame : &frame);
         frame.child_ref = child;
@@ -1887,7 +1871,8 @@ int re_compile(re *r, u32 root, u32 reverse)
         patch_add(r, &child_frame, my_pc, !is_greedy);
         patch_add(r, &frame, my_pc, is_greedy);
         frame.child_ref = child;
-      } else if (max == INFTY && frame.idx == min + 1) { /* after inf. bound */
+      } else if (max == INFTY) { /* after inf. bound */
+        assert(frame.idx == min + 1);
         patch(r, &returned_frame, frame.pc);
       } else if (frame.idx < max) { /* before maximum bound */
         patch(r, frame.idx ? &returned_frame : &frame, my_pc);
@@ -1896,12 +1881,13 @@ int re_compile(re *r, u32 root, u32 reverse)
         patch_add(r, &child_frame, my_pc, !is_greedy);
         patch_add(r, &frame, my_pc, is_greedy);
         frame.child_ref = child;
-      } else if (frame.idx && frame.idx == max) { /* after maximum bound */
+      } else if (frame.idx) { /* after maximum bound */
+        assert(frame.idx == max);
         patch_merge(r, &frame, &returned_frame);
-      } else if (!frame.idx && frame.idx == max) {
-        /* epsilon */
       } else {
-        assert(0);
+        assert(!frame.idx);
+        assert(frame.idx == max);
+        /* epsilon */
       }
       frame.idx++;
     } else if (type == GROUP || type == IGROUP) {
@@ -1924,7 +1910,7 @@ int re_compile(re *r, u32 root, u32 reverse)
         } else
           patch_xfer(&child_frame, &frame);
         frame.child_ref = child, frame.idx++;
-      } else if (frame.idx) { /* after child */
+      } else { /* after child */
         if (!(flags & NONCAPTURING)) {
           patch(r, &returned_frame, my_pc);
           if ((err = re_emit(
@@ -1952,12 +1938,15 @@ int re_compile(re *r, u32 root, u32 reverse)
         return err;
       patch_add(r, &frame, my_pc, 0);
     } else {
-      assert(0);
+      /* epsilon */
+      /*  in  out  */
+      /* --------> */
+      assert(!frame.root_ref);
+      assert(type == 0);
     }
     if (frame.child_ref != frame.root_ref) {
       /* should we push a child? */
-      if ((err = buf_push(r, &r->comp_stk, compframe, frame)))
-        return err;
+      *buf_peek(&r->comp_stk, compframe, 0) = frame;
       child_frame.root_ref = frame.child_ref;
       child_frame.idx = 0;
       child_frame.pc = re_prog_size(r);
@@ -1965,6 +1954,8 @@ int re_compile(re *r, u32 root, u32 reverse)
       child_frame.set_idx = frame.set_idx;
       if ((err = buf_push(r, &r->comp_stk, compframe, child_frame)))
         return err;
+    } else {
+      buf_pop(&r->comp_stk, compframe);
     }
     returned_frame = frame;
   }
@@ -2005,8 +1996,8 @@ int sset_reset(re *r, sset *s, size_t next_alloc)
 {
   u32 *next_sparse;
   thrdspec *next_dense;
-  if (!next_alloc)
-    return 0;
+  /* next_alloc is equal to the program size, so it should never be 0. */
+  assert(next_alloc);
   if (!(next_sparse = re_ialloc(
             r, sizeof(u32) * s->sparse_alloc, sizeof(u32) * next_alloc,
             s->sparse)))
@@ -2135,14 +2126,11 @@ int save_slots_set_internal(
 {
   int err;
   *out = ref;
+  assert(s->per_thrd);
   assert(idx < s->per_thrd);
-  if (!s->per_thrd) {
-    /* not saving anything */
-    assert(0);
-  } else if (v == s->slots[ref * s->per_thrd + idx]) {
+  assert(s->slots[ref * s->per_thrd + s->per_thrd - 1]);
+  if (v == s->slots[ref * s->per_thrd + idx]) {
     /* not changing anything */
-  } else if (!s->slots[ref * s->per_thrd + s->per_thrd - 1]) {
-    s->slots[ref * s->per_thrd + idx] = v;
   } else {
     if ((err = save_slots_new(r, s, out)))
       return err;
@@ -2723,12 +2711,11 @@ int re_match_dfa(
               : anchor == A_UNANCHORED ? PROG_ENTRY_DOTSTAR
                                        : 0;
   u32 incoming_assert_flag = FROM_TEXT_BEGIN | FROM_LINE_BEGIN;
-  int pri = !!(entry & PROG_ENTRY_DOTSTAR);
+  int pri = anchor != A_BOTH;
   assert(max_span == 0 || max_span == 1);
   assert(anchor == A_BOTH || anchor == A_START || anchor == A_END);
   if ((err = nfa_start(
-           r, nfa, r->entry[entry], 0, entry & PROG_ENTRY_REVERSE,
-           entry & PROG_ENTRY_DOTSTAR)))
+           r, nfa, r->entry[entry], 0, entry & PROG_ENTRY_REVERSE, pri)))
     return err;
   dfa_init(&dfa);
   if (pri) {
@@ -2755,9 +2742,9 @@ int re_match_dfa(
           goto done;
       } else
         state = state->ptrs[s[i - 1]];
+      if (pri)
+        dfa_save_matches(&dfa, state, i);
     }
-    if (pri)
-      dfa_save_matches(&dfa, state, i);
   } else {
     for (i = 0; i < n; i++) {
       if (!state->ptrs[s[i]]) {
@@ -2765,9 +2752,9 @@ int re_match_dfa(
           goto done;
       } else
         state = state->ptrs[s[i]];
+      if (pri)
+        dfa_save_matches(&dfa, state, i);
     }
-    if (pri)
-      dfa_save_matches(&dfa, state, i);
   }
   if (!state->ptrs[SENT_CH]) {
     if ((err = dfa_construct_chr(r, &dfa, nfa, state, SENT_CH, &state)))
@@ -2778,19 +2765,21 @@ int re_match_dfa(
     dfa_save_matches(&dfa, state, i);
     assert(!err);
     for (i = 0; i < r->ast_sets; i++) {
+      assert(err >= 0 && err <= (signed)i);
       if (!bmp_get(&dfa.set_bmp, i))
         continue;
       if ((unsigned)err == max_set && max_set)
         break;
       if (max_span) {
         size_t spos = buf_at(&dfa.loc_buf, size_t, i);
-        out_span[i].begin = entry & PROG_ENTRY_REVERSE ? 0 : spos,
-        out_span[i].end = entry & PROG_ENTRY_REVERSE ? spos : n;
+        out_span[i].begin = entry & PROG_ENTRY_REVERSE ? spos : 0;
+        out_span[i].end = entry & PROG_ENTRY_REVERSE ? n : spos;
       }
       if (!max_set) {
         err = 1;
         break;
-      }
+      } else if ((unsigned)err < max_set)
+        out_set[err] = i;
       err++;
     }
   } else {
@@ -2848,7 +2837,7 @@ int re_match(
   }
   if ((err = nfa_start(
            r, &nfa, r->entry[entry], max_span * 2, entry & PROG_ENTRY_REVERSE,
-           entry & PROG_ENTRY_DOTSTAR)))
+           entry != A_BOTH)))
     goto done;
   if (entry & PROG_ENTRY_REVERSE) {
     for (i = n; i > 0; i--) {
