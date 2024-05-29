@@ -132,6 +132,23 @@ parser_fuzz: build build/parser_fuzz
 parser_fuzz_import: build
 	$(UDATA) add_parser_fuzz_regression_tests fuzz_results.json build/fuzz/artifact/*
 
+$(OUT_DIR)/bench.o: $(OUT_DIR) bench.c re.c re.h
+	$(CC) $(CFLAGS) bench.c -c -o $@
+
+$(OUT_DIR)/re-bench.o: $(OUT_DIR) re.c re.h
+	$(CC) $(CFLAGS) re.c -c -o $@
+
+$(OUT_DIR)/bench: $(OUT_DIR)/bench.o $(OUT_DIR)/re-bench.o
+	$(CC) $(CFLAGS) $(OUT_DIR)/bench.o $(OUT_DIR)/re-bench.o -o $@
+
+## run benchmarks
+bench: $(OUT_DIR)/bench
+	./$(OUT_DIR)/bench
+
+## profile benchmarks
+prof: $(OUT_DIR)/bench
+	samply record ./$(OUT_DIR)/bench
+
 build/fuzzington/release/fuzzington: tools/fuzzington/src/main.rs tools/fuzzington/build.rs
 	cd tools/fuzzington;RUSTFLAGS="-C link-dead-code" cargo build --release --target-dir ../../build/fuzzington
 

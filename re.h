@@ -49,6 +49,7 @@ int re_exec_match(
     span *out_span, u32 *out_set, anchor_type anchor);
 
 int re_exec_init(const re *r, re_exec **exec);
+void re_exec_destroy(re_exec *exec);
 
 int re_get_error(re *r, const char **out, size_t *pos);
 

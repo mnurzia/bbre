@@ -2178,7 +2178,8 @@ typedef enum dfa_state_flag {
   FROM_LINE_BEGIN = 2,
   FROM_WORD = 4,
   PRIORITY_EXHAUST = 8,
-  DFA_STATE_FLAG_MAX = 16
+  DFA_STATE_FLAG_MAX = 16,
+  DIRTY = 16
 } dfa_state_flag;
 
 typedef struct dfa_state {
@@ -2483,20 +2484,32 @@ void dfa_init(dfa *d)
   buf_init(&d->set_buf), buf_init(&d->loc_buf), buf_init(&d->set_bmp);
 }
 
-void dfa_destroy(const re *r, dfa *d)
-{
-  size_t i;
-  for (i = 0; i < d->states_size; i++)
-    if (d->states[i])
-      re_ialloc(r, sizeof(dfa_state), 0, d->states[i]);
-  re_ialloc(r, d->states_size * sizeof(dfa_state *), 0, d->states);
-  buf_destroy(r, &d->set_buf), buf_destroy(r, &d->loc_buf),
-      buf_destroy(r, &d->set_bmp);
-}
-
 size_t dfa_state_size(u32 nstate, u32 nset)
 {
   return sizeof(dfa_state) + sizeof(u32) * (nstate + nset);
+}
+
+void dfa_reset(const re *r, dfa *d)
+{
+  size_t i;
+  for (i = 0; i < d->states_size; i++)
+    if (d->states[i]) {
+      re_ialloc(
+          r, dfa_state_size(d->states[i]->nstate, d->states[i]->nset), 0,
+          d->states[i]);
+      d->states[i] = NULL;
+    }
+  d->num_active_states = 0;
+  buf_clear(&d->set_buf), buf_clear(&d->loc_buf), buf_clear(&d->set_bmp);
+  memset(d->entry, 0, sizeof(d->entry));
+}
+
+void dfa_destroy(const re *r, dfa *d)
+{
+  dfa_reset(r, d);
+  re_ialloc(r, d->states_size * sizeof(dfa_state *), 0, d->states);
+  buf_destroy(r, &d->set_buf), buf_destroy(r, &d->loc_buf),
+      buf_destroy(r, &d->set_bmp);
 }
 
 u32 *dfa_state_data(dfa_state *state) { return (u32 *)(state + 1); }
@@ -2525,6 +2538,7 @@ int dfa_construct(
     if (!next_cache)
       return ERR_MEM;
     memset(next_cache, 0, sizeof(dfa_state *) * DFA_MAX_NUM_STATES);
+    assert(!d->states);
     d->states = next_cache, d->states_size = DFA_MAX_NUM_STATES;
   }
   table_pos = hash % d->states_size, num_checked = 0;
@@ -2591,13 +2605,14 @@ int dfa_construct(
       state_data[i] = n->a.dense[i].pc;
     for (i = 0; i < buf_size(d->set_buf, u32); i++)
       state_data[n->a.dense_size + i] = buf_at(&d->set_buf, u32, i);
+    assert(!d->states[table_pos]);
     d->states[table_pos] = next_state;
     d->num_active_states++;
   }
   assert(next_state);
   if (prev_state)
     /* link the states */
-    prev_state->ptrs[ch] = next_state;
+    assert(!prev_state->ptrs[ch]), prev_state->ptrs[ch] = next_state;
   *out_next_state = next_state;
   return err;
 }
@@ -2616,7 +2631,9 @@ int dfa_construct_start(
     spec.slot = 0;
     sset_clear(&n->a);
     sset_add(&n->a, spec);
-    err = dfa_construct(r, d, NULL, 0, prev_flag, n, out_next_state);
+    if ((err = dfa_construct(r, d, NULL, 0, prev_flag, n, out_next_state)))
+      return err;
+    d->entry[entry][prev_flag] = *out_next_state;
   }
   return err;
 }
@@ -2705,7 +2722,6 @@ int re_match_dfa(
     span *out_span, u32 *out_set, anchor_type anchor)
 {
   int err;
-  dfa dfa;
   dfa_state *state = NULL;
   size_t i;
   u32 entry = anchor == A_END          ? PROG_ENTRY_REVERSE
@@ -2715,66 +2731,68 @@ int re_match_dfa(
   int pri = anchor != A_BOTH;
   assert(max_span == 0 || max_span == 1);
   assert(anchor == A_BOTH || anchor == A_START || anchor == A_END);
+  dfa_reset(exec->r, &exec->dfa);
   if ((err = nfa_start(
            exec->r, &exec->nfa, exec->r->entry[entry], 0,
            entry & PROG_ENTRY_REVERSE, pri)))
     return err;
-  dfa_init(&dfa);
   if (pri) {
-    buf_clear(&dfa.loc_buf);
-    if ((err = bmp_init(exec->r, &dfa.set_bmp, exec->r->ast_sets)))
+    buf_clear(&exec->dfa.loc_buf);
+    if ((err = bmp_init(exec->r, &exec->dfa.set_bmp, exec->r->ast_sets)))
       return err;
     for (i = 0; i < exec->r->ast_sets; i++) {
       size_t p = 0;
-      if ((err = buf_push(exec->r, &dfa.loc_buf, size_t, p)))
+      if ((err = buf_push(exec->r, &exec->dfa.loc_buf, size_t, p)))
         return err;
     }
   }
   i = entry & PROG_ENTRY_REVERSE ? n : 0;
-  if (!(state = dfa.entry[entry][incoming_assert_flag]) &&
+  if (!(state = exec->dfa.entry[entry][incoming_assert_flag]) &&
       (err = dfa_construct_start(
-           exec->r, &dfa, nfa, entry, incoming_assert_flag, &state)))
+           exec->r, &exec->dfa, nfa, entry, incoming_assert_flag, &state)))
     return err;
   if (pri)
-    dfa_save_matches(&dfa, state, i);
+    dfa_save_matches(&exec->dfa, state, i);
   if (entry & PROG_ENTRY_REVERSE) {
     for (i = n; i > 0; i--) {
       if (!state->ptrs[s[i - 1]]) {
         if ((err = dfa_construct_chr(
-                 exec->r, &dfa, nfa, state, s[i - 1], &state)))
+                 exec->r, &exec->dfa, nfa, state, s[i - 1], &state)))
           return err;
       } else
         state = state->ptrs[s[i - 1]];
       if (pri)
-        dfa_save_matches(&dfa, state, i);
+        dfa_save_matches(&exec->dfa, state, i);
     }
   } else {
     for (i = 0; i < n; i++) {
       if (!state->ptrs[s[i]]) {
-        if ((err = dfa_construct_chr(exec->r, &dfa, nfa, state, s[i], &state)))
+        if ((err = dfa_construct_chr(
+                 exec->r, &exec->dfa, nfa, state, s[i], &state)))
           return err;
       } else
         state = state->ptrs[s[i]];
       if (pri)
-        dfa_save_matches(&dfa, state, i);
+        dfa_save_matches(&exec->dfa, state, i);
     }
   }
   if (!state->ptrs[SENT_CH]) {
-    if ((err = dfa_construct_chr(exec->r, &dfa, nfa, state, SENT_CH, &state)))
+    if ((err = dfa_construct_chr(
+             exec->r, &exec->dfa, nfa, state, SENT_CH, &state)))
       return err;
   } else
     state = state->ptrs[s[i]];
   if (pri) {
-    dfa_save_matches(&dfa, state, i);
+    dfa_save_matches(&exec->dfa, state, i);
     assert(!err);
     for (i = 0; i < exec->r->ast_sets; i++) {
       assert(err >= 0 && err <= (signed)i);
-      if (!bmp_get(&dfa.set_bmp, i))
+      if (!bmp_get(&exec->dfa.set_bmp, i))
         continue;
       if ((unsigned)err == max_set && max_set)
         break;
       if (max_span) {
-        size_t spos = buf_at(&dfa.loc_buf, size_t, i);
+        size_t spos = buf_at(&exec->dfa.loc_buf, size_t, i);
         out_span[i].begin = entry & PROG_ENTRY_REVERSE ? spos : 0;
         out_span[i].end = entry & PROG_ENTRY_REVERSE ? n : spos;
       }
@@ -2786,6 +2804,7 @@ int re_match_dfa(
       err++;
     }
   } else {
+    assert(state);
     for (i = 0; i < state->nset; i++) {
       if (max_span) {
         out_span[i].begin = 0, out_span[i].end = n;
@@ -2803,6 +2822,7 @@ int re_exec_init(const re *r, re_exec **pexec)
 {
   int err = 0;
   re_exec *exec = r->alloc(0, sizeof(re_exec), NULL, __FILE__, __LINE__);
+  *pexec = exec;
   assert(re_prog_size(r));
   if (!exec)
     return ERR_MEM;
@@ -2810,7 +2830,6 @@ int re_exec_init(const re *r, re_exec **pexec)
   exec->r = r;
   nfa_init(&exec->nfa);
   dfa_init(&exec->dfa);
-  *pexec = exec;
   return err;
 }
 
@@ -2881,10 +2900,10 @@ int re_match(
     const re *r, const char *s, size_t n, u32 max_span, u32 max_set,
     span *out_span, u32 *out_set, anchor_type anchor)
 {
-  re_exec *exec;
+  re_exec *exec = NULL;
   int err;
   if ((err = re_exec_init(r, &exec)))
-    return err;
+    goto done;
   if ((err = re_exec_match(
            exec, s, n, max_span, max_set, out_span, out_set, anchor)))
     goto done;

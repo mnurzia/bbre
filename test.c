@@ -50,7 +50,7 @@ size_t utf_encode(char *out_buf, u32 codep)
 #define TEST_MAX_SET  10
 
 int check_match_results(
-    re *r, const char *s, size_t n, u32 max_span, u32 max_set,
+    re *r, re_exec *e, const char *s, size_t n, u32 max_span, u32 max_set,
     anchor_type anchor, span *check_span, u32 *check_set, u32 check_nsets)
 {
   int err;
@@ -59,8 +59,9 @@ int check_match_results(
   u32 found_set[TEST_MAX_SET], sets_to_check;
   u32 i, j;
   /* perform the match */
-  if ((err = re_match(
-           r, s, n, max_span, max_set, found_span, found_set, anchor)) ==
+  assert(e);
+  if ((err = re_exec_match(
+           e, s, n, max_span, max_set, found_span, found_set, anchor)) ==
       ERR_MEM)
     goto oom_re;
   ASSERT_GTEm(err, 0, "re_match() returned an error");
@@ -87,6 +88,7 @@ int check_match_results(
   }
   PASS();
 oom_re:
+  re_exec_destroy(e);
   re_destroy(r);
   OOM();
 }
@@ -96,7 +98,8 @@ int check_matches_n(
     u32 max_span, u32 max_set, anchor_type anchor, span *check_span,
     u32 *check_set, u32 check_nsets)
 {
-  re *r;
+  re *r = NULL;
+  re_exec *e = NULL;
   int err;
   u32 i;
   ASSERT_LTEm(nregex, TEST_MAX_SET, "too many regexes to match");
@@ -117,27 +120,32 @@ int check_matches_n(
   if ((err = re_compile(r)) == ERR_MEM)
     goto oom_re;
   ASSERT_EQm(err, 0, "re_compile() returned a nonzero value");
+  if ((err = re_exec_init(r, &e)))
+    goto oom_re;
+  ASSERT_EQm(err, 0, "re_exec_init() returned a nonzero value");
   PROPAGATE(check_match_results(
-      r, s, n, max_span, max_set, anchor, check_span, check_set, check_nsets));
+      r, e, s, n, max_span, max_set, anchor, check_span, check_set,
+      check_nsets));
   /* check to make sure that all match modes agree */
   /* if `check_nsets` > 0, then a boolean match *must* return 1.
    * if `check_nsets` == 0, then a boolean match *must* return 0. */
   PROPAGATE(
-      check_match_results(r, s, n, 0, 0, anchor, NULL, NULL, !!check_nsets));
+      check_match_results(r, e, s, n, 0, 0, anchor, NULL, NULL, !!check_nsets));
   if (anchor == 'B' && !max_span) {
     /* if we're fully anchored, group 0 *must* be the bounds of the match */
     span check_span_anchored[TEST_MAX_SET];
     for (i = 0; i < check_nsets; i++)
       check_span_anchored[i].begin = 0, check_span_anchored[i].end = n;
     PROPAGATE(check_match_results(
-        r, s, n, 1, max_set, anchor, check_span_anchored, check_set,
+        r, e, s, n, 1, max_set, anchor, check_span_anchored, check_set,
         check_nsets));
   }
   if (1) {
     /* start with just bounds */
     span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
     u32 found_set[TEST_MAX_SET], idx;
-    err = re_match(r, s, n, 1, TEST_MAX_SET, found_span, found_set, anchor);
+    err =
+        re_exec_match(e, s, n, 1, TEST_MAX_SET, found_span, found_set, anchor);
     if (err == ERR_MEM)
       goto oom_re;
     ASSERT_GTE(err, 0);
@@ -148,22 +156,16 @@ int check_matches_n(
       u32 found_set_2[1];
       if ((err2 = re_init_full(
                &r2, regexes[found_set[idx]], regex_n[found_set[idx]], NULL)) ==
-          ERR_MEM) {
-        re_destroy(r2);
-        goto oom_re;
-      }
+          ERR_MEM)
+        goto oom_re2;
       ASSERT_EQm(err2, 0, "re_init_full() returned nonzero value");
-      if ((err2 = re_compile(r2)) == ERR_MEM) {
-        re_destroy(r2);
-        goto oom_re;
-      }
+      if ((err2 = re_compile(r2)) == ERR_MEM)
+        goto oom_re2;
       ASSERT_EQm(err2, 0, "re_compile() returned nonzero value");
       /* both anchors */
       if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'B')) ==
-          ERR_MEM) {
-        re_destroy(r2);
-        goto oom_re;
-      }
+          ERR_MEM)
+        goto oom_re2;
       ASSERT_GTE(err2, 0);
       if (err2 == 1) {
         ASSERT_EQ(found_set_2[0], 0);
@@ -177,10 +179,8 @@ int check_matches_n(
       }
       /* start anchored */
       if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'S')) ==
-          ERR_MEM) {
-        re_destroy(r2);
-        goto oom_re;
-      }
+          ERR_MEM)
+        goto oom_re2;
       if (err2 == 1) {
         ASSERT_EQ(found_span_2[0].begin, 0);
         ASSERT_EQ(found_set_2[0], 0);
@@ -193,10 +193,8 @@ int check_matches_n(
       }
       /* end anchored */
       if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'E')) ==
-          ERR_MEM) {
-        re_destroy(r2);
-        goto oom_re;
-      }
+          ERR_MEM)
+        goto oom_re2;
       if (err2 == 1) {
         ASSERT_EQ(found_span_2[0].end, n);
         ASSERT_EQ(found_set_2[0], 0);
@@ -208,10 +206,8 @@ int check_matches_n(
       }
       /* unanchored */
       if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'U')) ==
-          ERR_MEM) {
-        re_destroy(r2);
-        goto oom_re;
-      }
+          ERR_MEM)
+        goto oom_re2;
       if (err2 == 1) {
         ASSERT_EQ(found_set_2[0], 0);
       }
@@ -221,11 +217,17 @@ int check_matches_n(
         ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
       }
       re_destroy(r2);
+      continue;
+    oom_re2:
+      re_destroy(r2);
+      goto oom_re;
     }
   }
+  re_exec_destroy(e);
   re_destroy(r);
   PASS();
 oom_re:
+  re_exec_destroy(e);
   re_destroy(r);
   OOM();
 }
