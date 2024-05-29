@@ -75,9 +75,9 @@ void buf_init(buf *b)
   b->_size = b->alloc = 0;
 }
 
-void buf_destroy(re *r, buf *b) { re_ialloc(r, b->alloc, 0, b->_ptr); }
+void buf_destroy(const re *r, buf *b) { re_ialloc(r, b->alloc, 0, b->_ptr); }
 
-int buf_reserven(re *r, buf *b, size_t size)
+int buf_reserven(const re *r, buf *b, size_t size)
 {
   size_t next_alloc = b->alloc ? b->alloc : 1 /* initial allocation */;
   void *next_ptr;
@@ -96,7 +96,7 @@ int buf_reserven(re *r, buf *b, size_t size)
   return 0;
 }
 
-int buf_grown(re *r, buf *b, size_t incr)
+int buf_grown(const re *r, buf *b, size_t incr)
 {
   return buf_reserven(r, b, b->_size + incr);
 }
@@ -1118,9 +1118,9 @@ u32 inst_match_param_idx(u32 param) { return param >> 1; }
 
 void re_prog_set(re *r, u32 pc, inst i) { buf_at(&r->prog, inst, pc) = i; }
 
-inst re_prog_get(re *r, u32 pc) { return buf_at(&r->prog, inst, pc); }
+inst re_prog_get(const re *r, u32 pc) { return buf_at(&r->prog, inst, pc); }
 
-u32 re_prog_size(re *r) { return buf_size(r->prog, inst); }
+u32 re_prog_size(const re *r) { return buf_size(r->prog, inst); }
 
 #define RE_PROG_MAX_INSTS 100000
 
@@ -1752,7 +1752,7 @@ int re_compcc(re *r, u32 root, compframe *frame, int reversed)
   return err;
 }
 
-int re_compile(re *r, u32 root, u32 reverse)
+int re_compile_internal(re *r, u32 root, u32 reverse)
 {
   int err = 0;
   compframe initial_frame = {0}, returned_frame = {0}, child_frame = {0};
@@ -1992,7 +1992,7 @@ typedef struct sset {
   u32 dense_size, dense_alloc;
 } sset;
 
-int sset_reset(re *r, sset *s, size_t next_alloc)
+int sset_reset(const re *r, sset *s, size_t next_alloc)
 {
   u32 *next_sparse;
   thrdspec *next_dense;
@@ -2016,16 +2016,15 @@ int sset_reset(re *r, sset *s, size_t next_alloc)
 
 void sset_clear(sset *s) { s->dense_size = 0; }
 
-void sset_init(re *r, sset *s)
+void sset_init(sset *s)
 {
-  (void)(r);
   s->sparse = NULL;
   s->sparse_alloc = 0;
   s->dense = NULL;
   s->dense_alloc = s->dense_size = 0;
 }
 
-void sset_destroy(re *r, sset *s)
+void sset_destroy(const re *r, sset *s)
 {
   re_ialloc(r, sizeof(u32) * s->sparse_alloc, 0, s->sparse);
   re_ialloc(r, sizeof(thrdspec) * s->dense_alloc, 0, s->dense);
@@ -2052,14 +2051,13 @@ typedef struct save_slots {
   size_t *slots, slots_size, slots_alloc, last_empty, per_thrd;
 } save_slots;
 
-void save_slots_init(re *r, save_slots *s)
+void save_slots_init(save_slots *s)
 {
-  (void)r;
   s->slots = NULL;
   s->slots_size = s->slots_alloc = s->last_empty = s->per_thrd = 0;
 }
 
-void save_slots_destroy(re *r, save_slots *s)
+void save_slots_destroy(const re *r, save_slots *s)
 {
   re_ialloc(r, sizeof(size_t) * s->slots_alloc, 0, s->slots);
 }
@@ -2070,7 +2068,7 @@ void save_slots_clear(save_slots *s, size_t per_thrd)
   s->per_thrd = per_thrd + 1 /* for refcnt */;
 }
 
-int save_slots_new(re *r, save_slots *s, u32 *next)
+int save_slots_new(const re *r, save_slots *s, u32 *next)
 {
   assert(s->per_thrd);
   if (s->last_empty) {
@@ -2122,7 +2120,7 @@ void save_slots_kill(save_slots *s, u32 ref)
 }
 
 int save_slots_set_internal(
-    re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
+    const re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
 {
   int err;
   *out = ref;
@@ -2152,7 +2150,8 @@ u32 save_slots_perthrd(save_slots *s)
   return s->per_thrd ? s->per_thrd - 1 : s->per_thrd;
 }
 
-int save_slots_set(re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
+int save_slots_set(
+    const re *r, save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
 {
   assert(idx < save_slots_perthrd(s));
   return save_slots_set_internal(r, s, ref, idx, v, out);
@@ -2172,16 +2171,47 @@ typedef struct nfa {
   int reversed, pri;
 } nfa;
 
-void nfa_init(re *r, nfa *n)
+#define DFA_MAX_NUM_STATES 256
+
+typedef enum dfa_state_flag {
+  FROM_TEXT_BEGIN = 1,
+  FROM_LINE_BEGIN = 2,
+  FROM_WORD = 4,
+  PRIORITY_EXHAUST = 8,
+  DFA_STATE_FLAG_MAX = 16
+} dfa_state_flag;
+
+typedef struct dfa_state {
+  struct dfa_state *ptrs[256 + 1];
+  u32 flags, nstate, nset;
+} dfa_state;
+
+typedef struct dfa {
+  dfa_state **states;
+  size_t states_size, num_active_states;
+  dfa_state *entry[PROG_ENTRY_MAX][DFA_STATE_FLAG_MAX]; /* program entry type *
+                                                           dfa_state_flag */
+  buf set_buf;
+  buf loc_buf;
+  buf set_bmp;
+} dfa;
+
+struct re_exec {
+  const re *r;
+  nfa nfa;
+  dfa dfa;
+};
+
+void nfa_init(nfa *n)
 {
-  sset_init(r, &n->a), sset_init(r, &n->b), sset_init(r, &n->c);
+  sset_init(&n->a), sset_init(&n->b), sset_init(&n->c);
   buf_init(&n->thrd_stk);
-  save_slots_init(r, &n->slots);
+  save_slots_init(&n->slots);
   buf_init(&n->pri_stk), buf_init(&n->pri_bmp_tmp);
   n->reversed = 0;
 }
 
-void nfa_destroy(re *r, nfa *n)
+void nfa_destroy(const re *r, nfa *n)
 {
   sset_destroy(r, &n->a), sset_destroy(r, &n->b), sset_destroy(r, &n->c);
   buf_destroy(r, &n->thrd_stk);
@@ -2191,7 +2221,7 @@ void nfa_destroy(re *r, nfa *n)
 
 #define BITS_PER_U32 (sizeof(u32) * CHAR_BIT)
 
-int bmp_init(re *r, buf *b, u32 size)
+int bmp_init(const re *r, buf *b, u32 size)
 {
   u32 i;
   int err = 0;
@@ -2217,7 +2247,7 @@ u32 bmp_get(buf *b, u32 idx)
   return buf_at(b, u32, idx / BITS_PER_U32) & (1 << (idx % BITS_PER_U32));
 }
 
-int nfa_start(re *r, nfa *n, u32 pc, u32 noff, int reversed, int pri)
+int nfa_start(const re *r, nfa *n, u32 pc, u32 noff, int reversed, int pri)
 {
   thrdspec initial_thrd;
   u32 i;
@@ -2243,7 +2273,7 @@ int nfa_start(re *r, nfa *n, u32 pc, u32 noff, int reversed, int pri)
   return 0;
 }
 
-int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
+int nfa_eps(const re *r, nfa *n, size_t pos, assert_flag ass)
 {
   int err;
   size_t i;
@@ -2318,7 +2348,8 @@ int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
   return 0;
 }
 
-int nfa_matchend(re *r, nfa *n, thrdspec thrd, size_t pos, unsigned int ch)
+int nfa_matchend(
+    const re *r, nfa *n, thrdspec thrd, size_t pos, unsigned int ch)
 {
   int err = 0;
   u32 idx = buf_at(&r->prog_set_idxs, u32, thrd.pc);
@@ -2347,7 +2378,7 @@ out_kill:
   return err;
 }
 
-int nfa_chr(re *r, nfa *n, unsigned int ch, size_t pos)
+int nfa_chr(const re *r, nfa *n, unsigned int ch, size_t pos)
 {
   int err;
   size_t i;
@@ -2410,7 +2441,7 @@ assert_flag make_assert_flag(u32 prev_ch, u32 next_ch)
 /* if max_set == 0 and max_span != 0 */
 /* if max_set != 0 and max_span != 0 */
 int nfa_end(
-    re *r, size_t pos, nfa *n, u32 max_span, u32 max_set, span *out_span,
+    const re *r, size_t pos, nfa *n, u32 max_span, u32 max_set, span *out_span,
     u32 *out_set, u32 prev_ch)
 {
   int err;
@@ -2436,38 +2467,13 @@ int nfa_end(
   return nset;
 }
 
-int nfa_run(re *r, nfa *n, u32 ch, size_t pos, u32 prev_ch)
+int nfa_run(const re *r, nfa *n, u32 ch, size_t pos, u32 prev_ch)
 {
   int err;
   (err = nfa_eps(r, n, pos, make_assert_flag(prev_ch, ch))) ||
       (err = nfa_chr(r, n, ch, pos));
   return err;
 }
-
-#define DFA_MAX_NUM_STATES 256
-
-typedef enum dfa_state_flag {
-  FROM_TEXT_BEGIN = 1,
-  FROM_LINE_BEGIN = 2,
-  FROM_WORD = 4,
-  PRIORITY_EXHAUST = 8,
-  DFA_STATE_FLAG_MAX = 16
-} dfa_state_flag;
-
-typedef struct dfa_state {
-  struct dfa_state *ptrs[256 + 1];
-  u32 flags, nstate, nset;
-} dfa_state;
-
-typedef struct dfa {
-  dfa_state **states;
-  size_t states_size, num_active_states;
-  dfa_state *entry[PROG_ENTRY_MAX][DFA_STATE_FLAG_MAX]; /* program entry type *
-                                                           dfa_state_flag */
-  buf set_buf;
-  buf loc_buf;
-  buf set_bmp;
-} dfa;
 
 void dfa_init(dfa *d)
 {
@@ -2477,7 +2483,7 @@ void dfa_init(dfa *d)
   buf_init(&d->set_buf), buf_init(&d->loc_buf), buf_init(&d->set_bmp);
 }
 
-void dfa_destroy(re *r, dfa *d)
+void dfa_destroy(const re *r, dfa *d)
 {
   size_t i;
   for (i = 0; i < d->states_size; i++)
@@ -2497,7 +2503,7 @@ u32 *dfa_state_data(dfa_state *state) { return (u32 *)(state + 1); }
 
 /* need: current state, but ALSO the previous state's matches */
 int dfa_construct(
-    re *r, dfa *d, dfa_state *prev_state, unsigned int ch, u32 prev_flag,
+    const re *r, dfa *d, dfa_state *prev_state, unsigned int ch, u32 prev_flag,
     nfa *n, dfa_state **out_next_state)
 {
   size_t i;
@@ -2597,7 +2603,8 @@ int dfa_construct(
 }
 
 int dfa_construct_start(
-    re *r, dfa *d, nfa *n, u32 entry, u32 prev_flag, dfa_state **out_next_state)
+    const re *r, dfa *d, nfa *n, u32 entry, u32 prev_flag,
+    dfa_state **out_next_state)
 {
   int err = 0;
   /* clear the set buffer so that it can be used to compare dfa states later */
@@ -2615,7 +2622,7 @@ int dfa_construct_start(
 }
 
 int dfa_construct_chr(
-    re *r, dfa *d, nfa *n, dfa_state *prev_state, unsigned int ch,
+    const re *r, dfa *d, nfa *n, dfa_state *prev_state, unsigned int ch,
     dfa_state **out_next_state)
 {
   int err;
@@ -2694,8 +2701,8 @@ void dfa_save_matches(dfa *dfa, dfa_state *state, size_t pos)
 }
 
 int re_match_dfa(
-    re *r, nfa *nfa, u8 *s, size_t n, u32 max_span, u32 max_set, span *out_span,
-    u32 *out_set, anchor_type anchor)
+    re_exec *exec, nfa *nfa, u8 *s, size_t n, u32 max_span, u32 max_set,
+    span *out_span, u32 *out_set, anchor_type anchor)
 {
   int err;
   dfa dfa;
@@ -2709,31 +2716,33 @@ int re_match_dfa(
   assert(max_span == 0 || max_span == 1);
   assert(anchor == A_BOTH || anchor == A_START || anchor == A_END);
   if ((err = nfa_start(
-           r, nfa, r->entry[entry], 0, entry & PROG_ENTRY_REVERSE, pri)))
+           exec->r, &exec->nfa, exec->r->entry[entry], 0,
+           entry & PROG_ENTRY_REVERSE, pri)))
     return err;
   dfa_init(&dfa);
   if (pri) {
     buf_clear(&dfa.loc_buf);
-    if ((err = bmp_init(r, &dfa.set_bmp, r->ast_sets)))
-      goto done;
-    for (i = 0; i < r->ast_sets; i++) {
+    if ((err = bmp_init(exec->r, &dfa.set_bmp, exec->r->ast_sets)))
+      return err;
+    for (i = 0; i < exec->r->ast_sets; i++) {
       size_t p = 0;
-      if ((err = buf_push(r, &dfa.loc_buf, size_t, p)))
-        goto done;
+      if ((err = buf_push(exec->r, &dfa.loc_buf, size_t, p)))
+        return err;
     }
   }
   i = entry & PROG_ENTRY_REVERSE ? n : 0;
   if (!(state = dfa.entry[entry][incoming_assert_flag]) &&
       (err = dfa_construct_start(
-           r, &dfa, nfa, entry, incoming_assert_flag, &state)))
-    goto done;
+           exec->r, &dfa, nfa, entry, incoming_assert_flag, &state)))
+    return err;
   if (pri)
     dfa_save_matches(&dfa, state, i);
   if (entry & PROG_ENTRY_REVERSE) {
     for (i = n; i > 0; i--) {
       if (!state->ptrs[s[i - 1]]) {
-        if ((err = dfa_construct_chr(r, &dfa, nfa, state, s[i - 1], &state)))
-          goto done;
+        if ((err = dfa_construct_chr(
+                 exec->r, &dfa, nfa, state, s[i - 1], &state)))
+          return err;
       } else
         state = state->ptrs[s[i - 1]];
       if (pri)
@@ -2742,8 +2751,8 @@ int re_match_dfa(
   } else {
     for (i = 0; i < n; i++) {
       if (!state->ptrs[s[i]]) {
-        if ((err = dfa_construct_chr(r, &dfa, nfa, state, s[i], &state)))
-          goto done;
+        if ((err = dfa_construct_chr(exec->r, &dfa, nfa, state, s[i], &state)))
+          return err;
       } else
         state = state->ptrs[s[i]];
       if (pri)
@@ -2751,14 +2760,14 @@ int re_match_dfa(
     }
   }
   if (!state->ptrs[SENT_CH]) {
-    if ((err = dfa_construct_chr(r, &dfa, nfa, state, SENT_CH, &state)))
-      goto done;
+    if ((err = dfa_construct_chr(exec->r, &dfa, nfa, state, SENT_CH, &state)))
+      return err;
   } else
     state = state->ptrs[s[i]];
   if (pri) {
     dfa_save_matches(&dfa, state, i);
     assert(!err);
-    for (i = 0; i < r->ast_sets; i++) {
+    for (i = 0; i < exec->r->ast_sets; i++) {
       assert(err >= 0 && err <= (signed)i);
       if (!bmp_get(&dfa.set_bmp, i))
         continue;
@@ -2787,73 +2796,100 @@ int re_match_dfa(
     err = max_set ? (state->nset > max_set ? max_set : state->nset)
                   : !!state->nset;
   }
-done:
-  dfa_destroy(r, &dfa);
   return err;
 }
 
-/* go to next state: run eps, dump previous state's matching state into new
- * state */
-/* problem: how the fuck do we do unanchored set matches? */
-/* solutions:
- * - introduce "partition" instructions
- *   - designate special instructions that never expire in the sparse set
- *   - we know a set member has died if its partition contains no threads
- * - introduce match instructions that detect bounds
- *   - performance penalty for other types of matches
- * - just don't support it!
- *   - are we hurting ourselves here? */
-
-/* fully-anchored match: run every character */
-/* start-anchored match: run until priority exhaustion */
-/* end-anchored match:   run reverse until priority exhaustion */
-/* unanchored match:     run dotstar */
-
-int re_match(
-    re *r, const char *s, size_t n, u32 max_span, u32 max_set, span *out_span,
-    u32 *out_set, anchor_type anchor)
+int re_exec_init(const re *r, re_exec **pexec)
 {
-  nfa nfa;
+  int err = 0;
+  re_exec *exec = r->alloc(0, sizeof(re_exec), NULL, __FILE__, __LINE__);
+  assert(re_prog_size(r));
+  if (!exec)
+    return ERR_MEM;
+  memset(exec, 0, sizeof(re_exec));
+  exec->r = r;
+  nfa_init(&exec->nfa);
+  dfa_init(&exec->dfa);
+  *pexec = exec;
+  return err;
+}
+
+void re_exec_destroy(re_exec *exec)
+{
+  if (!exec)
+    return;
+  nfa_destroy(exec->r, &exec->nfa);
+  dfa_destroy(exec->r, &exec->dfa);
+  exec->r->alloc(sizeof(re_exec), 0, exec, __FILE__, __LINE__);
+}
+
+int re_compile(re *r)
+{
+  int err;
+  assert(!re_prog_size(r));
+  ((err = re_compile_internal(r, r->ast_root, 0)) ||
+   (err = re_compile_internal(r, r->ast_root, 1)));
+  return err;
+}
+
+int re_exec_match(
+    re_exec *exec, const char *s, size_t n, u32 max_span, u32 max_set,
+    span *out_span, u32 *out_set, anchor_type anchor)
+{
   int err = 0;
   u32 entry = anchor == A_END          ? PROG_ENTRY_REVERSE
               : anchor == A_UNANCHORED ? PROG_ENTRY_DOTSTAR
                                        : 0;
   size_t i;
   u32 prev_ch = SENT_CH;
-  if (!re_prog_size(r) && ((err = re_compile(r, r->ast_root, 0)) ||
-                           (err = re_compile(r, r->ast_root, 1))))
-    return err;
-  nfa_init(r, &nfa);
-  if (1 && !(entry & PROG_ENTRY_DOTSTAR) && (max_span == 0 || max_span == 1)) {
+  if (!(entry & PROG_ENTRY_DOTSTAR) && (max_span == 0 || max_span == 1)) {
     err = re_match_dfa(
-        r, &nfa, (u8 *)s, n, max_span, max_set, out_span, out_set, anchor);
-    goto done;
+        exec, &exec->nfa, (u8 *)s, n, max_span, max_set, out_span, out_set,
+        anchor);
+    return err;
   }
   if ((err = nfa_start(
-           r, &nfa, r->entry[entry], max_span * 2, entry & PROG_ENTRY_REVERSE,
-           entry != A_BOTH)))
-    goto done;
+           exec->r, &exec->nfa, exec->r->entry[entry], max_span * 2,
+           entry & PROG_ENTRY_REVERSE, entry != A_BOTH)))
+    return err;
   if (entry & PROG_ENTRY_REVERSE) {
     for (i = n; i > 0; i--) {
-      if ((err = nfa_run(r, &nfa, ((const u8 *)s)[i - 1], i, prev_ch)))
-        goto done;
+      if ((err = nfa_run(
+               exec->r, &exec->nfa, ((const u8 *)s)[i - 1], i, prev_ch)))
+        return err;
       prev_ch = ((const u8 *)s)[i - 1];
     }
     if ((err = nfa_end(
-             r, 0, &nfa, max_span, max_set, out_span, out_set, prev_ch)))
-      goto done;
+             exec->r, 0, &exec->nfa, max_span, max_set, out_span, out_set,
+             prev_ch)))
+      return err;
   } else {
     for (i = 0; i < n; i++) {
-      if ((err = nfa_run(r, &nfa, ((const u8 *)s)[i], i, prev_ch)))
-        goto done;
+      if ((err = nfa_run(exec->r, &exec->nfa, ((const u8 *)s)[i], i, prev_ch)))
+        return err;
       prev_ch = ((const u8 *)s)[i];
     }
     if ((err = nfa_end(
-             r, n, &nfa, max_span, max_set, out_span, out_set, prev_ch)))
-      goto done;
+             exec->r, n, &exec->nfa, max_span, max_set, out_span, out_set,
+             prev_ch)))
+      return err;
   }
+  return err;
+}
+
+int re_match(
+    const re *r, const char *s, size_t n, u32 max_span, u32 max_set,
+    span *out_span, u32 *out_set, anchor_type anchor)
+{
+  re_exec *exec;
+  int err;
+  if ((err = re_exec_init(r, &exec)))
+    return err;
+  if ((err = re_exec_match(
+           exec, s, n, max_span, max_set, out_span, out_set, anchor)))
+    goto done;
 done:
-  nfa_destroy(r, &nfa);
+  re_exec_destroy(exec);
   return err;
 }
 

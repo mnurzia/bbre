@@ -114,6 +114,9 @@ int check_matches_n(
       goto oom_re;
     ASSERT_EQm(err, 0, "re_union() returned a nonzero value");
   }
+  if ((err = re_compile(r)) == ERR_MEM)
+    goto oom_re;
+  ASSERT_EQm(err, 0, "re_compile() returned a nonzero value");
   PROPAGATE(check_match_results(
       r, s, n, max_span, max_set, anchor, check_span, check_set, check_nsets));
   /* check to make sure that all match modes agree */
@@ -150,6 +153,11 @@ int check_matches_n(
         goto oom_re;
       }
       ASSERT_EQm(err2, 0, "re_init_full() returned nonzero value");
+      if ((err2 = re_compile(r2)) == ERR_MEM) {
+        re_destroy(r2);
+        goto oom_re;
+      }
+      ASSERT_EQm(err2, 0, "re_compile() returned nonzero value");
       /* both anchors */
       if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'B')) ==
           ERR_MEM) {
@@ -437,6 +445,9 @@ int assert_cc_match(const char *regex, const char *spec, int invert)
   rrange ranges[64];
   u32 num_ranges = matchspec(spec, ranges), range_idx;
   if ((err = re_init_full(&r, regex, strlen(regex), NULL)) == ERR_MEM)
+    goto oom;
+  ASSERT(!err);
+  if ((err = re_compile(r)) == ERR_MEM)
     goto oom;
   ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
@@ -2908,7 +2919,7 @@ TEST(limit_program_size)
   int err;
   if (!r)
     goto oom;
-  if ((err = re_match(r, "", 0, 0, 0, NULL, NULL, 'U')) == ERR_MEM)
+  if ((err = re_compile(r)) == ERR_MEM)
     goto oom;
   ASSERT_EQ(err, ERR_LIMIT);
   re_destroy(r);
