@@ -617,7 +617,13 @@ TEST(star_ungreedy_then_greedy)
 
 TEST(star_ungreedy_with_assert)
 {
-  ASSERT_MATCH_G1_A("a*?\\b a*", "a a b", 0, 3, A_START);
+  ASSERT_MATCH_G2_A("(a*?)\\b a*", "a a b", 0, 3, 0, 1, A_START);
+  PASS();
+}
+
+TEST(star_ungreedy_with_assert_unanchored)
+{
+  ASSERT_MATCH_G2_A("(a*?)\\b a*", "lauaaa a", 3, 8, 3, 6, A_UNANCHORED);
   PASS();
 }
 
@@ -631,6 +637,7 @@ SUITE(star)
   RUN_TEST(star_greedy_then_ungreedy);
   RUN_TEST(star_ungreedy_then_greedy);
   RUN_TEST(star_ungreedy_with_assert);
+  RUN_TEST(star_ungreedy_with_assert_unanchored);
 }
 
 TEST(quest_empty)
@@ -2911,7 +2918,23 @@ oom:
   OOM();
 }
 
-SUITE(limits) { RUN_TEST(limit_program_size); }
+TEST(limit_dfa_thrash)
+{
+  /* Cause a DFA cache flush. */
+  const char *regex = "a{258}?";
+  ASSERT_MATCH(
+      regex, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  PASS();
+}
+
+SUITE(limits)
+{
+  RUN_TEST(limit_program_size);
+  RUN_TEST(limit_dfa_thrash);
+}
 
 int main(int argc, const char *const *argv)
 {

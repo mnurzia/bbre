@@ -2189,22 +2189,6 @@ void nfa_destroy(re *r, nfa *n)
   buf_destroy(r, &n->pri_stk), buf_destroy(r, &n->pri_bmp_tmp);
 }
 
-int thrdstk_push(re *r, buf *b, thrdspec t)
-{
-  int err = 0;
-  assert(t.pc);
-  (err = buf_push(r, b, u32, t.pc)) || (err = buf_push(r, b, u32, t.slot));
-  return err;
-}
-
-thrdspec thrdstk_pop(buf *b)
-{
-  thrdspec out;
-  out.slot = buf_pop(b, u32);
-  out.pc = buf_pop(b, u32);
-  return out;
-}
-
 #define BITS_PER_U32 (sizeof(u32) * CHAR_BIT)
 
 int bmp_init(re *r, buf *b, u32 size)
@@ -2266,16 +2250,18 @@ int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
   sset_clear(&n->b);
   for (i = 0; i < n->a.dense_size; i++) {
     thrdspec dense_thrd = n->a.dense[i];
-    if ((err = thrdstk_push(r, &n->thrd_stk, dense_thrd)))
+    if ((err = buf_push(r, &n->thrd_stk, thrdspec, dense_thrd)))
       return err;
     sset_clear(&n->c);
-    while (buf_size(n->thrd_stk, u32)) {
-      thrdspec thrd = thrdstk_pop(&n->thrd_stk);
+    while (buf_size(n->thrd_stk, thrdspec)) {
+      thrdspec thrd = *buf_peek(&n->thrd_stk, thrdspec, 0);
       inst op = re_prog_get(r, thrd.pc);
       assert(thrd.pc);
-      if (sset_memb(&n->c, thrd.pc))
+      if (sset_memb(&n->c, thrd.pc)) {
         /* we already processed this thread */
+        buf_pop(&n->thrd_stk, thrdspec);
         continue;
+      }
       sset_add(&n->c, thrd);
       switch (inst_opcode(re_prog_get(r, thrd.pc))) {
       case MATCH: {
@@ -2291,13 +2277,14 @@ int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
                   &n->pri_stk, u32,
                   buf_at(&r->prog_set_idxs, u32, thrd.pc) - 1)) {
             thrd.pc = inst_next(op);
-            if ((err = thrdstk_push(r, &n->thrd_stk, thrd)))
-              return err;
-          }
+            *buf_peek(&n->thrd_stk, thrdspec, 0) = thrd;
+          } else
+            buf_pop(&n->thrd_stk, thrdspec);
           break;
         } /* else fallthrough */
       }
       case RANGE:
+        buf_pop(&n->thrd_stk, thrdspec);
         sset_add(&n->b, thrd); /* this is a range or final match */
         break;
       case SPLIT: {
@@ -2305,25 +2292,25 @@ int nfa_eps(re *r, nfa *n, size_t pos, assert_flag ass)
         pri.pc = inst_next(op), pri.slot = thrd.slot;
         sec.pc = inst_param(op),
         sec.slot = save_slots_fork(&n->slots, thrd.slot);
-        if ((err = thrdstk_push(r, &n->thrd_stk, sec)) ||
-            (err = thrdstk_push(r, &n->thrd_stk, pri)))
+        *buf_peek(&n->thrd_stk, thrdspec, 0) = sec;
+        if ((err = buf_push(r, &n->thrd_stk, thrdspec, pri)))
           /* sec is pushed first because it needs to be processed after pri.
            * pri comes off the stack first because it's FIFO. */
           return err;
         break;
       }
-      case ASSERT: {
+      default: /* ASSERT */ {
+        assert(inst_opcode(re_prog_get(r, thrd.pc)) == ASSERT);
         assert(!!(ass & WORD) ^ !!(ass & NOT_WORD));
         if ((inst_param(op) & ass) == inst_param(op)) {
           thrd.pc = inst_next(op);
-          if ((err = thrdstk_push(r, &n->thrd_stk, thrd)))
-            return err;
-        } else
+          *buf_peek(&n->thrd_stk, thrdspec, 0) = thrd;
+        } else {
           save_slots_kill(&n->slots, thrd.slot);
+          buf_pop(&n->thrd_stk, thrdspec);
+        }
         break;
       }
-      default:
-        assert(0);
       }
     }
   }
@@ -2339,7 +2326,7 @@ int nfa_matchend(re *r, nfa *n, thrdspec thrd, size_t pos, unsigned int ch)
   assert(idx > 0);
   assert(idx - 1 < buf_size(n->pri_stk, u32));
   if (!n->pri && ch < 256)
-    return err;
+    goto out_kill;
   if (n->slots.per_thrd) {
     u32 slot_idx = !n->reversed;
     if (*memo)
@@ -2348,9 +2335,15 @@ int nfa_matchend(re *r, nfa *n, thrdspec thrd, size_t pos, unsigned int ch)
     if (slot_idx < save_slots_perthrd(&n->slots) &&
         (err = save_slots_set(r, &n->slots, thrd.slot, slot_idx, pos, memo)))
       return err;
+    goto out_survive;
   } else {
     *memo = 1; /* just mark that a set was matched */
+    goto out_kill;
   }
+out_survive:
+  return err;
+out_kill:
+  save_slots_kill(&n->slots, thrd.slot);
   return err;
 }
 
@@ -2362,29 +2355,25 @@ int nfa_chr(re *r, nfa *n, unsigned int ch, size_t pos)
   for (i = 0; i < n->b.dense_size; i++) {
     thrdspec thrd = n->b.dense[i];
     inst op = re_prog_get(r, thrd.pc);
-    int pri = bmp_get(&n->pri_bmp_tmp, buf_at(&r->prog_set_idxs, u32, thrd.pc));
+    u32 pri = bmp_get(&n->pri_bmp_tmp, buf_at(&r->prog_set_idxs, u32, thrd.pc)),
+        opcode = inst_opcode(op);
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
-    switch (inst_opcode(op)) {
-    case RANGE: {
+    assert(opcode == RANGE || opcode == MATCH);
+    if (opcode == RANGE) {
       byte_range br = u32_to_byte_range(inst_param(op));
       if (ch >= br.l && ch <= br.h) {
         thrd.pc = inst_next(op);
         sset_add(&n->a, thrd);
       } else
         save_slots_kill(&n->slots, thrd.slot);
-      break;
-    }
-    case MATCH: {
+    } else /* if opcode == MATCH */ {
       assert(!inst_next(op));
       if ((err = nfa_matchend(r, n, thrd, pos, ch)))
         return err;
       if (n->pri)
         bmp_set(&n->pri_bmp_tmp, buf_at(&r->prog_set_idxs, u32, thrd.pc));
-      break;
-    }
-    default:
-      assert(0);
+      save_slots_kill(&n->slots, thrd.slot);
     }
   }
   return 0;
@@ -2513,7 +2502,7 @@ int dfa_construct(
 {
   size_t i;
   int err = 0;
-  u32 hash, table_pos, *state_data;
+  u32 hash, table_pos, num_checked, *state_data;
   dfa_state *next_state;
   /* check threads in n, and look them up in the dfa cache */
   hash = hashington(prev_flag);
@@ -2532,7 +2521,7 @@ int dfa_construct(
     memset(next_cache, 0, sizeof(dfa_state *) * DFA_MAX_NUM_STATES);
     d->states = next_cache, d->states_size = DFA_MAX_NUM_STATES;
   }
-  table_pos = hash % d->states_size;
+  table_pos = hash % d->states_size, num_checked = 0;
   while (1) {
     /* linear probe for next state */
     if (!d->states[table_pos]) {
@@ -2556,15 +2545,19 @@ int dfa_construct(
     /* state found! */
     break;
   not_found:
-    table_pos += 1;
+    table_pos += 1, num_checked += 1;
     if (table_pos == d->states_size)
       table_pos = 0;
+    if (num_checked == d->states_size) {
+      next_state = NULL;
+      break;
+    }
   }
   if (!next_state) {
     /* we need to construct a new state */
     if (d->num_active_states == DFA_MAX_NUM_STATES) {
       /* clear cache */
-      for (i = 0; i < d->states_size; d++)
+      for (i = 0; i < d->states_size; i++)
         if (d->states[i]) {
           re_ialloc(
               r, dfa_state_size(d->states[i]->nstate, d->states[i]->nset), 0,
@@ -2593,6 +2586,7 @@ int dfa_construct(
     for (i = 0; i < buf_size(d->set_buf, u32); i++)
       state_data[n->a.dense_size + i] = buf_at(&d->set_buf, u32, i);
     d->states[table_pos] = next_state;
+    d->num_active_states++;
   }
   assert(next_state);
   if (prev_state)
@@ -2721,11 +2715,11 @@ int re_match_dfa(
   if (pri) {
     buf_clear(&dfa.loc_buf);
     if ((err = bmp_init(r, &dfa.set_bmp, r->ast_sets)))
-      return err;
+      goto done;
     for (i = 0; i < r->ast_sets; i++) {
       size_t p = 0;
       if ((err = buf_push(r, &dfa.loc_buf, size_t, p)))
-        return err;
+        goto done;
     }
   }
   i = entry & PROG_ENTRY_REVERSE ? n : 0;

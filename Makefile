@@ -64,6 +64,9 @@ $(OUT_DIR)/test-gen.o: $(OUT_DIR) test-gen.c
 $(OUT_DIR)/re_test: $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test-gen.o
 	$(CC) $(CFLAGS) $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test-gen.o -o $@
 
+$(OUT_DIR)/re.S: $(OUT_DIR) re.c
+	$(CC) $(CFLAGS) re.c -S -fverbose-asm -o $@
+
 ## run tests
 test: $(OUT_DIR)/re_test
 	./$(OUT_DIR)/re_test
