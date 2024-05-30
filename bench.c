@@ -81,12 +81,14 @@ char run_pointer_chase(char *buf, size_t buf_size)
   return (char)(current - pointers);
 }
 
+#define BENCH_SIZE 1048576 * 64 * 4
+
 void pointer_chase(void)
 {
-  char *buf = rand_buf(1048576 * 4 * 4);
+  char *buf = rand_buf(BENCH_SIZE);
   bench_start();
-  run_pointer_chase(buf, 1048576 * 4 * 4);
-  bench_end(1048576 * 4 * 4);
+  run_pointer_chase(buf, BENCH_SIZE);
+  bench_end(BENCH_SIZE);
   free(buf);
 }
 
@@ -94,12 +96,12 @@ void bool_match(void)
 {
   re *r = re_init("123456789123456789");
   re_exec *e;
-  char *buf = rand_buf(1048576 * 4 * 4);
+  char *buf = rand_buf(BENCH_SIZE);
   re_compile(r);
   re_exec_init(r, &e);
   bench_start();
-  re_exec_match(e, buf, 1048576 * 4 * 4, 0, 0, NULL, NULL, 'U');
-  bench_end(1048576 * 4 * 4);
+  re_exec_match(e, buf, BENCH_SIZE, 0, 0, NULL, NULL, 'B');
+  bench_end(BENCH_SIZE);
   re_exec_destroy(e);
   re_destroy(r);
   free(buf);
