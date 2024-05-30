@@ -2765,15 +2765,20 @@ int re_match_dfa(
         dfa_save_matches(&exec->dfa, state, i);
     }
   } else {
-    for (i = 0; i < n; i++) {
-      if (!state->ptrs[s[i]]) {
-        if ((err = dfa_construct_chr(
-                 exec->r, &exec->dfa, nfa, state, s[i], &state)))
+    /* This is a *very* hot loop. Don't change this without profiling first. */
+    const u8 *start = s, *end = s + n;
+    while (start < end) {
+      u8 ch = *start;
+      dfa_state *next = state->ptrs[ch];
+      if (!next) {
+        if ((err =
+                 dfa_construct_chr(exec->r, &exec->dfa, nfa, state, ch, &next)))
           return err;
-      } else
-        state = state->ptrs[s[i]];
+      }
+      state = next;
+      start++;
       if (pri)
-        dfa_save_matches(&exec->dfa, state, i);
+        dfa_save_matches(&exec->dfa, state, start - s);
     }
   }
   if (!state->ptrs[SENT_CH]) {
