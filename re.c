@@ -16,10 +16,10 @@
 #define RE_REF_NONE 0
 #define RE_UTF_MAX  0x10FFFF
 
-/* A general-purpose growable buffer. */
+/* A general-purpose growable, generic buffer. */
 typedef struct re_buf {
-  char *_ptr;
-  size_t _size, alloc;
+  char *ptr;
+  size_t size, alloc;
 } re_buf;
 
 /* A set of regular expressions. */
@@ -69,15 +69,34 @@ static void *re_default_alloc(
 #define re_ialloc(re, prev, next, ptr)                                         \
   (re)->alloc((prev), (next), (ptr), __FILE__, __LINE__)
 
+/* For a library like this, you really need a convenient way to represent
+ * dynamically-sized arrays of many different types. There's a million ways to
+ * do this in C, but they usually boil down to capturing the size of each
+ * element, and then plugging that size into an array allocation routine.
+ * Originally, this library used a non-generic dynamic array only capable of
+ * holding u32 (machine words), and simply represented all relevant types in
+ * terms of u32. This actually worked very well for the AST and parser, but the
+ * more complex structures used to execute regular expressions really benefit
+ * from having a properly typed dynamic array implementation. */
+/* I avoided implementing this generically for a while because I didn't want to
+ * spend the brainpower on finding an elegant way to do this. The main problems
+ * with making this kind of generic data structure in C are (1) the free-for-all
+ * that comes into play once you start fiddling with macros, and (2) the lack of
+ * type safety. Problem 1 cannot easily be fixed, as macros are a requirement,
+ * but problem 2 can. The issue with type safety, however, is that one must
+ * declare all generic functions they want to use beforehand (essentially manual
+ * template instantiation). This leads to lots of unreadable, irrelevant code.
+ * These declarations could be rolled into a macro, but that just makes Problem
+ * 1 worse. */
 static void re_buf_init(re_buf *b)
 {
-  b->_ptr = NULL;
-  b->_size = b->alloc = 0;
+  b->ptr = NULL;
+  b->size = b->alloc = 0;
 }
 
 static void re_buf_destroy(const re *r, re_buf *b)
 {
-  re_ialloc(r, b->alloc, 0, b->_ptr);
+  re_ialloc(r, b->alloc, 0, b->ptr);
 }
 
 static int re_buf_reserven(const re *r, re_buf *b, size_t size)
@@ -85,35 +104,35 @@ static int re_buf_reserven(const re *r, re_buf *b, size_t size)
   size_t next_alloc = b->alloc ? b->alloc : 1 /* initial allocation */;
   void *next_ptr;
   if (size <= b->alloc) {
-    b->_size = size;
+    b->size = size;
     return 0;
   }
   while (next_alloc < size)
     next_alloc *= 2;
-  next_ptr = re_ialloc(r, b->alloc, next_alloc, b->_ptr);
+  next_ptr = re_ialloc(r, b->alloc, next_alloc, b->ptr);
   if (!next_ptr)
     return ERR_MEM;
   b->alloc = next_alloc;
-  b->_ptr = next_ptr;
-  b->_size = size;
+  b->ptr = next_ptr;
+  b->size = size;
   return 0;
 }
 
 static int re_buf_grown(const re *r, re_buf *b, size_t incr)
 {
-  return re_buf_reserven(r, b, b->_size + incr);
+  return re_buf_reserven(r, b, b->size + incr);
 }
 
 static char *re_buf_tailn(re_buf *b, size_t elem_size)
 {
-  return b->_ptr + b->_size - elem_size;
+  return b->ptr + b->size - elem_size;
 }
 
 static char *re_buf_popn(re_buf *b, size_t elem_size)
 {
   void *out = re_buf_tailn(b, elem_size);
-  assert(b->_size >= elem_size);
-  b->_size -= elem_size;
+  assert(b->size >= elem_size);
+  b->size -= elem_size;
   return out;
 }
 
@@ -125,9 +144,9 @@ static char *re_buf_popn(re_buf *b, size_t elem_size)
 #define re_buf_reserve(r, b, T, n) (re_buf_reserven(r, b, sizeof(T) * (n)))
 #define re_buf_pop(b, T)           (*re_buf_ptr(T, re_buf_popn((b), sizeof(T))))
 #define re_buf_peek(b, T, n)       ((re_buf_ptr(T, re_buf_tailn((b), sizeof(T)))) - n)
-#define re_buf_at(b, T, i)         (re_buf_ptr(T, (b)->_ptr)[(i)])
-#define re_buf_size(b, T)          ((b)._size / sizeof(T))
-#define re_buf_clear(b)            ((b)->_size = 0)
+#define re_buf_at(b, T, i)         (re_buf_ptr(T, (b)->ptr)[(i)])
+#define re_buf_size(b, T)          ((b).size / sizeof(T))
+#define re_buf_clear(b)            ((b)->size = 0)
 
 static int re_parse(re *r, const u8 *s, size_t sz, u32 *root);
 
@@ -216,17 +235,17 @@ typedef enum re_ast_type {
    *   Argument 0: RE_REF_NONE or another CLS node in the charclass (AST)
    *   Argument 1: character range begin (number)
    *   Argument 2: character range end (number) */
-  RE_AST_TYPE_CLS,
+  RE_AST_TYPE_CC,
   /* An inverted character class: /[^a-zA-Z]/
    *   Argument 0: RE_REF_NONE or another CLS node in the charclass (AST)
    *   Argument 1: character range begin (number)
    *   Argument 2: character range end (number) */
-  RE_AST_TYPE_ICLS,
+  RE_AST_TYPE_ICC,
   /* Matches any byte: /\C/ */
   RE_AST_TYPE_ANYBYTE,
   /* Empty assertion: /\b/
    *   Argument 0: assertion flags, bitset of `enum assert_flag` (number) */
-  RE_AST_TYPE_AASSERT
+  RE_AST_TYPE_ASSERT
 } re_ast_type;
 
 static const unsigned int re_ast_type_lens[] = {
@@ -545,9 +564,9 @@ static u32 re_ast_cls_union(re *r, u32 rest, u32 first)
   u32 cur = first, *next;
   assert(first);
   assert(
-      *re_ast_type_ref(r, first) == RE_AST_TYPE_CLS ||
-      *re_ast_type_ref(r, first) == RE_AST_TYPE_ICLS);
-  assert(RE_IMPLIES(rest, *re_ast_type_ref(r, rest) == RE_AST_TYPE_CLS));
+      *re_ast_type_ref(r, first) == RE_AST_TYPE_CC ||
+      *re_ast_type_ref(r, first) == RE_AST_TYPE_ICC);
+  assert(RE_IMPLIES(rest, *re_ast_type_ref(r, rest) == RE_AST_TYPE_CC));
   while (*(next = re_ast_param_ref(r, cur, 0)))
     cur = *next;
   *next = rest;
@@ -619,12 +638,12 @@ static int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert)
   for (i = 0; i < named->cc_len; i++) {
     cur_min = named->chars[i * 2], cur_max = named->chars[i * 2 + 1];
     if (!invert &&
-        (err = re_ast_make(r, RE_AST_TYPE_CLS, res, cur_min, cur_max, &res)))
+        (err = re_ast_make(r, RE_AST_TYPE_CC, res, cur_min, cur_max, &res)))
       return err;
     else if (invert) {
       assert(cur_min >= max); /* builtin charclasses are ordered. */
       if (max != cur_min &&
-          (err = re_ast_make(r, RE_AST_TYPE_CLS, res, max, cur_min - 1, &res)))
+          (err = re_ast_make(r, RE_AST_TYPE_CC, res, max, cur_min - 1, &res)))
         return err;
       else
         max = cur_max + 1;
@@ -633,7 +652,7 @@ static int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert)
   assert(cur_max < RE_UTF_MAX); /* builtin charclasses never reach RE_UTF_MAX */
   assert(i);                    /* builtin charclasses are not length zero */
   if (invert && (err = re_ast_make(
-                     r, RE_AST_TYPE_CLS, res, cur_max + 1, RE_UTF_MAX, &res)))
+                     r, RE_AST_TYPE_CC, res, cur_max + 1, RE_UTF_MAX, &res)))
     return err;
   if ((err = re_buf_push(r, &r->arg_stk, u32, res)))
     return err;
@@ -754,7 +773,7 @@ static int re_parse_escape(re *r, u32 allowed_outputs)
         ch == 'D' || ch == 'S' || ch == 'W'; /* uppercase are inverted */
     ch = inverted ? ch - 'A' + 'a' : ch;     /* convert to lowercase */
     cc_name = ch == 'd' ? "digit" : ch == 's' ? "perl_space" : "word";
-    if (!(allowed_outputs & (1 << RE_AST_TYPE_CLS)))
+    if (!(allowed_outputs & (1 << RE_AST_TYPE_CC)))
       return re_parse_err(r, "cannot use a character class here");
     if ((err = re_parse_add_namedcc(
              r, (const u8 *)cc_name, strlen(cc_name), inverted)))
@@ -762,10 +781,10 @@ static int re_parse_escape(re *r, u32 allowed_outputs)
   } else if (ch == 'A' || ch == 'z' || ch == 'B' || ch == 'b') { /* empty
                                                                     asserts */
     u32 res;
-    if (!(allowed_outputs & (1 << RE_AST_TYPE_AASSERT)))
+    if (!(allowed_outputs & (1 << RE_AST_TYPE_ASSERT)))
       return re_parse_err(r, "cannot use an epsilon assertion here");
     if ((err = re_ast_make(
-             r, RE_AST_TYPE_AASSERT,
+             r, RE_AST_TYPE_ASSERT,
              ch == 'A'   ? RE_ASSERT_TEXT_BEGIN
              : ch == 'z' ? RE_ASSERT_TEXT_END
              : ch == 'B' ? RE_ASSERT_NOT_WORD
@@ -941,12 +960,12 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* arg_stk: | ... | */
       if (((flags & RE_GROUP_FLAG_DOTNEWLINE) &&
            (err = re_ast_make(
-                r, RE_AST_TYPE_CLS, RE_REF_NONE, 0, RE_UTF_MAX, &res))) ||
+                r, RE_AST_TYPE_CC, RE_REF_NONE, 0, RE_UTF_MAX, &res))) ||
           (!(flags & RE_GROUP_FLAG_DOTNEWLINE) &&
            ((err = re_ast_make(
-                 r, RE_AST_TYPE_CLS, RE_REF_NONE, 0, '\n' - 1, &res)) ||
+                 r, RE_AST_TYPE_CC, RE_REF_NONE, 0, '\n' - 1, &res)) ||
             (err = re_ast_make(
-                 r, RE_AST_TYPE_CLS, res, '\n' + 1, RE_UTF_MAX, &res)))) ||
+                 r, RE_AST_TYPE_CC, res, '\n' + 1, RE_UTF_MAX, &res)))) ||
           (err = re_buf_push(r, &r->arg_stk, u32, res)))
         return err;
       /* arg_stk: | ... |  .  | */
@@ -971,16 +990,16 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
             break;               /* charclass done */
         } else if (ch == '\\') { /* escape */
           if ((err = re_parse_escape(
-                   r, (1 << RE_AST_TYPE_CHR) | (1 << RE_AST_TYPE_CLS))))
+                   r, (1 << RE_AST_TYPE_CHR) | (1 << RE_AST_TYPE_CC))))
             return err;
           next = re_buf_pop(&r->arg_stk, u32);
           assert(
               *re_ast_type_ref(r, next) == RE_AST_TYPE_CHR ||
-              *re_ast_type_ref(r, next) == RE_AST_TYPE_CLS);
+              *re_ast_type_ref(r, next) == RE_AST_TYPE_CC);
           if (*re_ast_type_ref(r, next) == RE_AST_TYPE_CHR)
             min = *re_ast_param_ref(r, next, 0); /* single-character escape */
           else {
-            assert(*re_ast_type_ref(r, next) == RE_AST_TYPE_CLS);
+            assert(*re_ast_type_ref(r, next) == RE_AST_TYPE_CC);
             res = re_ast_cls_union(r, res, next);
             /* we parsed an entire class, so there's no ending character */
             continue;
@@ -1019,7 +1038,7 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
                    named_inverted)))
             return err;
           next = re_buf_pop(&r->arg_stk, u32);
-          assert(next && *re_ast_type_ref(r, next) == RE_AST_TYPE_CLS);
+          assert(next && *re_ast_type_ref(r, next) == RE_AST_TYPE_CC);
           res = re_ast_cls_union(r, res, next);
           continue;
         }
@@ -1039,19 +1058,19 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
             max = ch; /* non-escaped character */
           }
         }
-        if ((err = re_ast_make(r, RE_AST_TYPE_CLS, res, min, max, &res)))
+        if ((err = re_ast_make(r, RE_AST_TYPE_CC, res, min, max, &res)))
           return err;
       }
       assert(res);  /* charclass cannot be empty */
       if (inverted) /* inverted character class */
-        *re_ast_type_ref(r, res) = RE_AST_TYPE_ICLS;
+        *re_ast_type_ref(r, res) = RE_AST_TYPE_ICC;
       if ((err = re_buf_push(r, &r->arg_stk, u32, res)))
         return err;
     } else if (ch == '\\') { /* escape */
       if ((err = re_parse_escape(
-               r, 1 << RE_AST_TYPE_CHR | 1 << RE_AST_TYPE_CLS |
+               r, 1 << RE_AST_TYPE_CHR | 1 << RE_AST_TYPE_CC |
                       1 << RE_AST_TYPE_ANYBYTE | 1 << RE_AST_TYPE_CAT |
-                      1 << RE_AST_TYPE_AASSERT)))
+                      1 << RE_AST_TYPE_ASSERT)))
         return err;
     } else if (ch == '{') { /* repetition */
       u32 min = 0, max = 0;
@@ -1089,7 +1108,7 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       *re_buf_peek(&r->arg_stk, u32, 0) = res;
     } else if (ch == '^' || ch == '$') { /* beginning/end of text/line */
       if ((err = re_ast_make(
-               r, RE_AST_TYPE_AASSERT,
+               r, RE_AST_TYPE_ASSERT,
                ch == '^'
                    ? (flags & RE_GROUP_FLAG_MULTILINE ? RE_ASSERT_LINE_BEGIN
                                                       : RE_ASSERT_TEXT_BEGIN)
@@ -1505,7 +1524,7 @@ static int re_compcc_hash_init(re *r, re_buf *cc_tree_in, re_buf *cc_ht_out)
            (re_buf_size(*cc_tree_in, re_compcc_node) +
             (re_buf_size(*cc_tree_in, re_compcc_node) >> 1)))))
     return err;
-  memset(cc_ht_out->_ptr, 0, cc_ht_out->alloc);
+  memset(cc_ht_out->ptr, 0, cc_ht_out->alloc);
   return 0;
 }
 
@@ -1700,7 +1719,7 @@ static int re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf *cc_out);
 static int re_compcc(re *r, u32 root, re_compframe *frame, int reversed)
 {
   int err = 0,
-      inverted = *re_ast_type_ref(r, frame->root_ref) == RE_AST_TYPE_ICLS,
+      inverted = *re_ast_type_ref(r, frame->root_ref) == RE_AST_TYPE_ICC,
       insensitive = !!(frame->flags & RE_GROUP_FLAG_INSENSITIVE);
   u32 start_pc = 0;
   re_buf_clear(&r->cc_stk_a), re_buf_clear(&r->cc_stk_b);
@@ -1871,7 +1890,7 @@ static int re_compile_internal(re *r, u32 root, u32 reverse)
         /* create temp ast */
         if (!tmp_cc_ast &&
             (err = re_ast_make(
-                 r, RE_AST_TYPE_CLS, RE_REF_NONE, 0, 0, &tmp_cc_ast)))
+                 r, RE_AST_TYPE_CC, RE_REF_NONE, 0, 0, &tmp_cc_ast)))
           return err;
         *re_ast_param_ref(r, tmp_cc_ast, 1) =
             *re_ast_param_ref(r, tmp_cc_ast, 2) = args[0];
@@ -2009,11 +2028,11 @@ static int re_compile_internal(re *r, u32 root, u32 reverse)
         } else
           re_patch_merge(r, &frame, &returned_frame);
       }
-    } else if (type == RE_AST_TYPE_CLS || type == RE_AST_TYPE_ICLS) {
+    } else if (type == RE_AST_TYPE_CC || type == RE_AST_TYPE_ICC) {
       re_patch_apply(r, &frame, my_pc);
       if ((err = re_compcc(r, frame.root_ref, &frame, reverse)))
         return err;
-    } else if (type == RE_AST_TYPE_AASSERT) {
+    } else if (type == RE_AST_TYPE_ASSERT) {
       u32 assert_flag = args[0];
       re_patch_apply(r, &frame, my_pc);
       if ((err = re_inst_emit(
@@ -2322,7 +2341,7 @@ static int re_bmp_init(const re *r, re_buf *b, u32 size)
   return err;
 }
 
-static void re_bmp_clear(re_buf *b) { memset(b->_ptr, 0, b->alloc); }
+static void re_bmp_clear(re_buf *b) { memset(b->ptr, 0, b->alloc); }
 
 static void re_bmp_set(re_buf *b, u32 idx)
 {
@@ -3398,10 +3417,10 @@ void d_ast_i(re *r, u32 root, u32 ilvl, int format)
       : (first == RE_AST_TYPE_UQUANT)  ? (sub[0] = 0, "UQUANT")
       : (first == RE_AST_TYPE_GROUP)   ? (sub[0] = 0, "GROUP")
       : (first == RE_AST_TYPE_IGROUP)  ? (sub[0] = 0, "IGROUP")
-      : (first == RE_AST_TYPE_CLS)     ? (sub[0] = 0, "CLS")
-      : (first == RE_AST_TYPE_ICLS)    ? (sub[0] = 0, "ICLS")
+      : (first == RE_AST_TYPE_CC)      ? (sub[0] = 0, "CLS")
+      : (first == RE_AST_TYPE_ICC)     ? (sub[0] = 0, "ICLS")
       : (first == RE_AST_TYPE_ANYBYTE) ? "ANYBYTE"
-      : (first == RE_AST_TYPE_AASSERT) ? "AASSERT"
+      : (first == RE_AST_TYPE_ASSERT)  ? "ASSERT"
                                        : NULL;
   if (format == TERM) {
     printf("%04u ", root);
@@ -3419,7 +3438,7 @@ void d_ast_i(re *r, u32 root, u32 ilvl, int format)
     printf(
         "%s-%s", d_quant(buf, *re_ast_param_ref(r, root, 1)),
         d_quant(buf2, *re_ast_param_ref(r, root, 2)));
-  else if (first == RE_AST_TYPE_CLS || first == RE_AST_TYPE_ICLS)
+  else if (first == RE_AST_TYPE_CC || first == RE_AST_TYPE_ICC)
     printf(
         "%s-%s", d_chr_unicode(buf, *re_ast_param_ref(r, root, 1)),
         d_chr_unicode(buf2, *re_ast_param_ref(r, root, 2)));
