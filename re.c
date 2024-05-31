@@ -16,18 +16,23 @@
 #define RE_REF_NONE 0
 #define RE_UTF_MAX  0x10FFFF
 
-/* A general-purpose growable, generic buffer. */
-typedef struct re_buf {
-  char *ptr;
-  size_t size, alloc;
-} re_buf;
-
+/* Macro for declaring a buffer. Serves mostly for readability. */
 #define re_buf(x) x *
 
+/* Stack frame for the compiler, used to keep track of a single AST node being
+ * compiled. */
 typedef struct re_compframe {
-  u32 root_ref, child_ref, idx, patch_head, patch_tail, pc, flags, set_idx;
+  u32 root_ref,   /* reference to the AST node being compiled */
+      child_ref,  /* reference to the child AST node to be compiled next */
+      idx,        /* used keep track of repetition index */
+      patch_head, /* head of the outgoing patch linked list */
+      patch_tail, /* tail of the outgoing patch linked list */
+      pc,         /* location of first instruction compiled for this node */
+      flags,      /* group flags in effect (INSENSITIVE, etc.) */
+      set_idx;    /* index of the current pattern being compiled */
 } re_compframe;
 
+/* Compiled program instruction. */
 typedef struct re_inst {
   u32 l, h;
 } re_inst;
@@ -37,31 +42,13 @@ typedef struct re_rune_range {
   u32 l, h;
 } re_rune_range;
 
+/* Tree node for the character class compiler. */
 typedef struct re_compcc_tree {
-  u32 range, child_ref, sibling_ref, aux;
+  u32 range,       /* range of bytes this node matches */
+      child_ref,   /* concatenation */
+      sibling_ref, /* alternation */
+      aux;         /* node hash OR cached PC TODO: replace with union */
 } re_compcc_tree;
-
-/* A set of regular expressions. */
-struct re {
-  re_alloc alloc;
-  re_buf(u32) ast;
-  u32 ast_root, ast_sets;
-  re_buf(u32) arg_stk;
-  re_buf(u32) op_stk;
-  re_buf(re_compframe) comp_stk;
-  re_buf(re_inst) prog;
-  re_buf(u32) prog_set_idxs;
-  re_buf(re_rune_range) compcc_ranges;
-  re_buf(re_rune_range) compcc_ranges_2;
-  re_buf(re_compcc_tree) compcc_tree;
-  re_buf(re_compcc_tree) compcc_tree_2;
-  re_buf(u32) compcc_hash;
-  u32 entry[4];
-  const u8 *expr;
-  size_t expr_pos, expr_size;
-  const char *error;
-  size_t error_pos;
-};
 
 /* Bit flags to identify program entry points in the `entry` field of `re`. */
 typedef enum re_prog_entry {
@@ -69,6 +56,30 @@ typedef enum re_prog_entry {
   RE_PROG_ENTRY_DOTSTAR = 2,
   RE_PROG_ENTRY_MAX = 4
 } re_prog_entry;
+
+/* A set of regular expressions. */
+struct re {
+  re_alloc alloc;                /* allocator function */
+  re_buf(u32) ast;               /* AST arena */
+  u32 ast_root,                  /* AST root node reference */
+      ast_sets;                  /* number of subpatterns */
+  re_buf(u32) arg_stk;           /* parser argument stack */
+  re_buf(u32) op_stk;            /* parser operator stack */
+  re_buf(re_compframe) comp_stk; /* compiler frame stack (see re_compframe) */
+  re_buf(re_inst) prog;          /* compiled program */
+  re_buf(u32) prog_set_idxs;     /* pattern index for each instruction */
+  re_buf(re_rune_range) compcc_ranges;
+  re_buf(re_rune_range) compcc_ranges_2;
+  re_buf(re_compcc_tree) compcc_tree;
+  re_buf(re_compcc_tree) compcc_tree_2;
+  re_buf(u32) compcc_hash;
+  u32 entry[RE_PROG_ENTRY_MAX]; /* program entrypoints (see RE_PROG_ENTRY) */
+  const u8 *expr;               /* input parser expression */
+  size_t expr_pos,              /* current position in expr */
+      expr_size;                /* number of bytes in expr */
+  const char *error;            /* error message, if any */
+  size_t error_pos;             /* position the error was encountered in expr */
+};
 
 /* Helper macro for assertions. */
 #define RE_IMPLIES(subj, pred) (!(subj) || (pred))
@@ -119,52 +130,49 @@ typedef struct re_buf_hdr {
   size_t size, alloc;
 } re_buf_hdr;
 
+re_buf_hdr re_buf_sentinel = {0};
+
 re_buf_hdr *re_buf_get_hdr(void *buf) { return ((re_buf_hdr *)buf) - 1; }
 
-size_t re_buf_size_t(void *buf) { return buf ? re_buf_get_hdr(buf)->size : 0; }
+size_t re_buf_size_t(void *buf) { return re_buf_get_hdr(buf)->size; }
 
 static int re_buf_reserve_t(const re *r, void **buf, size_t size)
 {
   re_buf_hdr *hdr = NULL;
-  assert(buf);
-  if (!*buf) {
-    hdr = re_ialloc(r, 0, sizeof(re_buf_hdr) + size, NULL);
-    if (!hdr)
-      return ERR_MEM;
-    hdr->alloc = hdr->size = size;
-    *buf = hdr + 1;
-  } else {
-    size_t next_alloc;
-    void *next_ptr;
-    hdr = re_buf_get_hdr(*buf);
-    next_alloc = hdr->alloc;
-    if (size <= hdr->alloc) {
-      hdr->size = size;
-      return 0;
-    }
-    while (next_alloc < size)
-      next_alloc *= 2;
-    next_ptr = re_ialloc(
-        r, sizeof(re_buf_hdr) + hdr->alloc, sizeof(re_buf_hdr) + next_alloc,
-        hdr);
-    if (!next_ptr)
-      return ERR_MEM;
-    hdr = next_ptr;
-    hdr->alloc = next_alloc;
+  size_t next_alloc;
+  void *next_ptr;
+  assert(buf && *buf);
+  hdr = re_buf_get_hdr(*buf);
+  next_alloc = hdr->alloc ? hdr->alloc : 1;
+  if (size <= hdr->alloc) {
     hdr->size = size;
-    *buf = hdr + 1;
+    return 0;
   }
+  while (next_alloc < size)
+    next_alloc *= 2;
+  next_ptr = re_ialloc(
+      r,
+      hdr->alloc ? sizeof(re_buf_hdr) + hdr->alloc : 0 /* handles sentinel */,
+      sizeof(re_buf_hdr) + next_alloc,
+      hdr->alloc ? hdr : NULL /* handles sentinel */);
+  if (!next_ptr)
+    return ERR_MEM;
+  hdr = next_ptr;
+  hdr->alloc = next_alloc;
+  hdr->size = size;
+  *buf = hdr + 1;
   return 0;
 }
+
+static void re_buf_init_t(void **b) { *b = &re_buf_sentinel + 1; }
 
 static void re_buf_destroy_t(const re *r, void **buf)
 {
   re_buf_hdr *hdr;
-  assert(buf);
-  if (!*buf)
-    return;
+  assert(buf && *buf);
   hdr = re_buf_get_hdr(*buf);
-  re_ialloc(r, sizeof(*hdr) + hdr->alloc, 0, hdr);
+  if (hdr->alloc)
+    re_ialloc(r, sizeof(*hdr) + hdr->alloc, 0, hdr);
 }
 
 static int re_buf_grow_t(const re *r, void **buf, size_t incr)
@@ -200,7 +208,8 @@ void re_buf_clear(void *buf)
   re_buf_get_hdr(sbuf)->size = 0;
 }
 
-#define re_buf_esz(b) sizeof(**(b))
+#define re_buf_init(b) re_buf_init_t((void **)b)
+#define re_buf_esz(b)  sizeof(**(b))
 #define re_buf_push(r, b, e)                                                   \
   (re_buf_grow_t((r), (void **)(b), re_buf_esz(b))                             \
        ? ERR_MEM                                                               \
@@ -240,14 +249,13 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
   if (!r)
     return (err = ERR_MEM);
   r->alloc = alloc;
-  r->ast = NULL;
+  re_buf_init(&r->ast);
   r->ast_root = r->ast_sets = 0;
-  r->arg_stk = r->op_stk = NULL, r->comp_stk = NULL;
-  r->compcc_ranges = NULL, r->compcc_tree = NULL;
-  r->compcc_ranges_2 = NULL, r->compcc_tree_2 = NULL;
-  r->compcc_hash = NULL;
-  r->prog = NULL;
-  r->prog_set_idxs = NULL;
+  re_buf_init(&r->arg_stk), re_buf_init(&r->op_stk), re_buf_init(&r->comp_stk);
+  re_buf_init(&r->compcc_ranges), re_buf_init(&r->compcc_tree),
+      re_buf_init(&r->compcc_ranges_2), re_buf_init(&r->compcc_tree_2),
+      re_buf_init(&r->compcc_hash);
+  re_buf_init(&r->prog), re_buf_init(&r->prog_set_idxs);
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
     if ((err = re_parse(r, (const u8 *)regex, n, &r->ast_root))) {
@@ -2350,10 +2358,10 @@ struct re_exec {
 static void re_nfa_init(re_nfa *n)
 {
   re_sset_init(&n->a), re_sset_init(&n->b), re_sset_init(&n->c);
-  n->thrd_stk = NULL;
+  re_buf_init(&n->thrd_stk);
   re_save_slots_init(&n->slots);
-  n->pri_stk = NULL;
-  n->pri_bmp_tmp = NULL;
+  re_buf_init(&n->pri_stk);
+  re_buf_init(&n->pri_bmp_tmp);
   n->reversed = 0;
 }
 
@@ -2629,7 +2637,7 @@ static void re_dfa_init(re_dfa *d)
   d->states = NULL;
   d->states_size = d->num_active_states = 0;
   memset(d->entry, 0, sizeof(d->entry));
-  d->set_buf = NULL, d->loc_buf = NULL, d->set_bmp = NULL;
+  re_buf_init(&d->set_buf), re_buf_init(&d->loc_buf), re_buf_init(&d->set_bmp);
 }
 
 static void re_dfa_reset(re_dfa *d)
