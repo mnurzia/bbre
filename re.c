@@ -22,7 +22,7 @@ typedef struct re_buf {
   size_t size, alloc;
 } re_buf;
 
-#define re_buf2(x) x *
+#define re_buf(x) x *
 
 typedef struct re_compframe {
   u32 root_ref, child_ref, idx, patch_head, patch_tail, pc, flags, set_idx;
@@ -44,18 +44,18 @@ typedef struct re_compcc_tree {
 /* A set of regular expressions. */
 struct re {
   re_alloc alloc;
-  re_buf2(u32) ast;
+  re_buf(u32) ast;
   u32 ast_root, ast_sets;
-  re_buf2(u32) arg_stk;
-  re_buf2(u32) op_stk;
-  re_buf2(re_compframe) comp_stk;
-  re_buf2(re_inst) prog;
-  re_buf2(u32) prog_set_idxs;
-  re_buf2(re_rune_range) compcc_ranges;
-  re_buf2(re_rune_range) compcc_ranges_2;
-  re_buf2(re_compcc_tree) compcc_tree;
-  re_buf2(re_compcc_tree) compcc_tree_2;
-  re_buf2(u32) compcc_hash;
+  re_buf(u32) arg_stk;
+  re_buf(u32) op_stk;
+  re_buf(re_compframe) comp_stk;
+  re_buf(re_inst) prog;
+  re_buf(u32) prog_set_idxs;
+  re_buf(re_rune_range) compcc_ranges;
+  re_buf(re_rune_range) compcc_ranges_2;
+  re_buf(re_compcc_tree) compcc_tree;
+  re_buf(re_compcc_tree) compcc_tree_2;
+  re_buf(u32) compcc_hash;
   u32 entry[4];
   const u8 *expr;
   size_t expr_pos, expr_size;
@@ -115,23 +115,20 @@ static void *re_default_alloc(
  * These declarations could be rolled into a macro, but that just makes Problem
  * 1 worse. */
 
-typedef struct re_buf2_hdr {
+typedef struct re_buf_hdr {
   size_t size, alloc;
-} re_buf2_hdr;
+} re_buf_hdr;
 
-re_buf2_hdr *re_buf2_get_hdr(void *buf) { return ((re_buf2_hdr *)buf) - 1; }
+re_buf_hdr *re_buf_get_hdr(void *buf) { return ((re_buf_hdr *)buf) - 1; }
 
-size_t re_buf2_size_t(void *buf)
+size_t re_buf_size_t(void *buf) { return buf ? re_buf_get_hdr(buf)->size : 0; }
+
+static int re_buf_reserve_t(const re *r, void **buf, size_t size)
 {
-  return buf ? re_buf2_get_hdr(buf)->size : 0;
-}
-
-static int re_buf2_reserve_t(const re *r, void **buf, size_t size)
-{
-  re_buf2_hdr *hdr = NULL;
+  re_buf_hdr *hdr = NULL;
   assert(buf);
   if (!*buf) {
-    hdr = re_ialloc(r, 0, sizeof(re_buf2_hdr) + size, NULL);
+    hdr = re_ialloc(r, 0, sizeof(re_buf_hdr) + size, NULL);
     if (!hdr)
       return ERR_MEM;
     hdr->alloc = hdr->size = size;
@@ -139,7 +136,7 @@ static int re_buf2_reserve_t(const re *r, void **buf, size_t size)
   } else {
     size_t next_alloc;
     void *next_ptr;
-    hdr = re_buf2_get_hdr(*buf);
+    hdr = re_buf_get_hdr(*buf);
     next_alloc = hdr->alloc;
     if (size <= hdr->alloc) {
       hdr->size = size;
@@ -148,7 +145,7 @@ static int re_buf2_reserve_t(const re *r, void **buf, size_t size)
     while (next_alloc < size)
       next_alloc *= 2;
     next_ptr = re_ialloc(
-        r, sizeof(re_buf2_hdr) + hdr->alloc, sizeof(re_buf2_hdr) + next_alloc,
+        r, sizeof(re_buf_hdr) + hdr->alloc, sizeof(re_buf_hdr) + next_alloc,
         hdr);
     if (!next_ptr)
       return ERR_MEM;
@@ -160,65 +157,64 @@ static int re_buf2_reserve_t(const re *r, void **buf, size_t size)
   return 0;
 }
 
-static void re_buf2_destroy_t(const re *r, void **buf)
+static void re_buf_destroy_t(const re *r, void **buf)
 {
-  re_buf2_hdr *hdr;
+  re_buf_hdr *hdr;
   assert(buf);
   if (!*buf)
     return;
-  hdr = re_buf2_get_hdr(*buf);
+  hdr = re_buf_get_hdr(*buf);
   re_ialloc(r, sizeof(*hdr) + hdr->alloc, 0, hdr);
 }
 
-static int re_buf2_grow_t(const re *r, void **buf, size_t incr)
+static int re_buf_grow_t(const re *r, void **buf, size_t incr)
 {
   assert(buf);
-  return re_buf2_reserve_t(r, buf, re_buf2_size_t(*buf) + incr);
+  return re_buf_reserve_t(r, buf, re_buf_size_t(*buf) + incr);
 }
 
-static size_t re_buf2_tail_t(void *buf, size_t decr)
+static size_t re_buf_tail_t(void *buf, size_t decr)
 {
-  return re_buf2_get_hdr(buf)->size - decr;
+  return re_buf_get_hdr(buf)->size - decr;
 }
 
-size_t re_buf2_pop_t(void *buf, size_t decr)
+size_t re_buf_pop_t(void *buf, size_t decr)
 {
   size_t out;
-  re_buf2_hdr *hdr;
+  re_buf_hdr *hdr;
   assert(buf);
-  out = re_buf2_tail_t(buf, decr);
-  hdr = re_buf2_get_hdr(buf);
+  out = re_buf_tail_t(buf, decr);
+  hdr = re_buf_get_hdr(buf);
   assert(hdr->size >= decr);
   hdr->size -= decr;
   return out;
 }
 
-void re_buf2_clear(void *buf)
+void re_buf_clear(void *buf)
 {
   void *sbuf;
   assert(buf);
   sbuf = *(void **)buf;
   if (!sbuf)
     return;
-  re_buf2_get_hdr(sbuf)->size = 0;
+  re_buf_get_hdr(sbuf)->size = 0;
 }
 
-#define re_buf2_esz(b) sizeof(**(b))
-#define re_buf2_push(r, b, e)                                                  \
-  (re_buf2_grow_t((r), (void **)(b), re_buf2_esz(b))                           \
+#define re_buf_esz(b) sizeof(**(b))
+#define re_buf_push(r, b, e)                                                   \
+  (re_buf_grow_t((r), (void **)(b), re_buf_esz(b))                             \
        ? ERR_MEM                                                               \
-       : (((*b)                                                                \
-               [re_buf2_tail_t((void *)(*b), re_buf2_esz(b)) /                 \
-                re_buf2_esz(b)]) = (e),                                        \
+       : (((*b)[re_buf_tail_t((void *)(*b), re_buf_esz(b)) / re_buf_esz(b)]) = \
+              (e),                                                             \
           0))
-#define re_buf2_reserve(r, b, n)                                               \
-  (re_buf2_reserve_t(r, (void **)(b), re_buf2_esz(b) * (n)))
-#define re_buf2_pop(b)                                                         \
-  ((*b)[re_buf2_pop_t((void *)(*b), re_buf2_esz(b)) / re_buf2_esz(b)])
-#define re_buf2_peek(b, n)                                                     \
-  ((*b) + re_buf2_tail_t((void *)(*b), re_buf2_esz(b)) / re_buf2_esz(b) - (n))
-#define re_buf2_size(b)       (re_buf2_size_t((void *)(b)) / sizeof(*(b)))
-#define re_buf2_destroy(r, b) (re_buf2_destroy_t((r), (void **)(b)))
+#define re_buf_reserve(r, b, n)                                                \
+  (re_buf_reserve_t(r, (void **)(b), re_buf_esz(b) * (n)))
+#define re_buf_pop(b)                                                          \
+  ((*b)[re_buf_pop_t((void *)(*b), re_buf_esz(b)) / re_buf_esz(b)])
+#define re_buf_peek(b, n)                                                      \
+  ((*b) + re_buf_tail_t((void *)(*b), re_buf_esz(b)) / re_buf_esz(b) - (n))
+#define re_buf_size(b)       (re_buf_size_t((void *)(b)) / sizeof(*(b)))
+#define re_buf_destroy(r, b) (re_buf_destroy_t((r), (void **)(b)))
 
 static int re_parse(re *r, const u8 *s, size_t sz, u32 *root);
 
@@ -267,16 +263,14 @@ void re_destroy(re *r)
 {
   if (!r)
     return;
-  re_buf2_destroy(r, (void **)&r->ast);
-  re_buf2_destroy(r, &r->op_stk), re_buf2_destroy(r, &r->arg_stk),
-      re_buf2_destroy(r, &r->comp_stk);
-  re_buf2_destroy(r, &r->compcc_ranges),
-      re_buf2_destroy(r, &r->compcc_ranges_2),
-      re_buf2_destroy(r, &r->compcc_tree),
-      re_buf2_destroy(r, &r->compcc_tree_2),
-      re_buf2_destroy(r, &r->compcc_hash);
-  re_buf2_destroy(r, &r->prog);
-  re_buf2_destroy(r, (void **)&r->prog_set_idxs);
+  re_buf_destroy(r, (void **)&r->ast);
+  re_buf_destroy(r, &r->op_stk), re_buf_destroy(r, &r->arg_stk),
+      re_buf_destroy(r, &r->comp_stk);
+  re_buf_destroy(r, &r->compcc_ranges), re_buf_destroy(r, &r->compcc_ranges_2),
+      re_buf_destroy(r, &r->compcc_tree), re_buf_destroy(r, &r->compcc_tree_2),
+      re_buf_destroy(r, &r->compcc_hash);
+  re_buf_destroy(r, &r->prog);
+  re_buf_destroy(r, (void **)&r->prog_set_idxs);
   r->alloc(sizeof(*r), 0, r, __FILE__, __LINE__);
 }
 
@@ -407,12 +401,12 @@ re_ast_make(re *r, re_ast_type type, u32 p0, u32 p1, u32 p2, u32 *out_node)
   u32 args[4], i;
   int err;
   args[0] = type, args[1] = p0, args[2] = p1, args[3] = p2;
-  if (type && !re_buf2_size(r->ast) &&
+  if (type && !re_buf_size(r->ast) &&
       (err = re_ast_make(r, 0, 0, 0, 0, out_node))) /* sentinel node */
     return err;
-  *out_node = re_buf2_size(r->ast);
+  *out_node = re_buf_size(r->ast);
   for (i = 0; i < 1 + re_ast_type_lens[type]; i++)
-    if ((err = re_buf2_push(r, &r->ast, args[i])))
+    if ((err = re_buf_push(r, &r->ast, args[i])))
       return err;
   return 0;
 }
@@ -558,19 +552,19 @@ static u32 re_peek_next_new(re *r)
 static int re_fold(re *r)
 {
   int err = 0;
-  if (!re_buf2_size(r->arg_stk)) {
+  if (!re_buf_size(r->arg_stk)) {
     /* arg_stk: | */
-    return re_buf2_push(r, &r->arg_stk, RE_REF_NONE);
+    return re_buf_push(r, &r->arg_stk, RE_REF_NONE);
     /* arg_stk: | eps |*/
   }
-  while (re_buf2_size(r->arg_stk) > 1) {
+  while (re_buf_size(r->arg_stk) > 1) {
     /* arg_stk: | ... | R_N-1 | R_N | */
     u32 right, left, rest;
-    right = re_buf2_pop(&r->arg_stk);
-    left = *re_buf2_peek(&r->arg_stk, 0);
+    right = re_buf_pop(&r->arg_stk);
+    left = *re_buf_peek(&r->arg_stk, 0);
     if ((err = re_ast_make(r, RE_AST_TYPE_CAT, left, right, 0, &rest)))
       return err;
-    *re_buf2_peek(&r->arg_stk, 0) = rest;
+    *re_buf_peek(&r->arg_stk, 0) = rest;
     /* arg_stk: | ... | R_N-1R_N | */
   }
   /* arg_stk: | R1R2...Rn | */
@@ -583,49 +577,49 @@ static int re_fold(re *r)
  * Returns `ERR_MEM` if out of memory. */
 static void re_fold_alts(re *r, u32 *flags)
 {
-  assert(re_buf2_size(r->arg_stk) == 1);
+  assert(re_buf_size(r->arg_stk) == 1);
   /* First pop all inline groups. */
-  while (re_buf2_size(r->op_stk) &&
-         *re_ast_type_ref(r, *re_buf2_peek(&r->op_stk, 0)) ==
+  while (re_buf_size(r->op_stk) &&
+         *re_ast_type_ref(r, *re_buf_peek(&r->op_stk, 0)) ==
              RE_AST_TYPE_IGROUP) {
     /* arg_stk: |  R  | */
     /* op_stk:  | ... | (S) | */
-    u32 igrp = re_buf2_pop(&r->op_stk), cat = *re_ast_param_ref(r, igrp, 0),
+    u32 igrp = re_buf_pop(&r->op_stk), cat = *re_ast_param_ref(r, igrp, 0),
         old_flags = *re_ast_param_ref(r, igrp, 2);
-    *re_ast_param_ref(r, igrp, 0) = *re_buf2_peek(&r->arg_stk, 0);
+    *re_ast_param_ref(r, igrp, 0) = *re_buf_peek(&r->arg_stk, 0);
     *flags = old_flags;
     *re_ast_param_ref(r, cat, 1) = igrp;
-    *re_buf2_peek(&r->arg_stk, 0) = cat;
+    *re_buf_peek(&r->arg_stk, 0) = cat;
     /* arg_stk: | S(R)| */
     /* op_stk:  | ... | */
   }
-  assert(re_buf2_size(r->arg_stk) == 1);
+  assert(re_buf_size(r->arg_stk) == 1);
   /* arg_stk: |  R  | */
   /* op_stk:  | ... | */
-  if (re_buf2_size(r->op_stk) &&
-      *re_ast_type_ref(r, *re_buf2_peek(&r->op_stk, 0)) == RE_AST_TYPE_ALT) {
+  if (re_buf_size(r->op_stk) &&
+      *re_ast_type_ref(r, *re_buf_peek(&r->op_stk, 0)) == RE_AST_TYPE_ALT) {
     /* op_stk:  | ... |  A  | */
     /* finish the last alt */
-    *re_ast_param_ref(r, *re_buf2_peek(&r->op_stk, 0), 1) =
-        *re_buf2_peek(&r->arg_stk, 0);
+    *re_ast_param_ref(r, *re_buf_peek(&r->op_stk, 0), 1) =
+        *re_buf_peek(&r->arg_stk, 0);
     /* arg_stk: | */
     /* op_stk:  | ... | */
-    while (re_buf2_size(r->op_stk) > 1 &&
-           *re_ast_type_ref(r, *re_buf2_peek(&r->op_stk, 1)) ==
+    while (re_buf_size(r->op_stk) > 1 &&
+           *re_ast_type_ref(r, *re_buf_peek(&r->op_stk, 1)) ==
                RE_AST_TYPE_ALT) {
       /* op_stk:  | ... | A_1 | A_2 | */
-      u32 right = re_buf2_pop(&r->op_stk), left = *re_buf2_peek(&r->op_stk, 0);
+      u32 right = re_buf_pop(&r->op_stk), left = *re_buf_peek(&r->op_stk, 0);
       *re_ast_param_ref(r, left, 1) = right;
-      *re_buf2_peek(&r->op_stk, 0) = left;
+      *re_buf_peek(&r->op_stk, 0) = left;
       /* op_stk:  | ... | A_1(|A_2) | */
     }
     /* op_stk:  | ... |  A  | */
-    assert(re_buf2_size(r->arg_stk) == 1);
-    *re_buf2_peek(&r->arg_stk, 0) = re_buf2_pop(&r->op_stk);
+    assert(re_buf_size(r->arg_stk) == 1);
+    *re_buf_peek(&r->arg_stk, 0) = re_buf_pop(&r->op_stk);
     /* arg_stk: |  A  | */
     /* op_stk:  | ... | */
   }
-  assert(re_buf2_size(r->arg_stk) == 1);
+  assert(re_buf_size(r->arg_stk) == 1);
 }
 
 /* Add the CLS node `rest` to the CLS node `first`. */
@@ -652,7 +646,7 @@ static int re_parse_escape_addchr(re *r, u32 ch, u32 allowed_outputs)
   (void)allowed_outputs, assert(allowed_outputs & (1 << RE_AST_TYPE_CHR));
   args[0] = ch;
   if ((err = re_ast_make(r, RE_AST_TYPE_CHR, ch, 0, 0, &res)) ||
-      (err = re_buf2_push(r, &r->arg_stk, res)))
+      (err = re_buf_push(r, &r->arg_stk, res)))
     return err;
   return 0;
 }
@@ -724,7 +718,7 @@ static int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert)
   if (invert && (err = re_ast_make(
                      r, RE_AST_TYPE_CC, res, cur_max + 1, RE_UTF_MAX, &res)))
     return err;
-  if ((err = re_buf2_push(r, &r->arg_stk, res)))
+  if ((err = re_buf_push(r, &r->arg_stk, res)))
     return err;
   return 0;
 }
@@ -806,7 +800,7 @@ static int re_parse_escape(re *r, u32 allowed_outputs)
     if (!(allowed_outputs & (1 << RE_AST_TYPE_ANYBYTE)))
       return re_parse_err(r, "cannot use \\C here");
     if ((err = re_ast_make(r, RE_AST_TYPE_ANYBYTE, 0, 0, 0, &res)) ||
-        (err = re_buf2_push(r, &r->arg_stk, res)))
+        (err = re_buf_push(r, &r->arg_stk, res)))
       return err;
   } else if (ch == 'Q') { /* quote string */
     u32 cat = RE_REF_NONE, chr = RE_REF_NONE;
@@ -819,7 +813,7 @@ static int re_parse_escape(re *r, u32 allowed_outputs)
         if (ch == 'E') {
           ch = re_parse_next(r);
           assert(ch == 'E');
-          return re_buf2_push(r, &r->arg_stk, cat);
+          return re_buf_push(r, &r->arg_stk, cat);
         } else if (ch == '\\') {
           ch = re_parse_next(r);
           assert(ch == '\\');
@@ -832,7 +826,7 @@ static int re_parse_escape(re *r, u32 allowed_outputs)
       if ((err = re_ast_make(r, RE_AST_TYPE_CAT, cat, chr, 0, &cat)))
         return err;
     }
-    if ((err = re_buf2_push(r, &r->arg_stk, cat)))
+    if ((err = re_buf_push(r, &r->arg_stk, cat)))
       return err;
   } else if (
       ch == 'D' || ch == 'd' || ch == 'S' || ch == 's' || ch == 'W' ||
@@ -860,7 +854,7 @@ static int re_parse_escape(re *r, u32 allowed_outputs)
              : ch == 'B' ? RE_ASSERT_NOT_WORD
                          : RE_ASSERT_WORD,
              0, 0, &res)) ||
-        (err = re_buf2_push(r, &r->arg_stk, res)))
+        (err = re_buf_push(r, &r->arg_stk, res)))
       return err;
   } else {
     return re_parse_err(r, "invalid escape sequence");
@@ -899,16 +893,16 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       u32 q = ch, greedy = 1;
       /* arg_stk: | ... |  R  | */
       /* pop one from arg stk, create quant, push to arg stk */
-      if (!re_buf2_size(r->arg_stk))
+      if (!re_buf_size(r->arg_stk))
         return re_parse_err(r, "cannot apply quantifier to empty regex");
       if (re_parse_has_more(r) && re_peek_next_new(r) == '?')
         re_parse_next(r), greedy = 0;
       if ((err = re_ast_make(
                r, greedy ? RE_AST_TYPE_QUANT : RE_AST_TYPE_UQUANT,
-               *re_buf2_peek(&r->arg_stk, 0) /* child */, q == '+' /* min */,
+               *re_buf_peek(&r->arg_stk, 0) /* child */, q == '+' /* min */,
                q == '?' ? 1 : RE_INFTY /* max */, &res)))
         return err;
-      *re_buf2_peek(&r->arg_stk, 0) = res;
+      *re_buf_peek(&r->arg_stk, 0) = res;
       /* arg_stk: | ... | *(R) | */
     } else if (ch == '|') {
       /* fold the arg stk into a concat, create alt, push it to the arg stk */
@@ -918,9 +912,9 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         return err;
       /* arg_stk: |  R  | */
       if ((err = re_ast_make(
-               r, RE_AST_TYPE_ALT, re_buf2_pop(&r->arg_stk) /* left */,
+               r, RE_AST_TYPE_ALT, re_buf_pop(&r->arg_stk) /* left */,
                RE_REF_NONE /* right */, 0, &res)) ||
-          (err = re_buf2_push(r, &r->op_stk, res)))
+          (err = re_buf_push(r, &r->op_stk, res)))
         return err;
       /* arg_stk: | */
       /* op_stk:  | ... | R(|) | */
@@ -986,7 +980,7 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* arg_stk: | R_1 | R_2 | ... | R_N | */
       if ((err = re_fold(r)))
         return err;
-      child = re_buf2_pop(&r->arg_stk);
+      child = re_buf_pop(&r->arg_stk);
       if (inline_group &&
           (err = re_ast_make(r, RE_AST_TYPE_CAT, child, 0, 0, &child)))
         return err;
@@ -994,7 +988,7 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       if ((err = re_ast_make(
                r, inline_group ? RE_AST_TYPE_IGROUP : RE_AST_TYPE_GROUP, child,
                flags, old_flags, &res)) ||
-          (err = re_buf2_push(r, &r->op_stk, res)))
+          (err = re_buf_push(r, &r->op_stk, res)))
         return err;
       /* op_stk:  | ... | (R) | */
     } else if (ch == ')') {
@@ -1007,22 +1001,22 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         return err;
       re_fold_alts(r, &flags);
       /* arg_stk has one value */
-      assert(re_buf2_size(r->arg_stk) == 1);
-      if (!re_buf2_size(r->op_stk))
+      assert(re_buf_size(r->arg_stk) == 1);
+      if (!re_buf_size(r->op_stk))
         return re_parse_err(r, "extra close parenthesis");
       /* arg_stk: |  S  | */
       /* op_stk:  | ... | (R) | */
-      grp = *re_buf2_peek(&r->op_stk, 0);
+      grp = *re_buf_peek(&r->op_stk, 0);
       /* retrieve the previous contents of arg_stk */
       prev = *re_ast_param_ref(r, grp, 0);
       /* add it to the group */
-      *(re_ast_param_ref(r, grp, 0)) = *re_buf2_peek(&r->arg_stk, 0);
+      *(re_ast_param_ref(r, grp, 0)) = *re_buf_peek(&r->arg_stk, 0);
       /* restore group flags */
       flags = *(re_ast_param_ref(r, grp, 2));
       /* push the saved contents of arg_stk */
-      *re_buf2_peek(&r->arg_stk, 0) = prev;
+      *re_buf_peek(&r->arg_stk, 0) = prev;
       /* pop the group frame into arg_stk */
-      if ((err = re_buf2_push(r, &r->arg_stk, re_buf2_pop(&r->op_stk))))
+      if ((err = re_buf_push(r, &r->arg_stk, re_buf_pop(&r->op_stk))))
         return err;
       /* arg_stk: |  R  | (S) | */
       /* op_stk:  | ... | */
@@ -1036,7 +1030,7 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
                  r, RE_AST_TYPE_CC, RE_REF_NONE, 0, '\n' - 1, &res)) ||
             (err = re_ast_make(
                  r, RE_AST_TYPE_CC, res, '\n' + 1, RE_UTF_MAX, &res)))) ||
-          (err = re_buf2_push(r, &r->arg_stk, res)))
+          (err = re_buf_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... |  .  | */
     } else if (ch == '[') { /* charclass */
@@ -1062,7 +1056,7 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
           if ((err = re_parse_escape(
                    r, (1 << RE_AST_TYPE_CHR) | (1 << RE_AST_TYPE_CC))))
             return err;
-          next = re_buf2_pop(&r->arg_stk);
+          next = re_buf_pop(&r->arg_stk);
           assert(
               *re_ast_type_ref(r, next) == RE_AST_TYPE_CHR ||
               *re_ast_type_ref(r, next) == RE_AST_TYPE_CC);
@@ -1107,7 +1101,7 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
                    r, r->expr + name_start, (name_end - name_start),
                    named_inverted)))
             return err;
-          next = re_buf2_pop(&r->arg_stk);
+          next = re_buf_pop(&r->arg_stk);
           assert(next && *re_ast_type_ref(r, next) == RE_AST_TYPE_CC);
           res = re_ast_cls_union(r, res, next);
           continue;
@@ -1121,7 +1115,7 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
           if (ch == '\\') { /* start of escape */
             if ((err = re_parse_escape(r, (1 << RE_AST_TYPE_CHR))))
               return err;
-            next = re_buf2_pop(&r->arg_stk);
+            next = re_buf_pop(&r->arg_stk);
             assert(*re_ast_type_ref(r, next) == RE_AST_TYPE_CHR);
             max = *re_ast_param_ref(r, next, 0);
           } else {
@@ -1134,7 +1128,7 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       assert(res);  /* charclass cannot be empty */
       if (inverted) /* inverted character class */
         *re_ast_type_ref(r, res) = RE_AST_TYPE_ICC;
-      if ((err = re_buf2_push(r, &r->arg_stk, res)))
+      if ((err = re_buf_push(r, &r->arg_stk, res)))
         return err;
     } else if (ch == '\\') { /* escape */
       if ((err = re_parse_escape(
@@ -1169,13 +1163,13 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         }
       } else
         return re_parse_err(r, "expected } or , for repetition expression");
-      if (!re_buf2_size(r->arg_stk))
+      if (!re_buf_size(r->arg_stk))
         return re_parse_err(r, "cannot apply quantifier to empty regex");
       if ((err = re_ast_make(
-               r, RE_AST_TYPE_QUANT, *re_buf2_peek(&r->arg_stk, 0), min, max,
+               r, RE_AST_TYPE_QUANT, *re_buf_peek(&r->arg_stk, 0), min, max,
                &res)))
         return err;
-      *re_buf2_peek(&r->arg_stk, 0) = res;
+      *re_buf_peek(&r->arg_stk, 0) = res;
     } else if (ch == '^' || ch == '$') { /* beginning/end of text/line */
       if ((err = re_ast_make(
                r, RE_AST_TYPE_ASSERT,
@@ -1185,12 +1179,12 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
                    : (flags & RE_GROUP_FLAG_MULTILINE ? RE_ASSERT_LINE_END
                                                       : RE_ASSERT_TEXT_END),
                0, 0, &res)) ||
-          (err = re_buf2_push(r, &r->arg_stk, res)))
+          (err = re_buf_push(r, &r->arg_stk, res)))
         return err;
     } else { /* char: push to the arg stk */
       /* arg_stk: | ... | */
       if ((err = re_ast_make(r, RE_AST_TYPE_CHR, ch, 0, 0, &res)) ||
-          (err = re_buf2_push(r, &r->arg_stk, res)))
+          (err = re_buf_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... | chr | */
     }
@@ -1198,10 +1192,10 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
   if ((err = re_fold(r)))
     return err;
   re_fold_alts(r, &flags);
-  if (re_buf2_size(r->op_stk))
+  if (re_buf_size(r->op_stk))
     return re_parse_err(r, "unmatched open parenthesis");
   if ((err = re_ast_make(
-           r, RE_AST_TYPE_GROUP, re_buf2_pop(&r->arg_stk),
+           r, RE_AST_TYPE_GROUP, re_buf_pop(&r->arg_stk),
            RE_GROUP_FLAG_SUBEXPRESSION, 0, root)))
     return err;
   return 0;
@@ -1246,7 +1240,7 @@ static void re_prog_set(re *r, u32 pc, re_inst i) { r->prog[pc] = i; }
 
 static re_inst re_prog_get(const re *r, u32 pc) { return r->prog[pc]; }
 
-static u32 re_prog_size(const re *r) { return re_buf2_size(r->prog); }
+static u32 re_prog_size(const re *r) { return re_buf_size(r->prog); }
 
 #define RE_PROG_MAX_INSTS 100000
 
@@ -1255,8 +1249,8 @@ static int re_inst_emit(re *r, re_inst i, re_compframe *frame)
   int err = 0;
   if (re_prog_size(r) == RE_PROG_MAX_INSTS)
     return ERR_LIMIT;
-  if ((err = re_buf2_push(r, &r->prog, i)) ||
-      (err = re_buf2_push(r, &r->prog_set_idxs, frame->set_idx)))
+  if ((err = re_buf_push(r, &r->prog, i)) ||
+      (err = re_buf_push(r, &r->prog_set_idxs, frame->set_idx)))
     return err;
   return err;
 }
@@ -1313,21 +1307,21 @@ static void re_patch_apply(re *r, re_compframe *p, u32 dest_pc)
   p->patch_head = p->patch_tail = RE_REF_NONE;
 }
 
-static u32 re_compcc_array_key(re_buf2(re_rune_range) cc, size_t idx)
+static u32 re_compcc_array_key(re_buf(re_rune_range) cc, size_t idx)
 {
   return cc[idx].l;
 }
 
-static void re_compcc_array_swap(re_buf2(re_rune_range) cc, size_t a, size_t b)
+static void re_compcc_array_swap(re_buf(re_rune_range) cc, size_t a, size_t b)
 {
   re_rune_range tmp = cc[a];
   cc[a] = cc[b];
   cc[b] = tmp;
 }
 
-static void re_compcc_hsort(re_buf2(re_rune_range) cc)
+static void re_compcc_hsort(re_buf(re_rune_range) cc)
 {
-  size_t end = re_buf2_size(cc), start = end >> 1, root, child;
+  size_t end = re_buf_size(cc), start = end >> 1, root, child;
   while (end > 1) {
     if (start)
       start--;
@@ -1348,24 +1342,24 @@ static void re_compcc_hsort(re_buf2(re_rune_range) cc)
 }
 
 static int re_compcc_tree_new(
-    re *r, re_buf2(re_compcc_tree) * cc_out, re_compcc_tree node, u32 *out)
+    re *r, re_buf(re_compcc_tree) * cc_out, re_compcc_tree node, u32 *out)
 {
   int err = 0;
-  if (!re_buf2_size(*cc_out)) {
+  if (!re_buf_size(*cc_out)) {
     re_compcc_tree sentinel = {0};
     /* need to create sentinel node */
-    if ((err = re_buf2_push(r, cc_out, sentinel)))
+    if ((err = re_buf_push(r, cc_out, sentinel)))
       return err;
   }
   if (out)
-    *out = re_buf2_size(*cc_out);
-  if ((err = re_buf2_push(r, cc_out, node)))
+    *out = re_buf_size(*cc_out);
+  if ((err = re_buf_push(r, cc_out, node)))
     return err;
   return 0;
 }
 
 static int re_compcc_tree_append(
-    re *r, re_buf2(re_compcc_tree) * cc, u32 range, u32 parent, u32 *out)
+    re *r, re_buf(re_compcc_tree) * cc, u32 range, u32 parent, u32 *out)
 {
   re_compcc_tree *parent_node, child_node = {0};
   u32 child_ref;
@@ -1385,7 +1379,7 @@ static int re_compcc_tree_append(
 }
 
 static int re_compcc_tree_build_one(
-    re *r, re_buf2(re_compcc_tree) * cc_out, u32 parent, u32 min, u32 max,
+    re *r, re_buf(re_compcc_tree) * cc_out, u32 parent, u32 min, u32 max,
     u32 x_bits, u32 y_bits)
 {
   u32 x_mask = (1 << x_bits) - 1, y_min = min >> x_bits, y_max = max >> x_bits,
@@ -1491,7 +1485,7 @@ static int re_compcc_tree_build_one(
  * 2 sibling
  * 3 hash of this node and its descendants */
 static int re_compcc_tree_build(
-    re *r, const re_buf2(re_rune_range) cc_in, re_buf2(re_compcc_tree) * cc_out)
+    re *r, const re_buf(re_rune_range) cc_in, re_buf(re_compcc_tree) * cc_out)
 {
   size_t i = 0, j = 0, min_bound = 0;
   u32 root_ref;
@@ -1500,10 +1494,10 @@ static int re_compcc_tree_build(
   root_node.child_ref = root_node.sibling_ref = root_node.aux =
       root_node.range = 0;
   /* clear output charclass */
-  re_buf2_clear(cc_out);
+  re_buf_clear(cc_out);
   if ((err = re_compcc_tree_new(r, cc_out, root_node, &root_ref)))
     return err;
-  for (i = 0, j = 0; i < re_buf2_size(cc_in) && j < 4;) {
+  for (i = 0, j = 0; i < re_buf_size(cc_in) && j < 4;) {
     static const u32 y_bits[4] = {7, 5, 4, 3};
     static const u32 x_bits[4] = {0, 6, 12, 18};
     u32 max_bound = (1 << (x_bits[j] + y_bits[j])) - 1;
@@ -1528,7 +1522,7 @@ static int re_compcc_tree_build(
 }
 
 static int re_compcc_tree_eq(
-    re *r, const re_buf2(re_compcc_tree) cc_tree_in, u32 a_ref, u32 b_ref)
+    re *r, const re_buf(re_compcc_tree) cc_tree_in, u32 a_ref, u32 b_ref)
 {
   while (a_ref && b_ref) {
     const re_compcc_tree *a = cc_tree_in + a_ref, *b = cc_tree_in + b_ref;
@@ -1543,7 +1537,7 @@ static int re_compcc_tree_eq(
 }
 
 static void re_compcc_tree_merge_one(
-    re_buf2(re_compcc_tree) cc_tree_in, u32 child_ref, u32 sibling_ref)
+    re_buf(re_compcc_tree) cc_tree_in, u32 child_ref, u32 sibling_ref)
 {
   re_compcc_tree *child = cc_tree_in + child_ref,
                  *sibling = cc_tree_in + sibling_ref;
@@ -1569,19 +1563,19 @@ static u32 re_hashington(u32 x)
 
 /* hash table */
 static int re_compcc_hash_init(
-    re *r, const re_buf2(re_compcc_tree) cc_tree_in, re_buf2(u32) * cc_ht_out)
+    re *r, const re_buf(re_compcc_tree) cc_tree_in, re_buf(u32) * cc_ht_out)
 {
   int err = 0;
-  if ((err = re_buf2_reserve(
+  if ((err = re_buf_reserve(
            r, cc_ht_out,
-           (re_buf2_size(cc_tree_in) + (re_buf2_size(cc_tree_in) >> 1)))))
+           (re_buf_size(cc_tree_in) + (re_buf_size(cc_tree_in) >> 1)))))
     return err;
-  memset(*cc_ht_out, 0, re_buf2_size(*cc_ht_out) * sizeof(**cc_ht_out));
+  memset(*cc_ht_out, 0, re_buf_size(*cc_ht_out) * sizeof(**cc_ht_out));
   return 0;
 }
 
 static void
-re_compcc_tree_hash(re *r, re_buf2(re_compcc_tree) cc_tree_in, u32 parent_ref)
+re_compcc_tree_hash(re *r, re_buf(re_compcc_tree) cc_tree_in, u32 parent_ref)
 {
   /* flip links and hash everything */
   re_compcc_tree *parent_node = cc_tree_in + parent_ref;
@@ -1630,7 +1624,7 @@ re_compcc_tree_hash(re *r, re_buf2(re_compcc_tree) cc_tree_in, u32 parent_ref)
 }
 
 static void re_compcc_tree_reduce(
-    re *r, re_buf2(re_compcc_tree) cc_tree_in, re_buf2(u32) cc_ht, u32 node_ref,
+    re *r, re_buf(re_compcc_tree) cc_tree_in, re_buf(u32) cc_ht, u32 node_ref,
     u32 *my_out_ref)
 {
   u32 prev_sibling_ref = 0;
@@ -1643,7 +1637,7 @@ static void re_compcc_tree_reduce(
     node->aux = 0;
     /* check if child is in the hash table */
     while (1) {
-      if (!((found = cc_ht[probe % re_buf2_size(cc_ht)]) & 1))
+      if (!((found = cc_ht[probe % re_buf_size(cc_ht)]) & 1))
         /* child is NOT in the cache */
         break;
       else {
@@ -1658,7 +1652,7 @@ static void re_compcc_tree_reduce(
       }
       probe += 1; /* linear probe */
     }
-    cc_ht[probe % re_buf2_size(cc_ht)] = node_ref << 1 | 1;
+    cc_ht[probe % re_buf_size(cc_ht)] = node_ref << 1 | 1;
     if (!*my_out_ref)
       *my_out_ref = node_ref;
     if (node->child_ref) {
@@ -1673,7 +1667,7 @@ static void re_compcc_tree_reduce(
 }
 
 static int re_compcc_tree_render(
-    re *r, re_buf2(re_compcc_tree) cc_tree_in, u32 node_ref, u32 *my_out_pc,
+    re *r, re_buf(re_compcc_tree) cc_tree_in, u32 node_ref, u32 *my_out_pc,
     re_compframe *frame)
 {
   int err = 0;
@@ -1737,13 +1731,13 @@ static int re_compcc_tree_render(
 }
 
 static void re_compcc_tree_xpose(
-    const re_buf2(re_compcc_tree) cc_tree_in,
-    re_buf2(re_compcc_tree) cc_tree_out, u32 node_ref, u32 root_ref)
+    const re_buf(re_compcc_tree) cc_tree_in, re_buf(re_compcc_tree) cc_tree_out,
+    u32 node_ref, u32 root_ref)
 {
   const re_compcc_tree *src_node;
   re_compcc_tree *dst_node, *parent_node;
   assert(node_ref != RE_REF_NONE);
-  assert(re_buf2_size(cc_tree_out) == re_buf2_size(cc_tree_in));
+  assert(re_buf_size(cc_tree_out) == re_buf_size(cc_tree_in));
   while (node_ref) {
     u32 parent_ref = root_ref;
     src_node = cc_tree_in + node_ref;
@@ -1760,8 +1754,8 @@ static void re_compcc_tree_xpose(
   }
 }
 
-static int re_compcc_fold_range(
-    re *r, u32 begin, u32 end, re_buf2(re_rune_range) * cc_out);
+static int
+re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf(re_rune_range) * cc_out);
 
 static int re_compcc(re *r, u32 root, re_compframe *frame, int reversed)
 {
@@ -1769,21 +1763,21 @@ static int re_compcc(re *r, u32 root, re_compframe *frame, int reversed)
       inverted = *re_ast_type_ref(r, frame->root_ref) == RE_AST_TYPE_ICC,
       insensitive = !!(frame->flags & RE_GROUP_FLAG_INSENSITIVE);
   u32 start_pc = 0;
-  re_buf2_clear(&r->compcc_ranges), re_buf2_clear(&r->compcc_ranges_2),
-      re_buf2_clear(&r->compcc_tree), re_buf2_clear(&r->compcc_tree_2),
-      re_buf2_clear(&r->compcc_hash);
+  re_buf_clear(&r->compcc_ranges), re_buf_clear(&r->compcc_ranges_2),
+      re_buf_clear(&r->compcc_tree), re_buf_clear(&r->compcc_tree_2),
+      re_buf_clear(&r->compcc_hash);
   /* push ranges */
   while (root) {
     u32 args[3], min, max;
     re_ast_decompose(r, root, args);
     root = args[0], min = args[1], max = args[2];
     /* handle out-of-order ranges (min > max) */
-    if ((err = re_buf2_push(
+    if ((err = re_buf_push(
              r, &r->compcc_ranges,
              re_rune_range_make(min > max ? max : min, min > max ? min : max))))
       return err;
   }
-  assert(re_buf2_size(r->compcc_ranges));
+  assert(re_buf_size(r->compcc_ranges));
   do {
     /* sort ranges */
     re_compcc_hsort(r->compcc_ranges);
@@ -1791,7 +1785,7 @@ static int re_compcc(re *r, u32 root, re_compframe *frame, int reversed)
     {
       size_t i;
       re_rune_range cur, next;
-      for (i = 0; i < re_buf2_size(r->compcc_ranges); i++) {
+      for (i = 0; i < re_buf_size(r->compcc_ranges); i++) {
         cur = r->compcc_ranges[i];
         assert(cur.l <= cur.h);
         if (!i)
@@ -1800,31 +1794,31 @@ static int re_compcc(re *r, u32 root, re_compframe *frame, int reversed)
           next.h = cur.h > next.h ? cur.h : next.h; /* intersection */
         } else {
           /* disjoint */
-          if ((err = re_buf2_push(r, &r->compcc_ranges_2, next)))
+          if ((err = re_buf_push(r, &r->compcc_ranges_2, next)))
             return err;
           next.l = cur.l, next.h = cur.h;
         }
       }
       assert(i); /* the charclass is never empty here */
-      if ((err = re_buf2_push(r, &r->compcc_ranges_2, next)))
+      if ((err = re_buf_push(r, &r->compcc_ranges_2, next)))
         return err;
       if (insensitive) {
         /* casefold normalized ranges */
-        re_buf2_clear(&r->compcc_ranges);
-        for (i = 0; i < re_buf2_size(r->compcc_ranges_2); i++) {
+        re_buf_clear(&r->compcc_ranges);
+        for (i = 0; i < re_buf_size(r->compcc_ranges_2); i++) {
           cur = r->compcc_ranges_2[i];
-          if ((err = re_buf2_push(r, &r->compcc_ranges, cur)))
+          if ((err = re_buf_push(r, &r->compcc_ranges, cur)))
             return err;
           if ((err = re_compcc_fold_range(r, cur.l, cur.h, &r->compcc_ranges)))
             return err;
         }
-        re_buf2_clear(&r->compcc_ranges_2);
+        re_buf_clear(&r->compcc_ranges_2);
       }
     }
   } while (insensitive && insensitive-- /* re-normalize by looping again */);
   /* invert ranges */
   if (inverted) {
-    u32 max = 0, i, write = 0, old_size = re_buf2_size(r->compcc_ranges_2);
+    u32 max = 0, i, write = 0, old_size = re_buf_size(r->compcc_ranges_2);
     re_rune_range cur;
     for (i = 0; i < old_size; i++) {
       cur = r->compcc_ranges_2[i];
@@ -1834,13 +1828,13 @@ static int re_compcc(re *r, u32 root, re_compframe *frame, int reversed)
         max = cur.h + 1;
       }
     }
-    if ((err = re_buf2_reserve(
+    if ((err = re_buf_reserve(
              r, &r->compcc_ranges_2, write += (cur.h < RE_UTF_MAX))))
       return err;
     if (cur.h < RE_UTF_MAX)
       r->compcc_ranges_2[write - 1] = re_rune_range_make(cur.h + 1, RE_UTF_MAX);
   }
-  if (!re_buf2_size(r->compcc_ranges_2)) {
+  if (!re_buf_size(r->compcc_ranges_2)) {
     /* empty charclass */
     if ((err = re_inst_emit(
              r,
@@ -1862,9 +1856,9 @@ static int re_compcc(re *r, u32 root, re_compframe *frame, int reversed)
   re_compcc_tree_reduce(r, r->compcc_tree, r->compcc_hash, 2, &start_pc);
   if (reversed) {
     u32 i;
-    re_buf2(re_compcc_tree) tmp;
-    re_buf2_clear(&r->compcc_tree_2);
-    for (i = 1 /* skip sentinel */; i < re_buf2_size(r->compcc_tree); i++) {
+    re_buf(re_compcc_tree) tmp;
+    re_buf_clear(&r->compcc_tree_2);
+    for (i = 1 /* skip sentinel */; i < re_buf_size(r->compcc_tree); i++) {
       if ((err = re_compcc_tree_new(
                r, &r->compcc_tree_2, r->compcc_tree[i], NULL)) == ERR_MEM)
         return err;
@@ -1891,8 +1885,8 @@ static int re_compile_internal(re *r, u32 root, u32 reverse)
   re_compframe initial_frame = {0}, returned_frame = {0}, child_frame = {0};
   u32 set_idx = 0, grp_idx = 1, tmp_cc_ast = RE_REF_NONE;
   if (!re_prog_size(r) &&
-      ((err = re_buf2_push(r, &r->prog, re_inst_make(RE_OPCODE_RANGE, 0, 0))) ||
-       (err = re_buf2_push(r, &r->prog_set_idxs, 0))))
+      ((err = re_buf_push(r, &r->prog, re_inst_make(RE_OPCODE_RANGE, 0, 0))) ||
+       (err = re_buf_push(r, &r->prog_set_idxs, 0))))
     return err;
   assert(re_prog_size(r) > 0);
   initial_frame.root_ref = root;
@@ -1901,10 +1895,10 @@ static int re_compile_internal(re *r, u32 root, u32 reverse)
   initial_frame.idx = 0;
   initial_frame.pc = re_prog_size(r);
   r->entry[reverse ? RE_PROG_ENTRY_REVERSE : 0] = initial_frame.pc;
-  if ((err = re_buf2_push(r, &r->comp_stk, initial_frame)))
+  if ((err = re_buf_push(r, &r->comp_stk, initial_frame)))
     return err;
-  while (re_buf2_size(r->comp_stk)) {
-    re_compframe frame = *re_buf2_peek(&r->comp_stk, 0);
+  while (re_buf_size(r->comp_stk)) {
+    re_compframe frame = *re_buf_peek(&r->comp_stk, 0);
     re_ast_type type;
     u32 args[4], my_pc = re_prog_size(r);
     frame.child_ref = frame.root_ref;
@@ -2091,20 +2085,20 @@ static int re_compile_internal(re *r, u32 root, u32 reverse)
     }
     if (frame.child_ref != frame.root_ref) {
       /* should we push a child? */
-      *re_buf2_peek(&r->comp_stk, 0) = frame;
+      *re_buf_peek(&r->comp_stk, 0) = frame;
       child_frame.root_ref = frame.child_ref;
       child_frame.idx = 0;
       child_frame.pc = re_prog_size(r);
       child_frame.flags = frame.flags;
       child_frame.set_idx = frame.set_idx;
-      if ((err = re_buf2_push(r, &r->comp_stk, child_frame)))
+      if ((err = re_buf_push(r, &r->comp_stk, child_frame)))
         return err;
     } else {
-      re_buf2_pop(&r->comp_stk);
+      re_buf_pop(&r->comp_stk);
     }
     returned_frame = frame;
   }
-  assert(!re_buf2_size(r->comp_stk));
+  assert(!re_buf_size(r->comp_stk));
   assert(!returned_frame.patch_head && !returned_frame.patch_tail);
   {
     u32 dstar =
@@ -2313,10 +2307,10 @@ static u32 re_save_slots_get(re_save_slots *s, u32 ref, u32 idx)
 
 typedef struct re_nfa {
   re_sset a, b, c;
-  re_buf2(re_nfa_thrd) thrd_stk;
+  re_buf(re_nfa_thrd) thrd_stk;
   re_save_slots slots;
-  re_buf2(u32) pri_stk;
-  re_buf2(u32) pri_bmp_tmp;
+  re_buf(u32) pri_stk;
+  re_buf(u32) pri_bmp_tmp;
   int reversed, pri;
 } re_nfa;
 
@@ -2342,9 +2336,9 @@ typedef struct re_dfa {
   re_dfa_state
       *entry[RE_PROG_ENTRY_MAX][RE_DFA_STATE_FLAG_MAX]; /* program entry type
                                                          * dfa_state_flag */
-  re_buf2(u32) set_buf;
-  re_buf2(size_t) loc_buf;
-  re_buf2(u32) set_bmp;
+  re_buf(u32) set_buf;
+  re_buf(size_t) loc_buf;
+  re_buf(u32) set_bmp;
 } re_dfa;
 
 struct re_exec {
@@ -2367,35 +2361,35 @@ static void re_nfa_destroy(const re *r, re_nfa *n)
 {
   re_sset_destroy(r, &n->a), re_sset_destroy(r, &n->b),
       re_sset_destroy(r, &n->c);
-  re_buf2_destroy(r, &n->thrd_stk);
+  re_buf_destroy(r, &n->thrd_stk);
   re_save_slots_destroy(r, &n->slots);
-  re_buf2_destroy(r, &n->pri_stk), re_buf2_destroy(r, &n->pri_bmp_tmp);
+  re_buf_destroy(r, &n->pri_stk), re_buf_destroy(r, &n->pri_bmp_tmp);
 }
 
 #define RE_BITS_PER_U32 (sizeof(u32) * CHAR_BIT)
 
-static int re_bmp_init(const re *r, re_buf2(u32) * b, u32 size)
+static int re_bmp_init(const re *r, re_buf(u32) * b, u32 size)
 {
   u32 i;
   int err = 0;
-  re_buf2_clear(b);
+  re_buf_clear(b);
   for (i = 0; i < (size + RE_BITS_PER_U32) / RE_BITS_PER_U32; i++)
-    if ((err = re_buf2_push(
-             r, b, 0))) /* TODO: change this to a bulk allocation */
+    if ((err =
+             re_buf_push(r, b, 0))) /* TODO: change this to a bulk allocation */
       return err;
   return err;
 }
 
-static void re_bmp_clear(re_buf2(u32) * b) { memset(*b, 0, re_buf2_size(*b)); }
+static void re_bmp_clear(re_buf(u32) * b) { memset(*b, 0, re_buf_size(*b)); }
 
-static void re_bmp_set(re_buf2(u32) b, u32 idx)
+static void re_bmp_set(re_buf(u32) b, u32 idx)
 {
   /* TODO: assert idx < nsets */
   b[idx / RE_BITS_PER_U32] |= (1 << (idx % RE_BITS_PER_U32));
 }
 
 /* returns 0 or a positive value (not necessarily 1) */
-static u32 re_bmp_get(re_buf2(u32) b, u32 idx)
+static u32 re_bmp_get(re_buf(u32) b, u32 idx)
 {
   return b[idx / RE_BITS_PER_U32] & (1 << (idx % RE_BITS_PER_U32));
 }
@@ -2410,7 +2404,7 @@ re_nfa_start(const re *r, re_nfa *n, u32 pc, u32 noff, int reversed, int pri)
       (err = re_sset_reset(r, &n->b, re_prog_size(r))) ||
       (err = re_sset_reset(r, &n->c, re_prog_size(r))))
     return err;
-  re_buf2_clear(&n->thrd_stk), re_buf2_clear(&n->pri_stk);
+  re_buf_clear(&n->thrd_stk), re_buf_clear(&n->pri_stk);
   re_save_slots_clear(&n->slots, noff);
   initial_thrd.pc = pc;
   if ((err = re_save_slots_new(r, &n->slots, &initial_thrd.slot)))
@@ -2418,7 +2412,7 @@ re_nfa_start(const re *r, re_nfa *n, u32 pc, u32 noff, int reversed, int pri)
   re_sset_add(&n->a, initial_thrd);
   initial_thrd.pc = initial_thrd.slot = 0;
   for (i = 0; i < r->ast_sets; i++)
-    if ((err = re_buf2_push(r, &n->pri_stk, 0)))
+    if ((err = re_buf_push(r, &n->pri_stk, 0)))
       return err;
   if ((err = re_bmp_init(r, &n->pri_bmp_tmp, r->ast_sets)))
     return err;
@@ -2434,16 +2428,16 @@ static int re_nfa_eps(const re *r, re_nfa *n, size_t pos, re_assert_flag ass)
   re_sset_clear(&n->b);
   for (i = 0; i < n->a.dense_size; i++) {
     re_nfa_thrd dense_thrd = n->a.dense[i];
-    if ((err = re_buf2_push(r, &n->thrd_stk, dense_thrd)))
+    if ((err = re_buf_push(r, &n->thrd_stk, dense_thrd)))
       return err;
     re_sset_clear(&n->c);
-    while (re_buf2_size(n->thrd_stk)) {
-      re_nfa_thrd thrd = *re_buf2_peek(&n->thrd_stk, 0);
+    while (re_buf_size(n->thrd_stk)) {
+      re_nfa_thrd thrd = *re_buf_peek(&n->thrd_stk, 0);
       re_inst op = re_prog_get(r, thrd.pc);
       assert(thrd.pc);
       if (re_sset_is_memb(&n->c, thrd.pc)) {
         /* we already processed this thread */
-        re_buf2_pop(&n->thrd_stk);
+        re_buf_pop(&n->thrd_stk);
         continue;
       }
       re_sset_add(&n->c, thrd);
@@ -2459,14 +2453,14 @@ static int re_nfa_eps(const re *r, re_nfa *n, size_t pos, re_assert_flag ass)
           if (re_inst_match_param_idx(re_inst_param(op)) > 0 ||
               !n->pri_stk[r->prog_set_idxs[thrd.pc - 1]]) {
             thrd.pc = re_inst_next(op);
-            *re_buf2_peek(&n->thrd_stk, 0) = thrd;
+            *re_buf_peek(&n->thrd_stk, 0) = thrd;
           } else
-            re_buf2_pop(&n->thrd_stk);
+            re_buf_pop(&n->thrd_stk);
           break;
         } /* else fallthrough */
       }
       case RE_OPCODE_RANGE:
-        re_buf2_pop(&n->thrd_stk);
+        re_buf_pop(&n->thrd_stk);
         re_sset_add(&n->b, thrd); /* this is a range or final match */
         break;
       case RE_OPCODE_SPLIT: {
@@ -2474,8 +2468,8 @@ static int re_nfa_eps(const re *r, re_nfa *n, size_t pos, re_assert_flag ass)
         pri.pc = re_inst_next(op), pri.slot = thrd.slot;
         sec.pc = re_inst_param(op),
         sec.slot = re_save_slots_fork(&n->slots, thrd.slot);
-        *re_buf2_peek(&n->thrd_stk, 0) = sec;
-        if ((err = re_buf2_push(r, &n->thrd_stk, pri)))
+        *re_buf_peek(&n->thrd_stk, 0) = sec;
+        if ((err = re_buf_push(r, &n->thrd_stk, pri)))
           /* sec is pushed first because it needs to be processed after pri.
            * pri comes off the stack first because it's FIFO. */
           return err;
@@ -2486,10 +2480,10 @@ static int re_nfa_eps(const re *r, re_nfa *n, size_t pos, re_assert_flag ass)
         assert(!!(ass & RE_ASSERT_WORD) ^ !!(ass & RE_ASSERT_NOT_WORD));
         if ((re_inst_param(op) & ass) == re_inst_param(op)) {
           thrd.pc = re_inst_next(op);
-          *re_buf2_peek(&n->thrd_stk, 0) = thrd;
+          *re_buf_peek(&n->thrd_stk, 0) = thrd;
         } else {
           re_save_slots_kill(&n->slots, thrd.slot);
-          re_buf2_pop(&n->thrd_stk);
+          re_buf_pop(&n->thrd_stk);
         }
         break;
       }
@@ -2507,7 +2501,7 @@ static int re_nfa_match_end(
   u32 idx = r->prog_set_idxs[thrd.pc];
   u32 *memo = n->pri_stk + idx - 1;
   assert(idx > 0);
-  assert(idx - 1 < re_buf2_size(n->pri_stk));
+  assert(idx - 1 < re_buf_size(n->pri_stk));
   if (!n->pri && ch < 256)
     goto out_kill;
   if (n->slots.per_thrd) {
@@ -2645,8 +2639,8 @@ static void re_dfa_reset(re_dfa *d)
     if (d->states[i])
       d->states[i]->flags |= RE_DFA_STATE_FLAG_DIRTY;
   d->num_active_states = 0;
-  re_buf2_clear(&d->set_buf), re_buf2_clear(&d->loc_buf),
-      re_buf2_clear(&d->set_bmp);
+  re_buf_clear(&d->set_buf), re_buf_clear(&d->loc_buf),
+      re_buf_clear(&d->set_bmp);
   memset(d->entry, 0, sizeof(d->entry));
 }
 
@@ -2657,8 +2651,8 @@ static void re_dfa_destroy(const re *r, re_dfa *d)
     if (d->states[i])
       re_ialloc(r, d->states[i]->alloc, 0, d->states[i]);
   re_ialloc(r, d->states_size * sizeof(re_dfa_state *), 0, d->states);
-  re_buf2_destroy(r, &d->set_buf), re_buf2_destroy(r, &d->loc_buf),
-      re_buf2_destroy(r, &d->set_bmp);
+  re_buf_destroy(r, &d->set_buf), re_buf_destroy(r, &d->loc_buf),
+      re_buf_destroy(r, &d->set_bmp);
 }
 
 static u32 re_dfa_state_alloc(u32 nstate, u32 nset)
@@ -2688,10 +2682,10 @@ static int re_dfa_construct(
   /* check threads in n, and look them up in the dfa cache */
   hash = re_hashington(prev_flag);
   hash = re_hashington(hash + n->a.dense_size);
-  hash = re_hashington(hash + re_buf2_size(d->set_buf));
+  hash = re_hashington(hash + re_buf_size(d->set_buf));
   for (i = 0; i < n->a.dense_size; i++)
     hash = re_hashington(hash + n->a.dense[i].pc);
-  for (i = 0; i < re_buf2_size(d->set_buf); i++)
+  for (i = 0; i < re_buf_size(d->set_buf); i++)
     hash = re_hashington(hash + d->set_buf[i]);
   if (!d->states_size) {
     /* need to allocate initial cache */
@@ -2717,12 +2711,12 @@ static int re_dfa_construct(
       goto not_found;
     if (next_state->nstate != n->a.dense_size)
       goto not_found;
-    if (next_state->nset != re_buf2_size(d->set_buf))
+    if (next_state->nset != re_buf_size(d->set_buf))
       goto not_found;
     for (i = 0; i < n->a.dense_size; i++)
       if (state_data[i] != n->a.dense[i].pc)
         goto not_found;
-    for (i = 0; i < re_buf2_size(d->set_buf); i++)
+    for (i = 0; i < re_buf_size(d->set_buf); i++)
       if (state_data[n->a.dense_size + i] != d->set_buf[i])
         ;
     goto not_found;
@@ -2752,8 +2746,7 @@ static int re_dfa_construct(
     /* can we reuse the previous state? */
     {
       u32 prev_alloc = d->states[table_pos] ? d->states[table_pos]->alloc : 0;
-      next_alloc =
-          re_dfa_state_alloc(n->a.dense_size, re_buf2_size(d->set_buf));
+      next_alloc = re_dfa_state_alloc(n->a.dense_size, re_buf_size(d->set_buf));
       if (prev_alloc < next_alloc) {
         next_state = re_ialloc(r, prev_alloc, next_alloc, d->states[table_pos]);
         if (!next_state)
@@ -2767,13 +2760,13 @@ static int re_dfa_construct(
     next_state->alloc = next_alloc;
     next_state->flags = prev_flag;
     next_state->nstate = n->a.dense_size;
-    next_state->nset = re_buf2_size(d->set_buf);
+    next_state->nset = re_buf_size(d->set_buf);
     state_data = re_dfa_state_data(next_state);
     for (i = 0; i < n->a.dense_size; i++)
       state_data[i] = n->a.dense[i].pc;
-    for (i = 0; i < re_buf2_size(d->set_buf); i++)
+    for (i = 0; i < re_buf_size(d->set_buf); i++)
       state_data[n->a.dense_size + i] = d->set_buf[i];
-    assert(d->states[table_pos]);
+    assert(d->states[table_pos] == next_state);
     d->num_active_states++;
   }
   assert(next_state);
@@ -2790,7 +2783,7 @@ static int re_dfa_construct_start(
 {
   int err = 0;
   /* clear the set buffer so that it can be used to compare dfa states later */
-  re_buf2_clear(&d->set_buf);
+  re_buf_clear(&d->set_buf);
   *out_next_state = d->entry[entry][prev_flag];
   if (!*out_next_state) {
     re_nfa_thrd spec;
@@ -2812,7 +2805,7 @@ static int re_dfa_construct_chr(
   int err;
   size_t i;
   /* clear the set buffer so that it can be used to compare dfa states later */
-  re_buf2_clear(&d->set_buf);
+  re_buf_clear(&d->set_buf);
   /* we only care about `ch` if `prev_state != NULL`. we only care about
    * `prev_flag` if `prev_state == NULL` */
   /* import prev_state into n */
@@ -2853,7 +2846,7 @@ static int re_dfa_construct_chr(
       assert(!re_inst_next(op));
       /* NOTE: since there only exists one match instruction for a set n, we
        * don't need to check if we've already pushed the match instruction. */
-      if ((err = re_buf2_push(r, &d->set_buf, r->prog_set_idxs[thrd.pc] - 1)))
+      if ((err = re_buf_push(r, &d->set_buf, r->prog_set_idxs[thrd.pc] - 1)))
         return err;
       if (n->pri)
         re_bmp_set(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
@@ -2903,12 +2896,12 @@ static int re_dfa_match(
            exec->r, &exec->nfa, exec->r->entry[entry], 0, reversed, pri)))
     return err;
   if (pri) {
-    re_buf2_clear(&exec->dfa.loc_buf);
+    re_buf_clear(&exec->dfa.loc_buf);
     if ((err = re_bmp_init(exec->r, &exec->dfa.set_bmp, exec->r->ast_sets)))
       return err;
     for (i = 0; i < exec->r->ast_sets; i++) {
       size_t p = 0;
-      if ((err = re_buf2_push(exec->r, &exec->dfa.loc_buf, p)))
+      if ((err = re_buf_push(exec->r, &exec->dfa.loc_buf, p)))
         return err;
     }
   }
@@ -3296,7 +3289,7 @@ static s32 re_compcc_fold_next(u32 rune)
 }
 
 static int
-re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf2(re_rune_range) * cc_out)
+re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf(re_rune_range) * cc_out)
 {
   int err = 0;
   s32 a0;
@@ -3336,7 +3329,7 @@ re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf2(re_rune_range) * cc_out)
               }
               current = begin + a0;
               while (current != begin) {
-                if ((err = re_buf2_push(
+                if ((err = re_buf_push(
                          r, cc_out, re_rune_range_make(current, current))))
                   return err;
                 current = (u32)((s32)current + re_compcc_fold_next(current));
@@ -3592,7 +3585,7 @@ void d_prog_gv(const re *r)
   d_prog_range(r, 1, r->entry[RE_PROG_ENTRY_DOTSTAR], GRAPHVIZ);
 }
 
-void d_cctree_i(const re_buf2(re_compcc_tree) cc_tree, u32 ref, u32 lvl)
+void d_cctree_i(const re_buf(re_compcc_tree) cc_tree, u32 ref, u32 lvl)
 {
   u32 i;
   const re_compcc_tree *node = cc_tree + ref;
@@ -3608,7 +3601,7 @@ void d_cctree_i(const re_buf2(re_compcc_tree) cc_tree, u32 ref, u32 lvl)
     d_cctree_i(cc_tree, node->sibling_ref, lvl);
 }
 
-void d_cctree(const re_buf2(re_compcc_tree) cc_tree, u32 ref)
+void d_cctree(const re_buf(re_compcc_tree) cc_tree, u32 ref)
 {
   d_cctree_i(cc_tree, ref, 0);
 }
