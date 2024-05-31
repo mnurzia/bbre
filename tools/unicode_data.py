@@ -170,7 +170,9 @@ def _cmd_gen_casefold(args) -> int:
         out(f"{'+' if i != len(arrays) - 1 else ''}{shift_mask_expr("rune", i)}]")
     out(";}")
 
-    out("static int re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf *cc_out) {")
+    out(
+        "static int re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf2(re_rune_range) *cc_out) {"
+    )
 
     types = {
         "int": ["err = 0"],
@@ -206,9 +208,7 @@ def _cmd_gen_casefold(args) -> int:
 
     out("current = begin + a0;")
     out("while (current != begin) {")
-    out(
-        "  if ((err = re_buf_push(r, cc_out, re_rune_range, re_rune_range_make(current, current))))"
-    )
+    out("  if ((err = re_buf2_push(r, cc_out, re_rune_range_make(current, current))))")
     out("    return err;")
     out("  current = (u32)((s32)current + re_compcc_fold_next(current));")
     out("}")
