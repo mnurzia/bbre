@@ -95,8 +95,25 @@ static void *re_default_alloc(
 #define re_ialloc(re, prev, next, ptr)                                         \
   (re)->alloc((prev), (next), (ptr), __FILE__, __LINE__)
 
-/* new buf:
- * initialize: set to NULL */
+/* For a library like this, you really need a convenient way to represent
+ * dynamically-sized arrays of many different types. There's a million ways to
+ * do this in C, but they usually boil down to capturing the size of each
+ * element, and then plugging that size into an array allocation routine.
+ * Originally, this library used a non-generic dynamic array only capable of
+ * holding u32 (machine words), and simply represented all relevant types in
+ * terms of u32. This actually worked very well for the AST and parser, but the
+ * more complex structures used to execute regular expressions really benefit
+ * from having a properly typed dynamic array implementation. */
+/* I avoided implementing this generically for a while because I didn't want to
+ * spend the brainpower on finding an elegant way to do this. The main problems
+ * with making this kind of generic data structure in C are (1) the free-for-all
+ * that comes into play once you start fiddling with macros, and (2) the lack of
+ * type safety. Problem 1 cannot easily be fixed, as macros are a requirement,
+ * but problem 2 can. The issue with type safety, however, is that one must
+ * declare all generic functions they want to use beforehand (essentially manual
+ * template instantiation). This leads to lots of unreadable, irrelevant code.
+ * These declarations could be rolled into a macro, but that just makes Problem
+ * 1 worse. */
 
 typedef struct re_buf2_hdr {
   size_t size, alloc;
@@ -109,7 +126,7 @@ size_t re_buf2_size_t(void *buf)
   return buf ? re_buf2_get_hdr(buf)->size : 0;
 }
 
-static int re_buf2_reserve_t(re *r, void **buf, size_t size)
+static int re_buf2_reserve_t(const re *r, void **buf, size_t size)
 {
   re_buf2_hdr *hdr = NULL;
   assert(buf);
@@ -143,7 +160,7 @@ static int re_buf2_reserve_t(re *r, void **buf, size_t size)
   return 0;
 }
 
-static void re_buf2_destroy_t(re *r, void **buf)
+static void re_buf2_destroy_t(const re *r, void **buf)
 {
   re_buf2_hdr *hdr;
   assert(buf);
@@ -153,7 +170,7 @@ static void re_buf2_destroy_t(re *r, void **buf)
   re_ialloc(r, sizeof(*hdr) + hdr->alloc, 0, hdr);
 }
 
-static int re_buf2_grow_t(re *r, void **buf, size_t incr)
+static int re_buf2_grow_t(const re *r, void **buf, size_t incr)
 {
   assert(buf);
   return re_buf2_reserve_t(r, buf, re_buf2_size_t(*buf) + incr);
@@ -202,85 +219,6 @@ void re_buf2_clear(void *buf)
   ((*b) + re_buf2_tail_t((void *)(*b), re_buf2_esz(b)) / re_buf2_esz(b) - (n))
 #define re_buf2_size(b)       (re_buf2_size_t((void *)(b)) / sizeof(*(b)))
 #define re_buf2_destroy(r, b) (re_buf2_destroy_t((r), (void **)(b)))
-
-/* For a library like this, you really need a convenient way to represent
- * dynamically-sized arrays of many different types. There's a million ways to
- * do this in C, but they usually boil down to capturing the size of each
- * element, and then plugging that size into an array allocation routine.
- * Originally, this library used a non-generic dynamic array only capable of
- * holding u32 (machine words), and simply represented all relevant types in
- * terms of u32. This actually worked very well for the AST and parser, but the
- * more complex structures used to execute regular expressions really benefit
- * from having a properly typed dynamic array implementation. */
-/* I avoided implementing this generically for a while because I didn't want to
- * spend the brainpower on finding an elegant way to do this. The main problems
- * with making this kind of generic data structure in C are (1) the free-for-all
- * that comes into play once you start fiddling with macros, and (2) the lack of
- * type safety. Problem 1 cannot easily be fixed, as macros are a requirement,
- * but problem 2 can. The issue with type safety, however, is that one must
- * declare all generic functions they want to use beforehand (essentially manual
- * template instantiation). This leads to lots of unreadable, irrelevant code.
- * These declarations could be rolled into a macro, but that just makes Problem
- * 1 worse. */
-static void re_buf_init(re_buf *b)
-{
-  b->ptr = NULL;
-  b->size = b->alloc = 0;
-}
-
-static void re_buf_destroy(const re *r, re_buf *b)
-{
-  re_ialloc(r, b->alloc, 0, b->ptr);
-}
-
-static int re_buf_reserven(const re *r, re_buf *b, size_t size)
-{
-  size_t next_alloc = b->alloc ? b->alloc : 1 /* initial allocation */;
-  void *next_ptr;
-  if (size <= b->alloc) {
-    b->size = size;
-    return 0;
-  }
-  while (next_alloc < size)
-    next_alloc *= 2;
-  next_ptr = re_ialloc(r, b->alloc, next_alloc, b->ptr);
-  if (!next_ptr)
-    return ERR_MEM;
-  b->alloc = next_alloc;
-  b->ptr = next_ptr;
-  b->size = size;
-  return 0;
-}
-
-static int re_buf_grown(const re *r, re_buf *b, size_t incr)
-{
-  return re_buf_reserven(r, b, b->size + incr);
-}
-
-static char *re_buf_tailn(re_buf *b, size_t elem_size)
-{
-  return b->ptr + b->size - elem_size;
-}
-
-static char *re_buf_popn(re_buf *b, size_t elem_size)
-{
-  void *out = re_buf_tailn(b, elem_size);
-  assert(b->size >= elem_size);
-  b->size -= elem_size;
-  return out;
-}
-
-#define re_buf_ptr(T, ptr) ((T *)(ptr))
-#define re_buf_push(r, b, T, e)                                                \
-  (re_buf_grown((r), (b), sizeof(T))                                           \
-       ? ERR_MEM                                                               \
-       : (*re_buf_ptr(T, re_buf_tailn((b), sizeof(T))) = (e), 0))
-#define re_buf_reserve(r, b, T, n) (re_buf_reserven(r, b, sizeof(T) * (n)))
-#define re_buf_pop(b, T)           (*re_buf_ptr(T, re_buf_popn((b), sizeof(T))))
-#define re_buf_peek(b, T, n)       ((re_buf_ptr(T, re_buf_tailn((b), sizeof(T)))) - n)
-#define re_buf_at(b, T, i)         (re_buf_ptr(T, (b)->ptr)[(i)])
-#define re_buf_size(b, T)          ((b).size / sizeof(T))
-#define re_buf_clear(b)            ((b)->size = 0)
 
 static int re_parse(re *r, const u8 *s, size_t sz, u32 *root);
 
@@ -334,7 +272,9 @@ void re_destroy(re *r)
       re_buf2_destroy(r, &r->comp_stk);
   re_buf2_destroy(r, &r->compcc_ranges),
       re_buf2_destroy(r, &r->compcc_ranges_2),
-      re_buf2_destroy(r, &r->compcc_tree);
+      re_buf2_destroy(r, &r->compcc_tree),
+      re_buf2_destroy(r, &r->compcc_tree_2),
+      re_buf2_destroy(r, &r->compcc_hash);
   re_buf2_destroy(r, &r->prog);
   re_buf2_destroy(r, (void **)&r->prog_set_idxs);
   r->alloc(sizeof(*r), 0, r, __FILE__, __LINE__);
@@ -2373,9 +2313,10 @@ static u32 re_save_slots_get(re_save_slots *s, u32 ref, u32 idx)
 
 typedef struct re_nfa {
   re_sset a, b, c;
-  re_buf thrd_stk;
+  re_buf2(re_nfa_thrd) thrd_stk;
   re_save_slots slots;
-  re_buf pri_stk, pri_bmp_tmp;
+  re_buf2(u32) pri_stk;
+  re_buf2(u32) pri_bmp_tmp;
   int reversed, pri;
 } re_nfa;
 
@@ -2392,7 +2333,7 @@ typedef enum re_dfa_state_flag {
 
 typedef struct re_dfa_state {
   struct re_dfa_state *ptrs[256 + 1];
-  u32 flags, nstate, nset;
+  u32 flags, nstate, nset, alloc;
 } re_dfa_state;
 
 typedef struct re_dfa {
@@ -2401,9 +2342,9 @@ typedef struct re_dfa {
   re_dfa_state
       *entry[RE_PROG_ENTRY_MAX][RE_DFA_STATE_FLAG_MAX]; /* program entry type
                                                          * dfa_state_flag */
-  re_buf set_buf;
-  re_buf loc_buf;
-  re_buf set_bmp;
+  re_buf2(u32) set_buf;
+  re_buf2(size_t) loc_buf;
+  re_buf2(u32) set_bmp;
 } re_dfa;
 
 struct re_exec {
@@ -2415,9 +2356,10 @@ struct re_exec {
 static void re_nfa_init(re_nfa *n)
 {
   re_sset_init(&n->a), re_sset_init(&n->b), re_sset_init(&n->c);
-  re_buf_init(&n->thrd_stk);
+  n->thrd_stk = NULL;
   re_save_slots_init(&n->slots);
-  re_buf_init(&n->pri_stk), re_buf_init(&n->pri_bmp_tmp);
+  n->pri_stk = NULL;
+  n->pri_bmp_tmp = NULL;
   n->reversed = 0;
 }
 
@@ -2425,38 +2367,37 @@ static void re_nfa_destroy(const re *r, re_nfa *n)
 {
   re_sset_destroy(r, &n->a), re_sset_destroy(r, &n->b),
       re_sset_destroy(r, &n->c);
-  re_buf_destroy(r, &n->thrd_stk);
+  re_buf2_destroy(r, &n->thrd_stk);
   re_save_slots_destroy(r, &n->slots);
-  re_buf_destroy(r, &n->pri_stk), re_buf_destroy(r, &n->pri_bmp_tmp);
+  re_buf2_destroy(r, &n->pri_stk), re_buf2_destroy(r, &n->pri_bmp_tmp);
 }
 
 #define RE_BITS_PER_U32 (sizeof(u32) * CHAR_BIT)
 
-static int re_bmp_init(const re *r, re_buf *b, u32 size)
+static int re_bmp_init(const re *r, re_buf2(u32) * b, u32 size)
 {
   u32 i;
   int err = 0;
-  re_buf_clear(b);
+  re_buf2_clear(b);
   for (i = 0; i < (size + RE_BITS_PER_U32) / RE_BITS_PER_U32; i++)
-    if ((err = re_buf_push(
-             r, b, u32, 0))) /* TODO: change this to a bulk allocation */
+    if ((err = re_buf2_push(
+             r, b, 0))) /* TODO: change this to a bulk allocation */
       return err;
   return err;
 }
 
-static void re_bmp_clear(re_buf *b) { memset(b->ptr, 0, b->alloc); }
+static void re_bmp_clear(re_buf2(u32) * b) { memset(*b, 0, re_buf2_size(*b)); }
 
-static void re_bmp_set(re_buf *b, u32 idx)
+static void re_bmp_set(re_buf2(u32) b, u32 idx)
 {
   /* TODO: assert idx < nsets */
-  re_buf_at(b, u32, idx / RE_BITS_PER_U32) |= (1 << (idx % RE_BITS_PER_U32));
+  b[idx / RE_BITS_PER_U32] |= (1 << (idx % RE_BITS_PER_U32));
 }
 
 /* returns 0 or a positive value (not necessarily 1) */
-static u32 re_bmp_get(re_buf *b, u32 idx)
+static u32 re_bmp_get(re_buf2(u32) b, u32 idx)
 {
-  return re_buf_at(b, u32, idx / RE_BITS_PER_U32) &
-         (1 << (idx % RE_BITS_PER_U32));
+  return b[idx / RE_BITS_PER_U32] & (1 << (idx % RE_BITS_PER_U32));
 }
 
 static int
@@ -2469,7 +2410,7 @@ re_nfa_start(const re *r, re_nfa *n, u32 pc, u32 noff, int reversed, int pri)
       (err = re_sset_reset(r, &n->b, re_prog_size(r))) ||
       (err = re_sset_reset(r, &n->c, re_prog_size(r))))
     return err;
-  re_buf_clear(&n->thrd_stk), re_buf_clear(&n->pri_stk);
+  re_buf2_clear(&n->thrd_stk), re_buf2_clear(&n->pri_stk);
   re_save_slots_clear(&n->slots, noff);
   initial_thrd.pc = pc;
   if ((err = re_save_slots_new(r, &n->slots, &initial_thrd.slot)))
@@ -2477,7 +2418,7 @@ re_nfa_start(const re *r, re_nfa *n, u32 pc, u32 noff, int reversed, int pri)
   re_sset_add(&n->a, initial_thrd);
   initial_thrd.pc = initial_thrd.slot = 0;
   for (i = 0; i < r->ast_sets; i++)
-    if ((err = re_buf_push(r, &n->pri_stk, u32, 0)))
+    if ((err = re_buf2_push(r, &n->pri_stk, 0)))
       return err;
   if ((err = re_bmp_init(r, &n->pri_bmp_tmp, r->ast_sets)))
     return err;
@@ -2493,16 +2434,16 @@ static int re_nfa_eps(const re *r, re_nfa *n, size_t pos, re_assert_flag ass)
   re_sset_clear(&n->b);
   for (i = 0; i < n->a.dense_size; i++) {
     re_nfa_thrd dense_thrd = n->a.dense[i];
-    if ((err = re_buf_push(r, &n->thrd_stk, re_nfa_thrd, dense_thrd)))
+    if ((err = re_buf2_push(r, &n->thrd_stk, dense_thrd)))
       return err;
     re_sset_clear(&n->c);
-    while (re_buf_size(n->thrd_stk, re_nfa_thrd)) {
-      re_nfa_thrd thrd = *re_buf_peek(&n->thrd_stk, re_nfa_thrd, 0);
+    while (re_buf2_size(n->thrd_stk)) {
+      re_nfa_thrd thrd = *re_buf2_peek(&n->thrd_stk, 0);
       re_inst op = re_prog_get(r, thrd.pc);
       assert(thrd.pc);
       if (re_sset_is_memb(&n->c, thrd.pc)) {
         /* we already processed this thread */
-        re_buf_pop(&n->thrd_stk, re_nfa_thrd);
+        re_buf2_pop(&n->thrd_stk);
         continue;
       }
       re_sset_add(&n->c, thrd);
@@ -2516,16 +2457,16 @@ static int re_nfa_eps(const re *r, re_nfa *n, size_t pos, re_assert_flag ass)
           return err;
         if (re_inst_next(op)) {
           if (re_inst_match_param_idx(re_inst_param(op)) > 0 ||
-              !re_buf_at(&n->pri_stk, u32, r->prog_set_idxs[thrd.pc - 1])) {
+              !n->pri_stk[r->prog_set_idxs[thrd.pc - 1]]) {
             thrd.pc = re_inst_next(op);
-            *re_buf_peek(&n->thrd_stk, re_nfa_thrd, 0) = thrd;
+            *re_buf2_peek(&n->thrd_stk, 0) = thrd;
           } else
-            re_buf_pop(&n->thrd_stk, re_nfa_thrd);
+            re_buf2_pop(&n->thrd_stk);
           break;
         } /* else fallthrough */
       }
       case RE_OPCODE_RANGE:
-        re_buf_pop(&n->thrd_stk, re_nfa_thrd);
+        re_buf2_pop(&n->thrd_stk);
         re_sset_add(&n->b, thrd); /* this is a range or final match */
         break;
       case RE_OPCODE_SPLIT: {
@@ -2533,8 +2474,8 @@ static int re_nfa_eps(const re *r, re_nfa *n, size_t pos, re_assert_flag ass)
         pri.pc = re_inst_next(op), pri.slot = thrd.slot;
         sec.pc = re_inst_param(op),
         sec.slot = re_save_slots_fork(&n->slots, thrd.slot);
-        *re_buf_peek(&n->thrd_stk, re_nfa_thrd, 0) = sec;
-        if ((err = re_buf_push(r, &n->thrd_stk, re_nfa_thrd, pri)))
+        *re_buf2_peek(&n->thrd_stk, 0) = sec;
+        if ((err = re_buf2_push(r, &n->thrd_stk, pri)))
           /* sec is pushed first because it needs to be processed after pri.
            * pri comes off the stack first because it's FIFO. */
           return err;
@@ -2545,10 +2486,10 @@ static int re_nfa_eps(const re *r, re_nfa *n, size_t pos, re_assert_flag ass)
         assert(!!(ass & RE_ASSERT_WORD) ^ !!(ass & RE_ASSERT_NOT_WORD));
         if ((re_inst_param(op) & ass) == re_inst_param(op)) {
           thrd.pc = re_inst_next(op);
-          *re_buf_peek(&n->thrd_stk, re_nfa_thrd, 0) = thrd;
+          *re_buf2_peek(&n->thrd_stk, 0) = thrd;
         } else {
           re_save_slots_kill(&n->slots, thrd.slot);
-          re_buf_pop(&n->thrd_stk, re_nfa_thrd);
+          re_buf2_pop(&n->thrd_stk);
         }
         break;
       }
@@ -2564,9 +2505,9 @@ static int re_nfa_match_end(
 {
   int err = 0;
   u32 idx = r->prog_set_idxs[thrd.pc];
-  u32 *memo = &re_buf_at(&n->pri_stk, u32, idx - 1);
+  u32 *memo = n->pri_stk + idx - 1;
   assert(idx > 0);
-  assert(idx - 1 < re_buf_size(n->pri_stk, u32));
+  assert(idx - 1 < re_buf2_size(n->pri_stk));
   if (!n->pri && ch < 256)
     goto out_kill;
   if (n->slots.per_thrd) {
@@ -2597,7 +2538,7 @@ static int re_nfa_chr(const re *r, re_nfa *n, unsigned int ch, size_t pos)
   for (i = 0; i < n->b.dense_size; i++) {
     re_nfa_thrd thrd = n->b.dense[i];
     re_inst op = re_prog_get(r, thrd.pc);
-    u32 pri = re_bmp_get(&n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]),
+    u32 pri = re_bmp_get(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]),
         opcode = re_inst_opcode(op);
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
@@ -2614,7 +2555,7 @@ static int re_nfa_chr(const re *r, re_nfa *n, unsigned int ch, size_t pos)
       if ((err = re_nfa_match_end(r, n, thrd, pos, ch)))
         return err;
       if (n->pri)
-        re_bmp_set(&n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
+        re_bmp_set(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
       re_save_slots_kill(&n->slots, thrd.slot);
     }
   }
@@ -2665,7 +2606,7 @@ static int re_nfa_end(
     return err;
   for (sets = 0; sets < r->ast_sets && (max_set ? nset < max_set : nset < 1);
        sets++) {
-    u32 slot = re_buf_at(&n->pri_stk, u32, sets);
+    u32 slot = n->pri_stk[sets];
     if (!slot)
       continue; /* no match for this set */
     for (j = 0; (j < max_span) && out_span; j++) {
@@ -2694,36 +2635,39 @@ static void re_dfa_init(re_dfa *d)
   d->states = NULL;
   d->states_size = d->num_active_states = 0;
   memset(d->entry, 0, sizeof(d->entry));
-  re_buf_init(&d->set_buf), re_buf_init(&d->loc_buf), re_buf_init(&d->set_bmp);
+  d->set_buf = NULL, d->loc_buf = NULL, d->set_bmp = NULL;
 }
 
-static size_t re_dfa_state_size(u32 nstate, u32 nset)
-{
-  return sizeof(re_dfa_state) + sizeof(u32) * (nstate + nset);
-}
-
-static void re_dfa_reset(const re *r, re_dfa *d)
+static void re_dfa_reset(re_dfa *d)
 {
   size_t i;
   for (i = 0; i < d->states_size; i++)
-    if (d->states[i]) {
-      re_ialloc(
-          r, re_dfa_state_size(d->states[i]->nstate, d->states[i]->nset), 0,
-          d->states[i]);
-      d->states[i] = NULL;
-    }
+    if (d->states[i])
+      d->states[i]->flags |= RE_DFA_STATE_FLAG_DIRTY;
   d->num_active_states = 0;
-  re_buf_clear(&d->set_buf), re_buf_clear(&d->loc_buf),
-      re_buf_clear(&d->set_bmp);
+  re_buf2_clear(&d->set_buf), re_buf2_clear(&d->loc_buf),
+      re_buf2_clear(&d->set_bmp);
   memset(d->entry, 0, sizeof(d->entry));
 }
 
 static void re_dfa_destroy(const re *r, re_dfa *d)
 {
-  re_dfa_reset(r, d);
+  size_t i;
+  for (i = 0; i < d->states_size; i++)
+    if (d->states[i])
+      re_ialloc(r, d->states[i]->alloc, 0, d->states[i]);
   re_ialloc(r, d->states_size * sizeof(re_dfa_state *), 0, d->states);
-  re_buf_destroy(r, &d->set_buf), re_buf_destroy(r, &d->loc_buf),
-      re_buf_destroy(r, &d->set_bmp);
+  re_buf2_destroy(r, &d->set_buf), re_buf2_destroy(r, &d->loc_buf),
+      re_buf2_destroy(r, &d->set_bmp);
+}
+
+static u32 re_dfa_state_alloc(u32 nstate, u32 nset)
+{
+  u32 minsz = sizeof(re_dfa_state) + (nstate + nset) * sizeof(u32);
+  u32 alloc = sizeof(re_dfa_state) & 0x800;
+  while (alloc < minsz)
+    alloc *= 2;
+  return alloc;
 }
 
 static u32 *re_dfa_state_data(re_dfa_state *state)
@@ -2738,16 +2682,17 @@ static int re_dfa_construct(
 {
   size_t i;
   int err = 0;
-  u32 hash, table_pos, num_checked, *state_data;
+  u32 hash, table_pos, num_checked, *state_data, next_alloc;
   re_dfa_state *next_state;
+  assert(!(prev_flag & RE_DFA_STATE_FLAG_DIRTY));
   /* check threads in n, and look them up in the dfa cache */
   hash = re_hashington(prev_flag);
   hash = re_hashington(hash + n->a.dense_size);
-  hash = re_hashington(hash + re_buf_size(d->set_buf, u32));
+  hash = re_hashington(hash + re_buf2_size(d->set_buf));
   for (i = 0; i < n->a.dense_size; i++)
     hash = re_hashington(hash + n->a.dense[i].pc);
-  for (i = 0; i < re_buf_size(d->set_buf, u32); i++)
-    hash = re_hashington(hash + re_buf_at(&d->set_buf, u32, i));
+  for (i = 0; i < re_buf2_size(d->set_buf); i++)
+    hash = re_hashington(hash + d->set_buf[i]);
   if (!d->states_size) {
     /* need to allocate initial cache */
     re_dfa_state **next_cache =
@@ -2761,7 +2706,8 @@ static int re_dfa_construct(
   table_pos = hash % d->states_size, num_checked = 0;
   while (1) {
     /* linear probe for next state */
-    if (!d->states[table_pos]) {
+    if (!d->states[table_pos] ||
+        d->states[table_pos]->flags & RE_DFA_STATE_FLAG_DIRTY) {
       next_state = NULL;
       break;
     }
@@ -2771,14 +2717,15 @@ static int re_dfa_construct(
       goto not_found;
     if (next_state->nstate != n->a.dense_size)
       goto not_found;
-    if (next_state->nset != re_buf_size(d->set_buf, u32))
+    if (next_state->nset != re_buf2_size(d->set_buf))
       goto not_found;
     for (i = 0; i < n->a.dense_size; i++)
       if (state_data[i] != n->a.dense[i].pc)
         goto not_found;
-    for (i = 0; i < re_buf_size(d->set_buf, u32); i++)
-      if (state_data[n->a.dense_size + i] != re_buf_at(&d->set_buf, u32, i))
-        goto not_found;
+    for (i = 0; i < re_buf2_size(d->set_buf); i++)
+      if (state_data[n->a.dense_size + i] != d->set_buf[i])
+        ;
+    goto not_found;
     /* state found! */
     break;
   not_found:
@@ -2795,36 +2742,38 @@ static int re_dfa_construct(
     if (d->num_active_states == RE_DFA_MAX_NUM_STATES) {
       /* clear cache */
       for (i = 0; i < d->states_size; i++)
-        if (d->states[i]) {
-          re_ialloc(
-              r, re_dfa_state_size(d->states[i]->nstate, d->states[i]->nset), 0,
-              d->states[i]);
-          d->states[i] = NULL;
-        }
+        if (d->states[i])
+          d->states[i]->flags |= RE_DFA_STATE_FLAG_DIRTY;
       d->num_active_states = 0;
       table_pos = hash % d->states_size;
       memset(d->entry, 0, sizeof(d->entry));
       prev_state = NULL;
     }
-    /* allocate new state */
-    next_state = re_ialloc(
-        r, 0, re_dfa_state_size(n->a.dense_size, re_buf_size(d->set_buf, u32)),
-        NULL);
-    if (!next_state)
-      return ERR_MEM;
-    memset(
-        next_state, 0,
-        re_dfa_state_size(n->a.dense_size, re_buf_size(d->set_buf, u32)));
+    /* can we reuse the previous state? */
+    {
+      u32 prev_alloc = d->states[table_pos] ? d->states[table_pos]->alloc : 0;
+      next_alloc =
+          re_dfa_state_alloc(n->a.dense_size, re_buf2_size(d->set_buf));
+      if (prev_alloc < next_alloc) {
+        next_state = re_ialloc(r, prev_alloc, next_alloc, d->states[table_pos]);
+        if (!next_state)
+          return ERR_MEM;
+        d->states[table_pos] = next_state;
+      } else {
+        next_state = d->states[table_pos];
+      }
+    }
+    memset(next_state, 0, next_alloc);
+    next_state->alloc = next_alloc;
     next_state->flags = prev_flag;
     next_state->nstate = n->a.dense_size;
-    next_state->nset = re_buf_size(d->set_buf, u32);
+    next_state->nset = re_buf2_size(d->set_buf);
     state_data = re_dfa_state_data(next_state);
     for (i = 0; i < n->a.dense_size; i++)
       state_data[i] = n->a.dense[i].pc;
-    for (i = 0; i < re_buf_size(d->set_buf, u32); i++)
-      state_data[n->a.dense_size + i] = re_buf_at(&d->set_buf, u32, i);
-    assert(!d->states[table_pos]);
-    d->states[table_pos] = next_state;
+    for (i = 0; i < re_buf2_size(d->set_buf); i++)
+      state_data[n->a.dense_size + i] = d->set_buf[i];
+    assert(d->states[table_pos]);
     d->num_active_states++;
   }
   assert(next_state);
@@ -2841,7 +2790,7 @@ static int re_dfa_construct_start(
 {
   int err = 0;
   /* clear the set buffer so that it can be used to compare dfa states later */
-  re_buf_clear(&d->set_buf);
+  re_buf2_clear(&d->set_buf);
   *out_next_state = d->entry[entry][prev_flag];
   if (!*out_next_state) {
     re_nfa_thrd spec;
@@ -2863,7 +2812,7 @@ static int re_dfa_construct_chr(
   int err;
   size_t i;
   /* clear the set buffer so that it can be used to compare dfa states later */
-  re_buf_clear(&d->set_buf);
+  re_buf2_clear(&d->set_buf);
   /* we only care about `ch` if `prev_state != NULL`. we only care about
    * `prev_flag` if `prev_state == NULL` */
   /* import prev_state into n */
@@ -2887,7 +2836,7 @@ static int re_dfa_construct_chr(
   for (i = 0; i < n->b.dense_size; i++) {
     re_nfa_thrd thrd = n->b.dense[i];
     re_inst op = re_prog_get(r, thrd.pc);
-    int pri = re_bmp_get(&n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
+    int pri = re_bmp_get(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
     switch (re_inst_opcode(op)) {
@@ -2904,11 +2853,10 @@ static int re_dfa_construct_chr(
       assert(!re_inst_next(op));
       /* NOTE: since there only exists one match instruction for a set n, we
        * don't need to check if we've already pushed the match instruction. */
-      if ((err =
-               re_buf_push(r, &d->set_buf, u32, r->prog_set_idxs[thrd.pc] - 1)))
+      if ((err = re_buf2_push(r, &d->set_buf, r->prog_set_idxs[thrd.pc] - 1)))
         return err;
       if (n->pri)
-        re_bmp_set(&n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
+        re_bmp_set(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
       break;
     }
     default:
@@ -2929,10 +2877,8 @@ static void re_dfa_save_matches(re_dfa *dfa, re_dfa_state *state, size_t pos)
 {
   u32 i;
   for (i = 0; i < state->nset; i++) {
-    re_buf_at(
-        &dfa->loc_buf, size_t, re_dfa_state_data(state)[state->nstate + i]) =
-        pos;
-    re_bmp_set(&dfa->set_bmp, i);
+    dfa->loc_buf[re_dfa_state_data(state)[state->nstate + i]] = pos;
+    re_bmp_set(dfa->set_bmp, i);
   }
 }
 
@@ -2952,17 +2898,17 @@ static int re_dfa_match(
   int pri = anchor != A_BOTH;
   assert(max_span == 0 || max_span == 1);
   assert(anchor == A_BOTH || anchor == A_START || anchor == A_END);
-  re_dfa_reset(exec->r, &exec->dfa);
+  re_dfa_reset(&exec->dfa);
   if ((err = re_nfa_start(
            exec->r, &exec->nfa, exec->r->entry[entry], 0, reversed, pri)))
     return err;
   if (pri) {
-    re_buf_clear(&exec->dfa.loc_buf);
+    re_buf2_clear(&exec->dfa.loc_buf);
     if ((err = re_bmp_init(exec->r, &exec->dfa.set_bmp, exec->r->ast_sets)))
       return err;
     for (i = 0; i < exec->r->ast_sets; i++) {
       size_t p = 0;
-      if ((err = re_buf_push(exec->r, &exec->dfa.loc_buf, size_t, p)))
+      if ((err = re_buf2_push(exec->r, &exec->dfa.loc_buf, p)))
         return err;
     }
   }
@@ -3008,12 +2954,12 @@ static int re_dfa_match(
     assert(!err);
     for (i = 0; i < exec->r->ast_sets; i++) {
       assert(err >= 0 && err <= (signed)i);
-      if (!re_bmp_get(&exec->dfa.set_bmp, i))
+      if (!re_bmp_get(exec->dfa.set_bmp, i))
         continue;
       if ((unsigned)err == max_set && max_set)
         break;
       if (max_span) {
-        size_t spos = re_buf_at(&exec->dfa.loc_buf, size_t, i);
+        size_t spos = exec->dfa.loc_buf[i];
         out_span[i].begin = reversed ? spos : 0;
         out_span[i].end = reversed ? n : spos;
       }
