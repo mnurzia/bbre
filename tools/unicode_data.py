@@ -155,22 +155,22 @@ def _cmd_gen_casefold(args) -> int:
 
     for i, array in enumerate(arrays):
         num_digits = (max(map(abs, array)).bit_length() + 3) // 4
-        out(f"static const {data_types[i].to_ctype()} casefold_array_{i}[] = {{")
+        out(f"static const {data_types[i].to_ctype()} re_compcc_fold_array_{i}[] = {{")
         out(",".join(fmt_hex(n, data_types[i], num_digits) for n in array))
         out("};")
 
-    out("s32 casefold_next(u32 rune) { return ")
+    out("static s32 re_compcc_fold_next(u32 rune) { return ")
 
     def shift_mask_expr(name: str, i: int) -> str:
         return f"({f"({name} >> {shifts[i]})" if shifts[i] != 0 else name} & 0x{masks[i]:02X})"
 
     for i in range(len(arrays)):
-        out(f"casefold_array_{i}[")
+        out(f"re_compcc_fold_array_{i}[")
     for i in reversed(range(len(arrays))):
         out(f"{'+' if i != len(arrays) - 1 else ''}{shift_mask_expr("rune", i)}]")
     out(";}")
 
-    out("int casefold_fold_range(re *r, u32 begin, u32 end, stk *cc_out) {")
+    out("static int re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf *cc_out) {")
 
     types = {
         "int": ["err = 0"],
@@ -185,7 +185,7 @@ def _cmd_gen_casefold(args) -> int:
     for data_type, defs in sorted(types.items()):
         out(f"{data_type} {','.join(defs)};")
 
-    out("assert(begin <= UTFMAX && end <= UTFMAX && begin <= end);")
+    out("assert(begin <= RE_UTF_MAX && end <= RE_UTF_MAX && begin <= end);")
 
     for i, array in reversed(list(enumerate(arrays))):
         limit = len(arrays[-1]) if i == len(array_sizes) else array_sizes[i]
@@ -196,7 +196,7 @@ def _cmd_gen_casefold(args) -> int:
         out(") {")
         out("if (")
         out(
-            f"  (a{i} = casefold_array_{i}[{f"a{i+1} +" if i != len(arrays) - 1 else ""}x{i}])"
+            f"  (a{i} = re_compcc_fold_array_{i}[{f"a{i+1} +" if i != len(arrays) - 1 else ""}x{i}])"
         )
         out(f"    == {fmt_hex(arrays[i].zero_location, data_types[i])}")
         out(") {")
@@ -206,9 +206,11 @@ def _cmd_gen_casefold(args) -> int:
 
     out("current = begin + a0;")
     out("while (current != begin) {")
-    out("  if ((err = ccpush(r, cc_out, current, current)))")
+    out(
+        "  if ((err = re_buf_push(r, cc_out, re_rune_range, re_rune_range_make(current, current))))"
+    )
     out("    return err;")
-    out("  current = (u32)((s32)current + casefold_next(current));")
+    out("  current = (u32)((s32)current + re_compcc_fold_next(current));")
     out("}")
     out("begin++;")
 
@@ -253,7 +255,7 @@ PERL_CHARCLASSES = {
 
 
 def _cmd_gen_ascii_charclasses_impl(args) -> int:
-    out_lines = ["const ccdef builtin_cc[] = {\n"]
+    out_lines = ["static const re_parse_builtin_cc re_parse_builtin_ccs[] = {\n"]
     for name, cc in ASCII_CHARCLASSES.items():
         normalized = list((nranges_normalize(list(ranges_expand(cc)))))
         serialized = "".join(f"\\x{lo:02X}\\x{hi:02X}" for lo, hi in normalized)

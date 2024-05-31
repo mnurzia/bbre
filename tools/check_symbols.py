@@ -1,23 +1,94 @@
 """Check function visibility in re.c to ensure that all internal functions are static."""
 
+from typing import dataclass_transform
 import tree_sitter_c as tsc
-from tree_sitter import Language, Parser, Node
+from tree_sitter import Language, Parser, Node, Point
 from argparse import ArgumentParser, FileType
+from dataclasses import dataclass
+from typing import Iterator
 
 C_LANGUAGE = Language(tsc.language())
 
 DEFINITION_QUERY = """
-[
-(function_definition
- (storage_class_specifier)? @storage-class
- declarator: (function_declarator
-              declarator: (identifier) @name))
-(declaration
- (storage_class_specifier)? @storage-class
- declarator: (function_declarator
-              declarator: (identifier) @name))
-]
+(_ (storage_class_specifier)? @storage-class 
+	declarator: _ @decl) @root
 """
+
+IDENTIFIER_QUERY = """(identifier) @id"""
+
+EXCLUDE_PREFIX = "d_"
+
+definition_query = C_LANGUAGE.query(DEFINITION_QUERY)
+identifier_query = C_LANGUAGE.query(IDENTIFIER_QUERY)
+
+
+@dataclass
+class Symbol:
+    location: Point
+    name: str
+    storage_class: str
+
+
+def _node_text(node) -> str:
+    assert node is not None and isinstance(node, Node)
+    assert node.text is not None
+    return node.text.decode()
+
+
+def _find_identifier(root_node: Node) -> Node | None:
+    if len(matches := identifier_query.matches(root_node)):
+        assert isinstance(matches[0][1]["id"], Node)
+        return matches[0][1]["id"]
+    else:
+        return None
+
+
+def _parents(node: Node) -> Iterator[Node]:
+    while node.parent is not None:
+        yield node.parent
+        node = node.parent
+
+
+def _find_top_level_nodes(root_node: Node) -> Iterator[Symbol]:
+    header_matches = definition_query.matches(root_node)
+    header_match_nodes = set()
+    top_level_nodes = set()
+    for _, match in header_matches:
+        node = match["root"]
+        assert isinstance(node, Node)
+        header_match_nodes.add(node)
+    for node in header_match_nodes:
+        parents = list(_parents(node))
+        if all(parent not in header_match_nodes for parent in parents):
+            top_level_nodes.add(node)
+    for _, match in header_matches:
+        node = match["root"]
+        assert isinstance(node, Node)
+        if (
+            node in top_level_nodes
+            and (identifier := _find_identifier(node)) is not None
+            and all(
+                parent.type not in ["enumerator", "field_declaration"]
+                for parent in _parents(identifier)
+            )
+            and not (identifier_name := _node_text(identifier)).startswith(
+                EXCLUDE_PREFIX
+            )
+        ):
+            storage_class = (
+                _node_text(match["storage-class"])
+                if "storage-class" in match
+                else "extern"
+            )
+            yield Symbol(node.start_point, identifier_name, storage_class)
+
+
+def warn(symbol: Symbol, header_symbols: dict[str, Symbol]) -> Iterator[str]:
+    if symbol.name not in header_symbols and symbol.storage_class == "extern":
+        yield f"{symbol.name} marked 'extern', should be 'static'"
+    if not symbol.name.startswith("re_"):
+        yield f"{symbol.name} does not start with 're_'"
+
 
 if __name__ == "__main__":
     ap = ArgumentParser()
@@ -31,34 +102,21 @@ if __name__ == "__main__":
     source_tree = parser.parse(args.source.read())
 
     query = C_LANGUAGE.query(DEFINITION_QUERY)
+    identifier_query = C_LANGUAGE.query(IDENTIFIER_QUERY)
 
     header_matches = query.matches(header_tree.root_node)
     source_matches = query.matches(source_tree.root_node)
 
-    header_functions = set()
-    for _, match in header_matches:
-        assert isinstance(match["name"], Node) and match["name"].text is not None
-        header_functions.add(match["name"].text.decode())
+    header_symbols = {
+        symbol.name: symbol for symbol in _find_top_level_nodes(header_tree.root_node)
+    }
 
-    bad_symbols = []
-    for _, match in source_matches:
-        name_node = match["name"]
-        assert isinstance(name_node, Node) and name_node.text is not None
-        name = name_node.text.decode()
-        storage_class = "extern"
-        if (storage_class_node := match.get("storage-class")) is not None:
-            assert (
-                isinstance(storage_class_node, Node)
-                and storage_class_node.text is not None
+    any_warning = False
+    for symbol in _find_top_level_nodes(source_tree.root_node):
+        for warning in warn(symbol, header_symbols):
+            print(
+                f"{args.source.name}:{symbol.location.row}:{symbol.location.column}: {warning}"
             )
-            storage_class = storage_class_node.text.decode()
-        if (
-            storage_class == "extern"
-            and name not in header_functions
-            and not name.startswith("d_")
-        ):
-            bad_symbols.append((name_node.start_point, name))
+            any_warning = True
 
-    for point, symbol in bad_symbols:
-        print(f"{args.source.name}:{point.row} {symbol} marked extern")
-    exit(1 if len(bad_symbols) > 0 else 0)
+    exit(1 if any_warning else 0)

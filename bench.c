@@ -94,13 +94,13 @@ void pointer_chase(void)
 
 void bool_match(void)
 {
-  re *r = re_init("123456789123456789");
+  re *r = re_init("123456789123456789*");
   re_exec *e;
   char *buf = rand_buf(BENCH_SIZE);
   re_compile(r);
   re_exec_init(r, &e);
   bench_start();
-  re_exec_match(e, buf, BENCH_SIZE, 0, 0, NULL, NULL, 'B');
+  re_exec_match(e, buf, BENCH_SIZE, 0, 0, NULL, NULL, 'S');
   bench_end(BENCH_SIZE);
   re_exec_destroy(e);
   re_destroy(r);

@@ -446,15 +446,20 @@ int assert_cc_match(const char *regex, const char *spec, int invert)
   char utf8[16];
   rrange ranges[64];
   u32 num_ranges = matchspec(spec, ranges), range_idx;
+  re_exec *exec = NULL;
   if ((err = re_init_full(&r, regex, strlen(regex), NULL)) == ERR_MEM)
     goto oom;
   ASSERT(!err);
   if ((err = re_compile(r)) == ERR_MEM)
     goto oom;
   ASSERT(!err);
+  if ((err = re_exec_init(r, &exec)) == ERR_MEM)
+    goto oom;
+  ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
     size_t sz = utf_encode(utf8, codep);
-    if ((err = re_match(r, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) == ERR_MEM)
+    if ((err = re_exec_match(exec, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) ==
+        ERR_MEM)
       goto oom;
     for (range_idx = 0; range_idx < num_ranges; range_idx++) {
       if (codep >= ranges[range_idx].lo && codep <= ranges[range_idx].hi) {
@@ -463,14 +468,17 @@ int assert_cc_match(const char *regex, const char *spec, int invert)
       }
     }
     if (range_idx == num_ranges) {
-      if ((err = re_match(r, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) == ERR_MEM)
+      if ((err = re_exec_match(exec, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) ==
+          ERR_MEM)
         goto oom;
       ASSERT_EQ(err, invert);
     }
   }
+  re_exec_destroy(exec);
   re_destroy(r);
   PASS();
 oom:
+  re_exec_destroy(exec);
   re_destroy(r);
   OOM();
 }

@@ -3,11 +3,11 @@
 # default profile: debug
 PROFILE=debug
 
-CFLAGS_debug=-O0 -fsanitize=address,undefined -g
+CFLAGS_debug=-O0 -g -fsanitize=address,undefined
 CFLAGS_noopt=-O0 -g -DNDEBUG
 CFLAGS_bench=-O3 -g -DNDEBUG
 CFLAGS_opt=-O3 -DNDEBUG
-CFLAGS_cov=--coverage -DRE_COV -DNDEBUG
+CFLAGS_cov=-O0 --coverage -DRE_COV -DNDEBUG
 
 # tell em to bring out the whole... set of compiler flags!
 CFLAGS=\

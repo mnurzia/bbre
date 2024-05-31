@@ -3,8 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
-void progdump_gv(re *r);
-void astdump_gv(re *r);
+void d_prog_gv(re *r);
+void d_ast_gv(re *r);
 
 /* these Graphviz escaping rules are really confusing... */
 const char *escape(const char *regex, char *buf)
@@ -43,10 +43,10 @@ int main(int argc, const char *const *argv)
       "digraph D { label=\"%s for \\\"%s\\\"\"; labelloc=\"t\";\n",
       ast ? "ast" : "program", escape(buf, esc_buf));
   if (ast)
-    astdump_gv(r);
+    d_ast_gv(r);
   else {
-    re_match(r, "", 0, 0, 0, NULL, NULL, 'U');
-    progdump_gv(r);
+    re_compile(r);
+    d_prog_gv(r);
   }
   (void)(esc_buf);
   re_destroy(r);
