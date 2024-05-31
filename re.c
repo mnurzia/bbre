@@ -28,7 +28,8 @@ struct re {
   re_buf ast;
   u32 ast_root, ast_sets;
   re_buf arg_stk, op_stk, comp_stk;
-  re_buf prog, prog_set_idxs;
+  re_buf prog;
+  u32 *prog_set_idxs;
   re_buf cc_stk_a, cc_stk_b;
   u32 entry[4];
   const u8 *expr;
@@ -68,6 +69,110 @@ static void *re_default_alloc(
 /* Allocate memory for an instance of `re`. */
 #define re_ialloc(re, prev, next, ptr)                                         \
   (re)->alloc((prev), (next), (ptr), __FILE__, __LINE__)
+
+/* new buf:
+ * initialize: set to NULL */
+
+typedef struct re_buf2_hdr {
+  size_t size, alloc;
+} re_buf2_hdr;
+
+re_buf2_hdr *re_buf2_get_hdr(void *buf) { return ((re_buf2_hdr *)buf) - 1; }
+
+size_t re_buf2_size_t(void *buf)
+{
+  return buf ? re_buf2_get_hdr(buf)->size : 0;
+}
+
+static int re_buf2_reserve_t(re *r, void **buf, size_t size)
+{
+  re_buf2_hdr *hdr = NULL;
+  assert(buf);
+  if (!*buf) {
+    hdr = re_ialloc(r, 0, sizeof(re_buf2_hdr) + size, NULL);
+    if (!hdr)
+      return ERR_MEM;
+    hdr->alloc = hdr->size = size;
+    *buf = hdr + 1;
+  } else {
+    size_t next_alloc;
+    void *next_ptr;
+    hdr = re_buf2_get_hdr(*buf);
+    next_alloc = hdr->alloc;
+    if (size <= hdr->alloc) {
+      hdr->size = size;
+      return 0;
+    }
+    while (next_alloc < size)
+      next_alloc *= 2;
+    next_ptr = re_ialloc(
+        r, sizeof(re_buf2_hdr) + hdr->alloc, sizeof(re_buf2_hdr) + next_alloc,
+        hdr);
+    if (!next_ptr)
+      return ERR_MEM;
+    hdr = next_ptr;
+    hdr->alloc = next_alloc;
+    hdr->size = size;
+    *buf = hdr + 1;
+  }
+  return 0;
+}
+
+static void re_buf2_destroy(re *r, void **buf)
+{
+  re_buf2_hdr *hdr;
+  assert(buf);
+  if (!*buf)
+    return;
+  hdr = re_buf2_get_hdr(*buf);
+  re_ialloc(r, sizeof(*hdr) + hdr->alloc, 0, hdr);
+}
+
+static int re_buf2_grow_t(re *r, void **buf, size_t incr)
+{
+  assert(buf);
+  return re_buf2_reserve_t(r, buf, re_buf2_size_t(*buf) + incr);
+}
+
+static size_t re_buf2_tail_t(void *buf, size_t decr)
+{
+  return re_buf2_get_hdr(buf)->size - decr;
+}
+
+size_t re_buf2_pop_t(void *buf, size_t decr)
+{
+  size_t out;
+  re_buf2_hdr *hdr;
+  assert(buf);
+  out = re_buf2_tail_t(buf, decr);
+  hdr = re_buf2_get_hdr(buf);
+  assert(hdr->size >= decr);
+  hdr->size -= decr;
+  return out;
+}
+
+void re_buf2_clear(void *buf)
+{
+  if (!buf)
+    return;
+  re_buf2_get_hdr(buf)->size = 0;
+}
+
+#define re_buf2_esz(b) sizeof(**(b))
+#define re_buf2_push(r, b, e)                                                  \
+  (re_buf2_grow_t((r), (void **)(b), re_buf2_esz(b))                           \
+       ? ERR_MEM                                                               \
+       : (((*b)                                                                \
+               [re_buf2_tail_t((void *)(*b), re_buf2_esz(b)) /                 \
+                re_buf2_esz(b)]) = (e),                                        \
+          0))
+#define re_buf2_reserve(r, b, n)                                               \
+  (re_buf_reserven(r, (void **)(b), re_buf2_esz(b) * (n)))
+#define re_buf2_pop(b)                                                         \
+  ((*b)[re_buf2_pop_t((void *)(*b), re_buf2_esz(b)) / re_buf2_esz(b)])
+#define re_buf2_peek(b, n)                                                     \
+  ((*b)[re_buf2_tail_t((void *)(*b), re_buf2_esz(b)) / re_buf2_esz(b) - 1 - n])
+#define re_buf2_size(b) (re_buf2_size_t((void *)(*b)) / sizeof(T))
 
 /* For a library like this, you really need a convenient way to represent
  * dynamically-sized arrays of many different types. There's a million ways to
@@ -176,7 +281,8 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
   r->ast_root = r->ast_sets = 0;
   re_buf_init(&r->arg_stk), re_buf_init(&r->op_stk), re_buf_init(&r->comp_stk);
   re_buf_init(&r->cc_stk_a), re_buf_init(&r->cc_stk_b);
-  re_buf_init(&r->prog), re_buf_init(&r->prog_set_idxs);
+  re_buf_init(&r->prog);
+  r->prog_set_idxs = NULL;
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
     if ((err = re_parse(r, (const u8 *)regex, n, &r->ast_root))) {
@@ -196,7 +302,8 @@ void re_destroy(re *r)
   re_buf_destroy(r, &r->op_stk), re_buf_destroy(r, &r->arg_stk),
       re_buf_destroy(r, &r->comp_stk);
   re_buf_destroy(r, &r->cc_stk_a), re_buf_destroy(r, &r->cc_stk_b);
-  re_buf_destroy(r, &r->prog), re_buf_destroy(r, &r->prog_set_idxs);
+  re_buf_destroy(r, &r->prog);
+  re_buf2_destroy(r, (void **)&r->prog_set_idxs);
   r->alloc(sizeof(*r), 0, r, __FILE__, __LINE__);
 }
 
@@ -1200,7 +1307,7 @@ static int re_inst_emit(re *r, re_inst i, re_compframe *frame)
   if (re_prog_size(r) == RE_PROG_MAX_INSTS)
     return ERR_LIMIT;
   if ((err = re_buf_push(r, &r->prog, re_inst, i)) ||
-      (err = re_buf_push(r, &r->prog_set_idxs, u32, frame->set_idx)))
+      (err = re_buf2_push(r, &r->prog_set_idxs, frame->set_idx)))
     return err;
   return err;
 }
@@ -1849,7 +1956,7 @@ static int re_compile_internal(re *r, u32 root, u32 reverse)
   if (!re_prog_size(r) &&
       ((err = re_buf_push(
             r, &r->prog, re_inst, re_inst_make(RE_OPCODE_RANGE, 0, 0))) ||
-       (err = re_buf_push(r, &r->prog_set_idxs, u32, 0))))
+       (err = re_buf2_push(r, &r->prog_set_idxs, 0))))
     return err;
   assert(re_prog_size(r) > 0);
   initial_frame.root_ref = root;
@@ -2413,9 +2520,7 @@ static int re_nfa_eps(const re *r, re_nfa *n, size_t pos, re_assert_flag ass)
           return err;
         if (re_inst_next(op)) {
           if (re_inst_match_param_idx(re_inst_param(op)) > 0 ||
-              !re_buf_at(
-                  &n->pri_stk, u32,
-                  re_buf_at(&r->prog_set_idxs, u32, thrd.pc) - 1)) {
+              !re_buf_at(&n->pri_stk, u32, r->prog_set_idxs[thrd.pc - 1])) {
             thrd.pc = re_inst_next(op);
             *re_buf_peek(&n->thrd_stk, re_nfa_thrd, 0) = thrd;
           } else
@@ -2462,7 +2567,7 @@ static int re_nfa_match_end(
     const re *r, re_nfa *n, re_nfa_thrd thrd, size_t pos, unsigned int ch)
 {
   int err = 0;
-  u32 idx = re_buf_at(&r->prog_set_idxs, u32, thrd.pc);
+  u32 idx = r->prog_set_idxs[thrd.pc];
   u32 *memo = &re_buf_at(&n->pri_stk, u32, idx - 1);
   assert(idx > 0);
   assert(idx - 1 < re_buf_size(n->pri_stk, u32));
@@ -2496,8 +2601,7 @@ static int re_nfa_chr(const re *r, re_nfa *n, unsigned int ch, size_t pos)
   for (i = 0; i < n->b.dense_size; i++) {
     re_nfa_thrd thrd = n->b.dense[i];
     re_inst op = re_prog_get(r, thrd.pc);
-    u32 pri = re_bmp_get(
-            &n->pri_bmp_tmp, re_buf_at(&r->prog_set_idxs, u32, thrd.pc)),
+    u32 pri = re_bmp_get(&n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]),
         opcode = re_inst_opcode(op);
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
@@ -2514,7 +2618,7 @@ static int re_nfa_chr(const re *r, re_nfa *n, unsigned int ch, size_t pos)
       if ((err = re_nfa_match_end(r, n, thrd, pos, ch)))
         return err;
       if (n->pri)
-        re_bmp_set(&n->pri_bmp_tmp, re_buf_at(&r->prog_set_idxs, u32, thrd.pc));
+        re_bmp_set(&n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
       re_save_slots_kill(&n->slots, thrd.slot);
     }
   }
@@ -2787,8 +2891,7 @@ static int re_dfa_construct_chr(
   for (i = 0; i < n->b.dense_size; i++) {
     re_nfa_thrd thrd = n->b.dense[i];
     re_inst op = re_prog_get(r, thrd.pc);
-    int pri =
-        re_bmp_get(&n->pri_bmp_tmp, re_buf_at(&r->prog_set_idxs, u32, thrd.pc));
+    int pri = re_bmp_get(&n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
     switch (re_inst_opcode(op)) {
@@ -2805,12 +2908,11 @@ static int re_dfa_construct_chr(
       assert(!re_inst_next(op));
       /* NOTE: since there only exists one match instruction for a set n, we
        * don't need to check if we've already pushed the match instruction. */
-      if ((err = re_buf_push(
-               r, &d->set_buf, u32,
-               re_buf_at(&r->prog_set_idxs, u32, thrd.pc) - 1)))
+      if ((err =
+               re_buf_push(r, &d->set_buf, u32, r->prog_set_idxs[thrd.pc] - 1)))
         return err;
       if (n->pri)
-        re_bmp_set(&n->pri_bmp_tmp, re_buf_at(&r->prog_set_idxs, u32, thrd.pc));
+        re_bmp_set(&n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
       break;
     }
     default:
@@ -3491,7 +3593,7 @@ void d_prog_range(re *r, u32 start, u32 end, int format)
       static const int colors[] = {91, 92, 93, 94};
       printf(
           "%04X %01X \x1b[%im%s\x1b[0m \x1b[%im%04X\x1b[0m %04X %s", start,
-          re_buf_at(&r->prog_set_idxs, u32, start), colors[re_inst_opcode(ins)],
+          r->prog_set_idxs[start], colors[re_inst_opcode(ins)],
           ops[re_inst_opcode(ins)],
           re_inst_next(ins) ? (re_inst_next(ins) == start + 1 ? 90 : 0) : 91,
           re_inst_next(ins), re_inst_param(ins), labels[k]);
