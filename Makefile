@@ -19,7 +19,6 @@ CFLAGS=\
 			 -Wuninitialized\
 			 -Wunused-variable\
 			 -std=c89\
-			 -ferror-limit=0\
 			 $(CFLAGS_$(PROFILE))
 
 SRCS=re.c test.c test-gen.c

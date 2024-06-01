@@ -1,7 +1,6 @@
 #include "mptest.h"
 
-void *re_default_alloc(
-    size_t prev, size_t next, void *ptr)
+void *re_default_alloc(size_t prev, size_t next, void *ptr)
 {
   if (next) {
     (void)prev, assert((prev || !ptr));

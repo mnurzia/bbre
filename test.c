@@ -2980,4 +2980,5 @@ int main(int argc, const char *const *argv)
   RUN_SUITE(fuzz_regression);
 #endif
   MPTEST_MAIN_END();
+  return 0;
 }

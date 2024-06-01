@@ -136,4 +136,5 @@ int main(void)
   BENCH_RUN(pointer_chase);
   BENCH_RUN(bool_match_full);
   BENCH_RUN(bool_match_unanchored);
+  return 0;
 }

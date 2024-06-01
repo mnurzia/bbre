@@ -299,7 +299,7 @@ TEST(fuzz_regression_0001)
       15,
   };
   PROPAGATE(check_matches_n(
-      regexes, regexes_n, 1, text, 1, 0, 0, 'B', NULL, NULL, 1));
+      regexes, regexes_n, 1, (const char *)text, 1, 0, 0, 'B', NULL, NULL, 1));
   PASS();
 }
 
@@ -313,7 +313,7 @@ TEST(fuzz_regression_0002)
       11,
   };
   PROPAGATE(check_matches_n(
-      regexes, regexes_n, 1, text, 1, 0, 0, 'B', NULL, NULL, 1));
+      regexes, regexes_n, 1, (const char *)text, 1, 0, 0, 'B', NULL, NULL, 1));
   PASS();
 }
 
@@ -328,7 +328,7 @@ TEST(fuzz_regression_0003)
       46,
   };
   PROPAGATE(check_matches_n(
-      regexes, regexes_n, 1, text, 3, 0, 0, 'B', NULL, NULL, 1));
+      regexes, regexes_n, 1, (const char *)text, 3, 0, 0, 'B', NULL, NULL, 1));
   PASS();
 }
 
@@ -343,7 +343,7 @@ TEST(fuzz_regression_0004)
       8,
   };
   PROPAGATE(check_matches_n(
-      regexes, regexes_n, 1, text, 16, 0, 0, 'B', NULL, NULL, 1));
+      regexes, regexes_n, 1, (const char *)text, 16, 0, 0, 'B', NULL, NULL, 1));
   PASS();
 }
 
@@ -358,7 +358,7 @@ TEST(fuzz_regression_0005)
       37,
   };
   PROPAGATE(check_matches_n(
-      regexes, regexes_n, 1, text, 4, 0, 0, 'B', NULL, NULL, 1));
+      regexes, regexes_n, 1, (const char *)text, 4, 0, 0, 'B', NULL, NULL, 1));
   PASS();
 }
 
@@ -372,7 +372,7 @@ TEST(fuzz_regression_0006)
       21,
   };
   PROPAGATE(check_matches_n(
-      regexes, regexes_n, 1, text, 4, 0, 0, 'B', NULL, NULL, 1));
+      regexes, regexes_n, 1, (const char *)text, 4, 0, 0, 'B', NULL, NULL, 1));
   PASS();
 }
 
@@ -383,7 +383,7 @@ TEST(fuzz_regression_0007)
       "\xD9\x97\xCE\x82-\xE8\x9D\xA5\xF3\xB1\xBB\xAE-\xEE\x9F\xAD\xEE\x98\x91-"
       "\x0C])*G(?:\xC2\x9D|\xC3\xB3)",
   };
-  const char text[2721] = {
+  const u8 text[2721] = {
       37,  71,  225, 175, 131, 71,  234, 172, 182, 37,  83,  195, 146, 71,  71,
       194, 157, 231, 180, 191, 227, 168, 130, 71,  60,  240, 173, 140, 190, 198,
       186, 81,  240, 153, 163, 176, 243, 163, 191, 148, 229, 160, 152, 197, 164,
@@ -570,7 +570,8 @@ TEST(fuzz_regression_0007)
       61,
   };
   PROPAGATE(check_matches_n(
-      regexes, regexes_n, 1, text, 2721, 0, 0, 'B', NULL, NULL, 1));
+      regexes, regexes_n, 1, (const char *)text, 2721, 0, 0, 'B', NULL, NULL,
+      1));
   PASS();
 }
 
@@ -585,7 +586,7 @@ TEST(fuzz_regression_0008)
       23,
   };
   PROPAGATE(check_matches_n(
-      regexes, regexes_n, 1, text, 17, 0, 0, 'B', NULL, NULL, 1));
+      regexes, regexes_n, 1, (const char *)text, 17, 0, 0, 'B', NULL, NULL, 1));
   PASS();
 }
 
@@ -603,7 +604,7 @@ TEST(fuzz_regression_0009)
       100,
   };
   PROPAGATE(check_matches_n(
-      regexes, regexes_n, 1, text, 14, 0, 0, 'B', NULL, NULL, 1));
+      regexes, regexes_n, 1, (const char *)text, 14, 0, 0, 'B', NULL, NULL, 1));
   PASS();
 }
 
@@ -617,7 +618,7 @@ TEST(fuzz_regression_0010)
       15,
   };
   PROPAGATE(check_matches_n(
-      regexes, regexes_n, 1, text, 3, 0, 0, 'B', NULL, NULL, 1));
+      regexes, regexes_n, 1, (const char *)text, 3, 0, 0, 'B', NULL, NULL, 1));
   PASS();
 }
 
@@ -631,7 +632,7 @@ TEST(fuzz_regression_0011)
       17,
   };
   PROPAGATE(check_matches_n(
-      regexes, regexes_n, 1, text, 4, 0, 0, 'B', NULL, NULL, 1));
+      regexes, regexes_n, 1, (const char *)text, 4, 0, 0, 'B', NULL, NULL, 1));
   PASS();
 }
 
@@ -645,7 +646,7 @@ TEST(fuzz_regression_0012)
       2,
   };
   PROPAGATE(check_matches_n(
-      regexes, regexes_n, 1, text, 2, 0, 0, 'B', NULL, NULL, 1));
+      regexes, regexes_n, 1, (const char *)text, 2, 0, 0, 'B', NULL, NULL, 1));
   PASS();
 }
 

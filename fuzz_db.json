@@ -193,5 +193,23 @@
     "match_spans": [],
     "match_sets": [],
     "match_anchor": "B"
+  },
+  {
+    "identifier": "0012",
+    "commit_hash": "7cb1988e260c5f2d28c60dc1a6bc0b10c867a12f",
+    "created": "2024-05-30T12:43:34.843798",
+    "type": "match",
+    "extra": {
+      "fuzzington_seed": 8985130467871973165
+    },
+    "regexes": [
+      "\u00a0"
+    ],
+    "num_spans": 0,
+    "num_sets": 0,
+    "match_string": "\u00a0",
+    "match_spans": [],
+    "match_sets": [],
+    "match_anchor": "B"
   }
 ]

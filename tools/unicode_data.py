@@ -171,7 +171,7 @@ def _cmd_gen_casefold(args) -> int:
     out(";}")
 
     out(
-        "static int re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf2(re_rune_range) *cc_out) {"
+        "static int re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf(re_rune_range) *cc_out) {"
     )
 
     types = {
@@ -208,7 +208,7 @@ def _cmd_gen_casefold(args) -> int:
 
     out("current = begin + a0;")
     out("while (current != begin) {")
-    out("  if ((err = re_buf2_push(r, cc_out, re_rune_range_make(current, current))))")
+    out("  if ((err = re_buf_push(r, cc_out, re_rune_range_make(current, current))))")
     out("    return err;")
     out("  current = (u32)((s32)current + re_compcc_fold_next(current));")
     out("}")
@@ -255,14 +255,16 @@ PERL_CHARCLASSES = {
 
 
 def _cmd_gen_ascii_charclasses_impl(args) -> int:
-    out_lines = ["static const re_parse_builtin_cc re_parse_builtin_ccs[] = {\n"]
+    out_lines = [
+        f"static const re_parse_builtin_cc re_parse_builtin_ccs[{len(ASCII_CHARCLASSES)}] = {{\n"
+    ]
     for name, cc in ASCII_CHARCLASSES.items():
         normalized = list((nranges_normalize(list(ranges_expand(cc)))))
         serialized = "".join(f"\\x{lo:02X}\\x{hi:02X}" for lo, hi in normalized)
         out_lines.append(
             f'{{{len(name)}, {len(normalized)}, "{name}", "{serialized}"}},\n'
         )
-    out_lines.append("{0},};\n")
+    out_lines.append("};\n")
     file: IO = args.file
     insert_c_file(file, out_lines, "gen_ascii_charclasses impl")
     file.close()
