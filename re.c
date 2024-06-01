@@ -1,11 +1,8 @@
 #include <assert.h>
 #include <limits.h>
-#include <stdarg.h>
 #include <stddef.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include "re.h"
 
@@ -552,7 +549,7 @@ int re_union(re *r, const char *regex, size_t n)
 #define RE_UTF8_ACCEPT 0
 #define RE_UTF8_REJECT 1
 
-static const uint8_t re_utf8_dfa[] = {
+static const u8 re_utf8_dfa[] = {
     0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
     0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
     0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
@@ -3478,6 +3475,8 @@ re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf(re_rune_range) * cc_out)
 /*T The rest of this file contains functions that aid debugging. */
 #ifndef RE_COV
 
+  #include <stdio.h>
+
 enum dumpformat { TERM, GRAPHVIZ };
 
 static char d_hex(u8 d)
@@ -3516,34 +3515,41 @@ static char *d_chr_unicode(char *buf, u32 ch) { return d_chr(buf, ch, 0); }
 
 static char *d_assert(char *buf, re_assert_flag af)
 {
-  snprintf(
-      buf, 32, "%s%s%s%s%s%s", af & RE_ASSERT_LINE_BEGIN ? "^" : "",
-      af & RE_ASSERT_LINE_END ? "$" : "",
-      af & RE_ASSERT_TEXT_BEGIN ? "\\\\A" : "",
-      af & RE_ASSERT_TEXT_END ? "\\\\z" : "",
-      af & RE_ASSERT_WORD ? "\\\\b" : "",
-      af & RE_ASSERT_NOT_WORD ? "\\\\B" : "");
+  buf = strcat(buf, af & RE_ASSERT_LINE_BEGIN ? "^" : "");
+  buf = strcat(buf, af & RE_ASSERT_LINE_END ? "$" : "");
+  buf = strcat(buf, af & RE_ASSERT_TEXT_BEGIN ? "\\\\A" : "");
+  buf = strcat(buf, af & RE_ASSERT_TEXT_END ? "\\\\z" : "");
+  buf = strcat(buf, af & RE_ASSERT_WORD ? "\\\\b" : "");
+  buf = strcat(buf, af & RE_ASSERT_NOT_WORD ? "\\\\B" : "");
   return buf;
 }
 
 static char *d_group_flag(char *buf, re_group_flag gf)
 {
-  snprintf(
-      buf, 32, "%s%s%s%s%s%s", gf & RE_GROUP_FLAG_INSENSITIVE ? "i" : "",
-      gf & RE_GROUP_FLAG_MULTILINE ? "m" : "",
-      gf & RE_GROUP_FLAG_DOTNEWLINE ? "s" : "",
-      gf & RE_GROUP_FLAG_UNGREEDY ? "U" : "",
-      gf & RE_GROUP_FLAG_NONCAPTURING ? ":" : "",
-      gf & RE_GROUP_FLAG_SUBEXPRESSION ? "R" : "");
+  buf = strcat(buf, gf & RE_GROUP_FLAG_INSENSITIVE ? "i" : "");
+  buf = strcat(buf, gf & RE_GROUP_FLAG_MULTILINE ? "m" : "");
+  buf = strcat(buf, gf & RE_GROUP_FLAG_DOTNEWLINE ? "s" : "");
+  buf = strcat(buf, gf & RE_GROUP_FLAG_UNGREEDY ? "U" : "");
+  buf = strcat(buf, gf & RE_GROUP_FLAG_NONCAPTURING ? ":" : "");
+  buf = strcat(buf, gf & RE_GROUP_FLAG_SUBEXPRESSION ? "R" : "");
   return buf;
 }
 
 static char *d_quant(char *buf, u32 quantval)
 {
   if (quantval >= RE_INFTY)
-    snprintf(buf, 32, "\xe2\x88\x9e"); /* infinity symbol */
-  else
-    snprintf(buf, 32, "%u", quantval);
+    strcat(buf, "\xe2\x88\x9e"); /* infinity symbol */
+  else {
+    char buf_reverse[32] = {0}, buf_fwd[32] = {0};
+    int i = 0, j = 0;
+    do {
+      buf_reverse[i++] = quantval % 10 + '0';
+      quantval /= 10;
+    } while (quantval);
+    while (i)
+      buf_fwd[j++] = buf_reverse[--i];
+    strcat(buf, buf_fwd);
+  }
   return buf;
 }
 
