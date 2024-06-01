@@ -504,8 +504,7 @@ TEST(init_some)
   PASS();
 }
 
-extern void *re_default_alloc(
-    size_t prev, size_t next, void *ptr, const char *file, int line);
+extern void *re_default_alloc(size_t prev, size_t next, void *ptr);
 
 TEST(init_full_default_alloc)
 {

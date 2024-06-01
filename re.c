@@ -32,28 +32,66 @@ typedef struct re_compframe {
       set_idx;    /* index of the current pattern being compiled */
 } re_compframe;
 
+typedef enum re_assert_flag {
+  RE_ASSERT_LINE_BEGIN = 1, /* ^ */
+  RE_ASSERT_LINE_END = 2,   /* $ */
+  RE_ASSERT_TEXT_BEGIN = 4, /* \A */
+  RE_ASSERT_TEXT_END = 8,   /* \z */
+  RE_ASSERT_WORD = 16,      /* \w */
+  RE_ASSERT_NOT_WORD = 32   /* \W */
+} re_assert_flag;
+
+#define RE_INST_OPCODE_BITS 2
+
+typedef enum re_opcode {
+  RE_OPCODE_RANGE, /* matches a range of bytes */
+  RE_OPCODE_SPLIT, /* forks execution into two paths */
+  RE_OPCODE_MATCH, /* writes the current string position into a submatch */
+  RE_OPCODE_ASSERT /* continue execution if zero-width assertion */
+} re_opcode;
+
 /* Compiled program instruction. */
 typedef struct re_inst {
-  u32 l, h;
+  /* opcode_next is the opcode and the next program counter (primary branch
+   * target), and param is opcode-specific data */
+  /*                  3   2   2   2   1   1   0   0   0  */
+  /*                   2   8   4   0   6   2   8   4   0 */
+  u32 opcode_next, /* / nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnoo */
+                   /* \          n = next PC, o = opcode */
+      param;       /* / 0000000000000000hhhhhhhhllllllll (RANGE) */
+                   /* \      h = high byte, l = low byte (RANGE) */
+                   /* / NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN (SPLIT) */
+                   /* \            N = secondary next PC (SPLIT) */
+                   /* / iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiie (MATCH) */
+                   /* \     i = group idx, e = start/end (MATCH) */
+                   /* / 00000000000000000000000000aaaaaa (ASSERT) */
+                   /* \                  a = assert_flag (ASSERT) */
 } re_inst;
 
 /* Represents an inclusive range of runes. */
 typedef struct re_rune_range {
-  u32 l, h;
+  u32 l, /* low rune */
+      h; /* high rune */
 } re_rune_range;
+
+/* Auxiliary data for tree nodes used for accelerating compilation. */
+typedef union re_compcc_tree_aux {
+  u32 hash, /* node hash, used for tree reduction */
+      pc;   /* compiled location, nonzero if this node was compiled already */
+} re_compcc_tree_aux;
 
 /* Tree node for the character class compiler. */
 typedef struct re_compcc_tree {
-  u32 range,       /* range of bytes this node matches */
-      child_ref,   /* concatenation */
-      sibling_ref, /* alternation */
-      aux;         /* node hash OR cached PC TODO: replace with union */
+  u32 range,              /* range of bytes this node matches */
+      child_ref,          /* concatenation */
+      sibling_ref;        /* alternation */
+  re_compcc_tree_aux aux; /* node hash OR cached PC TODO: replace with union */
 } re_compcc_tree;
 
 /* Bit flags to identify program entry points in the `entry` field of `re`. */
 typedef enum re_prog_entry {
-  RE_PROG_ENTRY_REVERSE = 1,
-  RE_PROG_ENTRY_DOTSTAR = 2,
+  RE_PROG_ENTRY_REVERSE = 1, /* reverse execution */
+  RE_PROG_ENTRY_DOTSTAR = 2, /* .* before execution (unanchored match) */
   RE_PROG_ENTRY_MAX = 4
 } re_prog_entry;
 
@@ -82,14 +120,15 @@ struct re {
 };
 
 /* Helper macro for assertions. */
-#define RE_IMPLIES(subj, pred) (!(subj) || (pred))
+#define RE_IMPLIES(subject, predicate) (!(subject) || (predicate))
+
+/* Allocate memory for an instance of `re`. */
+#define re_ialloc(re, prev, next, ptr) (re)->alloc((prev), (next), (ptr))
 
 #ifndef RE_DEFAULT_ALLOC
 /* Default allocation function. Hooks stdlib malloc. */
-static void *re_default_alloc(
-    size_t prev, size_t next, void *ptr, const char *file, int line)
+static void *re_default_alloc(size_t prev, size_t next, void *ptr)
 {
-  (void)file, (void)line;
   if (next) {
     (void)prev, assert(RE_IMPLIES(!prev, !ptr));
     return realloc(ptr, next);
@@ -102,10 +141,6 @@ static void *re_default_alloc(
   #define RE_DEFAULT_ALLOC re_default_alloc
 #endif
 
-/* Allocate memory for an instance of `re`. */
-#define re_ialloc(re, prev, next, ptr)                                         \
-  (re)->alloc((prev), (next), (ptr), __FILE__, __LINE__)
-
 /* For a library like this, you really need a convenient way to represent
  * dynamically-sized arrays of many different types. There's a million ways to
  * do this in C, but they usually boil down to capturing the size of each
@@ -115,27 +150,76 @@ static void *re_default_alloc(
  * terms of u32. This actually worked very well for the AST and parser, but the
  * more complex structures used to execute regular expressions really benefit
  * from having a properly typed dynamic array implementation. */
-/* I avoided implementing this generically for a while because I didn't want to
- * spend the brainpower on finding an elegant way to do this. The main problems
- * with making this kind of generic data structure in C are (1) the free-for-all
- * that comes into play once you start fiddling with macros, and (2) the lack of
- * type safety. Problem 1 cannot easily be fixed, as macros are a requirement,
- * but problem 2 can. The issue with type safety, however, is that one must
- * declare all generic functions they want to use beforehand (essentially manual
- * template instantiation). This leads to lots of unreadable, irrelevant code.
- * These declarations could be rolled into a macro, but that just makes Problem
- * 1 worse. */
+/* I avoided implementing a solid dynamic array in this library for a while,
+ * becuase I didn't feel like spending the brainpower on finding a good and safe
+ * solution. I've implemented dynamic arrays in C before, and I've never been
+ * fully satisfied with them. I think that the main problems with these data
+ * structures result from (1) type unsafety, (2) macro overuse, and (3)
+ * ergonomics, in order of importance. */
+/* Any generic dynamic array implementation in C worth its salt *must* have a
+ * measure of type safety. When the language itself provides next to nothing in
+ * terms of safety checks, you have to take everything you can get.
+ * Many dynamic array implementations rely on the user carrying the type
+ * information around with them. Consider these two ways of defining push:
+ * [a] dynamic_array_T_push(arr, elem)
+ * [b] dynamic_array_push(arr, T, elem)
+ * Option (a) requires the function dynamic_array_T_push to be predefined,
+ * usually through a lengthy macro. This increases macro use, and decreases
+ * ergonomics, since you end up wasting lines on declaring these functions in
+ * what is essentially manual template instantiation:
+ *   DYNAMIC_ARRAY_INIT_DECL(T);
+ *   DYNAMIC_ARRAY_PUSH_DECL(T);
+ *   DYNAMIC_ARRAY_POP_DECL(T);
+ *   ...
+ * Option (b) does not require this manual template instantiation, but suffers
+ * from a worse problem: it's easy to accidentally use the wrong T, which is
+ * very hard to check for, especially at compile-time. */
+/* In essence, we want a dynamic array implementation that does not require us
+ * to carry around a T for each call:
+ *   dynamic_array_push(arr, elem)
+ * This means that the dynamic_array_push macro must determine the generic type
+ * of arr purely through properties of arr. But this presents another problem. A
+ * dynamic array needs to remember its size and allocated reserve, so it will
+ * look something like this:
+ *   struct dynamic_array_struct_T {
+ *     T* ptr;
+ *     size_t size, alloc;
+ *   };
+ * ...which means that the `arr` in dynamic_array_push(arr, elem) must be such a
+ * generic struct. We now have a familiar problem: foreach T we use in our
+ * program, we must declare some `struct dynamic_array_struct_T` to be able to
+ * use the dynamic array. */
+/* So now we have another constraint on our implementation: we must not be
+ * required to declare a new dynamic array type for each distinct T used in our
+ * program. The only way to do this, to my knowledge, is to just represent the
+ * dynamic array as a bare T*, and use the ages-old trick of storing metadata in
+ * a header *before the pointer.*
+ * We get type safety and ergonomics (array accesses can simply use p[i]!) and
+ * the macro side can be made relatively simple. This proved to be a good fit
+ * for this library. */
 
+/* Dynamic array header, stored before the data pointer in memory. */
 typedef struct re_buf_hdr {
   size_t size, alloc;
 } re_buf_hdr;
 
-re_buf_hdr re_buf_sentinel = {0};
+/* Since we store the dynamic array as a raw T*, a natural implementaion might
+ * represent an empty array as NULL. However, this complicates things-- size
+ * checks must always have a branch to check for NULL, the grow routine has more
+ * scary codepaths, etc. To make code simpler, there exists a special sentinel
+ * value that contains the empty array. */
+static re_buf_hdr re_buf_sentinel = {0};
 
-re_buf_hdr *re_buf_get_hdr(void *buf) { return ((re_buf_hdr *)buf) - 1; }
+/* Given a dynamic array, get its header. */
+static re_buf_hdr *re_buf_get_hdr(void *buf) { return ((re_buf_hdr *)buf) - 1; }
 
-size_t re_buf_size_t(void *buf) { return re_buf_get_hdr(buf)->size; }
+/* Given a dynamic array, get its size. */
+static size_t re_buf_size_t(void *buf) { return re_buf_get_hdr(buf)->size; }
 
+/* Reserve enough memory to set the array's size to `size`. Note that this is
+ * different from C++'s std::vector::reserve() in that it actually sets the used
+ * size of the dynamic array. The caller must initialize the newly available
+ * elements. */
 static int re_buf_reserve_t(const re *r, void **buf, size_t size)
 {
   re_buf_hdr *hdr = NULL;
@@ -143,7 +227,7 @@ static int re_buf_reserve_t(const re *r, void **buf, size_t size)
   void *next_ptr;
   assert(buf && *buf);
   hdr = re_buf_get_hdr(*buf);
-  next_alloc = hdr->alloc ? hdr->alloc : 1;
+  next_alloc = hdr->alloc ? hdr->alloc : /* sentinel */ 1;
   if (size <= hdr->alloc) {
     hdr->size = size;
     return 0;
@@ -151,10 +235,8 @@ static int re_buf_reserve_t(const re *r, void **buf, size_t size)
   while (next_alloc < size)
     next_alloc *= 2;
   next_ptr = re_ialloc(
-      r,
-      hdr->alloc ? sizeof(re_buf_hdr) + hdr->alloc : 0 /* handles sentinel */,
-      sizeof(re_buf_hdr) + next_alloc,
-      hdr->alloc ? hdr : NULL /* handles sentinel */);
+      r, hdr->alloc ? sizeof(re_buf_hdr) + hdr->alloc : /* sentinel */ 0,
+      sizeof(re_buf_hdr) + next_alloc, hdr->alloc ? hdr : /* sentinel */ NULL);
   if (!next_ptr)
     return ERR_MEM;
   hdr = next_ptr;
@@ -164,8 +246,10 @@ static int re_buf_reserve_t(const re *r, void **buf, size_t size)
   return 0;
 }
 
+/* Initialize an empty dynamic array. */
 static void re_buf_init_t(void **b) { *b = &re_buf_sentinel + 1; }
 
+/* Destroy a dynamic array. */
 static void re_buf_destroy_t(const re *r, void **buf)
 {
   re_buf_hdr *hdr;
@@ -175,17 +259,20 @@ static void re_buf_destroy_t(const re *r, void **buf)
     re_ialloc(r, sizeof(*hdr) + hdr->alloc, 0, hdr);
 }
 
+/* Increase size by `incr`. */
 static int re_buf_grow_t(const re *r, void **buf, size_t incr)
 {
   assert(buf);
   return re_buf_reserve_t(r, buf, re_buf_size_t(*buf) + incr);
 }
 
+/* Get the last element index of the dynamic array. */
 static size_t re_buf_tail_t(void *buf, size_t decr)
 {
   return re_buf_get_hdr(buf)->size - decr;
 }
 
+/* Pop the last element of the array, returning its index in storage units. */
 size_t re_buf_pop_t(void *buf, size_t decr)
 {
   size_t out;
@@ -198,6 +285,7 @@ size_t re_buf_pop_t(void *buf, size_t decr)
   return out;
 }
 
+/* Clear the buffer, without freeing its backing memory */
 void re_buf_clear(void *buf)
 {
   void *sbuf;
@@ -208,21 +296,36 @@ void re_buf_clear(void *buf)
   re_buf_get_hdr(sbuf)->size = 0;
 }
 
+/* Initialize a dynamic array. */
 #define re_buf_init(b) re_buf_init_t((void **)b)
-#define re_buf_esz(b)  sizeof(**(b))
+
+/* Get the element size of a dynamic array. */
+#define re_buf_esz(b) sizeof(**(b))
+
+/* Push an element. */
 #define re_buf_push(r, b, e)                                                   \
   (re_buf_grow_t((r), (void **)(b), re_buf_esz(b))                             \
        ? ERR_MEM                                                               \
        : (((*b)[re_buf_tail_t((void *)(*b), re_buf_esz(b)) / re_buf_esz(b)]) = \
               (e),                                                             \
           0))
+
+/* Set the size to `n`. */
 #define re_buf_reserve(r, b, n)                                                \
   (re_buf_reserve_t(r, (void **)(b), re_buf_esz(b) * (n)))
+
+/* Pop an element. */
 #define re_buf_pop(b)                                                          \
   ((*b)[re_buf_pop_t((void *)(*b), re_buf_esz(b)) / re_buf_esz(b)])
+
+/* Get a pointer to `n` elements from the end. */
 #define re_buf_peek(b, n)                                                      \
   ((*b) + re_buf_tail_t((void *)(*b), re_buf_esz(b)) / re_buf_esz(b) - (n))
-#define re_buf_size(b)       (re_buf_size_t((void *)(b)) / sizeof(*(b)))
+
+/* Get the size. */
+#define re_buf_size(b) (re_buf_size_t((void *)(b)) / sizeof(*(b)))
+
+/* Destroy a dynamic array. */
 #define re_buf_destroy(r, b) (re_buf_destroy_t((r), (void **)(b)))
 
 static int re_parse(re *r, const u8 *s, size_t sz, u32 *root);
@@ -244,7 +347,7 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
   re *r;
   if (!alloc)
     alloc = re_default_alloc;
-  r = alloc(0, sizeof(re), NULL, __FILE__, __LINE__);
+  r = alloc(0, sizeof(re), NULL);
   *pr = r;
   if (!r)
     return (err = ERR_MEM);
@@ -279,7 +382,7 @@ void re_destroy(re *r)
       re_buf_destroy(r, &r->compcc_hash);
   re_buf_destroy(r, &r->prog);
   re_buf_destroy(r, (void **)&r->prog_set_idxs);
-  r->alloc(sizeof(*r), 0, r, __FILE__, __LINE__);
+  r->alloc(sizeof(*r), 0, r);
 }
 
 typedef enum re_ast_type {
@@ -354,21 +457,12 @@ typedef enum re_group_flag {
   RE_GROUP_FLAG_SUBEXPRESSION = 32 /* set-match component */
 } re_group_flag;
 
-typedef enum re_assert_flag {
-  RE_ASSERT_LINE_BEGIN = 1, /* ^ */
-  RE_ASSERT_LINE_END = 2,   /* $ */
-  RE_ASSERT_TEXT_BEGIN = 4, /* \A */
-  RE_ASSERT_TEXT_END = 8,   /* \z */
-  RE_ASSERT_WORD = 16,      /* \w */
-  RE_ASSERT_NOT_WORD = 32   /* \W */
-} re_assert_flag;
-
 /* Represents an inclusive range of bytes. */
 typedef struct re_byte_range {
   u8 l /* min ordinal */, h /* max ordinal */;
 } re_byte_range;
 
-/* Make a byte range inline. */
+/* Make a byte range inline; more convenient than initializing a struct. */
 static re_byte_range re_byte_range_make(u8 l, u8 h)
 {
   re_byte_range out;
@@ -520,7 +614,8 @@ static u32 re_parse_next(re *r)
   return codep;
 }
 
-/* Get the next input codepoint. */
+/* Get the next input codepoint, or raise a parse error with the given error
+ * message if there is no more input. */
 static int re_parse_next_or(re *r, u32 *codep, const char *else_msg)
 {
   assert(else_msg);
@@ -530,6 +625,7 @@ static int re_parse_next_or(re *r, u32 *codep, const char *else_msg)
   return 0;
 }
 
+/* Check that the input string is well-formed UTF-8. */
 static int re_parse_checkutf8(re *r)
 {
   u32 state = RE_UTF8_ACCEPT, codep;
@@ -551,10 +647,13 @@ static u32 re_peek_next_new(re *r)
   return out;
 }
 
+/* Maximum repetition count for quantifiers. */
 #define RE_LIMIT_REPETITION_COUNT 100000
-#define RE_INFTY                  (RE_LIMIT_REPETITION_COUNT + 1)
 
-/* Given nodes R_1i..R_N on the argument stack, fold them into a single CAT
+/* Sentinel value to represent an infinite repetition. */
+#define RE_INFTY (RE_LIMIT_REPETITION_COUNT + 1)
+
+/* Given nodes R_1..R_N on the argument stack, fold them into a single CAT
  * node. If there are no nodes on the stack, create an epsilon node.
  * Returns `ERR_MEM` if out of memory. */
 static int re_fold(re *r)
@@ -562,7 +661,7 @@ static int re_fold(re *r)
   int err = 0;
   if (!re_buf_size(r->arg_stk)) {
     /* arg_stk: | */
-    return re_buf_push(r, &r->arg_stk, RE_REF_NONE);
+    return re_buf_push(r, &r->arg_stk, /* epsilon */ RE_REF_NONE);
     /* arg_stk: | eps |*/
   }
   while (re_buf_size(r->arg_stk) > 1) {
@@ -630,7 +729,7 @@ static void re_fold_alts(re *r, u32 *flags)
   assert(re_buf_size(r->arg_stk) == 1);
 }
 
-/* Add the CLS node `rest` to the CLS node `first`. */
+/* Add the CC node `rest` to the CC node `first`. */
 static u32 re_ast_cls_union(re *r, u32 rest, u32 first)
 {
   u32 cur = first, *next;
@@ -1209,28 +1308,22 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
   return 0;
 }
 
-#define RE_INST_OPCODE_BITS 2
-
-typedef enum re_opcode {
-  RE_OPCODE_RANGE,
-  RE_OPCODE_ASSERT,
-  RE_OPCODE_MATCH,
-  RE_OPCODE_SPLIT
-} re_opcode;
-
 static re_opcode re_inst_opcode(re_inst i)
 {
-  return i.l & (1 << RE_INST_OPCODE_BITS) - 1;
+  return i.opcode_next & (1 << RE_INST_OPCODE_BITS) - 1;
 }
 
-static u32 re_inst_next(re_inst i) { return i.l >> RE_INST_OPCODE_BITS; }
+static u32 re_inst_next(re_inst i)
+{
+  return i.opcode_next >> RE_INST_OPCODE_BITS;
+}
 
-static u32 re_inst_param(re_inst i) { return i.h; }
+static u32 re_inst_param(re_inst i) { return i.param; }
 
 static re_inst re_inst_make(re_opcode op, u32 next, u32 param)
 {
   re_inst out;
-  out.l = op | next << RE_INST_OPCODE_BITS, out.h = param;
+  out.opcode_next = op | next << RE_INST_OPCODE_BITS, out.param = param;
   return out;
 }
 
@@ -1499,7 +1592,7 @@ static int re_compcc_tree_build(
   u32 root_ref;
   re_compcc_tree root_node;
   int err = 0;
-  root_node.child_ref = root_node.sibling_ref = root_node.aux =
+  root_node.child_ref = root_node.sibling_ref = root_node.aux.hash =
       root_node.range = 0;
   /* clear output charclass */
   re_buf_clear(cc_out);
@@ -1614,13 +1707,13 @@ re_compcc_tree_hash(re *r, re_buf(re_compcc_tree) cc_tree_in, u32 parent_ref)
       if (child_node->sibling_ref) {
         re_compcc_tree *child_sibling_node =
             cc_tree_in + child_node->sibling_ref;
-        hash_plain[1] = child_sibling_node->aux;
+        hash_plain[1] = child_sibling_node->aux.hash;
       }
       if (child_node->child_ref) {
         re_compcc_tree *child_child_node = cc_tree_in + child_node->child_ref;
-        hash_plain[2] = child_child_node->aux;
+        hash_plain[2] = child_child_node->aux.hash;
       }
-      child_node->aux = re_hashington(
+      child_node->aux.hash = re_hashington(
           re_hashington(re_hashington(hash_plain[0]) + hash_plain[1]) +
           hash_plain[2]);
     }
@@ -1641,8 +1734,8 @@ static void re_compcc_tree_reduce(
   while (node_ref) {
     re_compcc_tree *node = cc_tree_in + node_ref;
     u32 probe, found, child_ref = 0;
-    probe = node->aux;
-    node->aux = 0;
+    probe = node->aux.hash;
+    node->aux.pc = 0;
     /* check if child is in the hash table */
     while (1) {
       if (!((found = cc_ht[probe % re_buf_size(cc_ht)]) & 1))
@@ -1682,14 +1775,14 @@ static int re_compcc_tree_render(
   u32 split_from = 0, my_pc = 0, range_pc = 0;
   while (node_ref) {
     re_compcc_tree *node = cc_tree_in + node_ref;
-    if (node->aux) {
+    if (node->aux.pc) {
       if (split_from) {
         re_inst i = re_prog_get(r, split_from);
         /* found our child, patch into it */
-        i = re_inst_make(re_inst_opcode(i), re_inst_next(i), node->aux);
+        i = re_inst_make(re_inst_opcode(i), re_inst_next(i), node->aux.pc);
         re_prog_set(r, split_from, i);
       } else
-        assert(!*my_out_pc), *my_out_pc = node->aux;
+        assert(!*my_out_pc), *my_out_pc = node->aux.pc;
       return 0;
     }
     my_pc = re_prog_size(r);
@@ -1731,7 +1824,7 @@ static int re_compcc_tree_render(
       /* terminal: patch out */
       re_patch_add(r, frame, range_pc, 0);
     }
-    node->aux = my_pc;
+    node->aux.pc = my_pc;
     node_ref = node->sibling_ref;
   }
   assert(*my_out_pc);
@@ -2714,6 +2807,7 @@ static int re_dfa_construct(
       break;
     }
     next_state = d->states[table_pos];
+    assert(!(next_state->flags & RE_DFA_STATE_FLAG_DIRTY));
     state_data = re_dfa_state_data(next_state);
     if (next_state->flags != prev_flag)
       goto not_found;
@@ -2726,8 +2820,7 @@ static int re_dfa_construct(
         goto not_found;
     for (i = 0; i < re_buf_size(d->set_buf); i++)
       if (state_data[n->a.dense_size + i] != d->set_buf[i])
-        ;
-    goto not_found;
+        goto not_found;
     /* state found! */
     break;
   not_found:
@@ -2752,6 +2845,9 @@ static int re_dfa_construct(
       prev_state = NULL;
     }
     /* can we reuse the previous state? */
+    assert(RE_IMPLIES(
+        d->states[table_pos],
+        d->states[table_pos]->flags & RE_DFA_STATE_FLAG_DIRTY));
     {
       u32 prev_alloc = d->states[table_pos] ? d->states[table_pos]->alloc : 0;
       next_alloc = re_dfa_state_alloc(n->a.dense_size, re_buf_size(d->set_buf));
@@ -2762,6 +2858,7 @@ static int re_dfa_construct(
         d->states[table_pos] = next_state;
       } else {
         next_state = d->states[table_pos];
+        next_alloc = prev_alloc;
       }
     }
     memset(next_state, 0, next_alloc);
@@ -2989,7 +3086,7 @@ static int re_dfa_match(
 int re_exec_init(const re *r, re_exec **pexec)
 {
   int err = 0;
-  re_exec *exec = r->alloc(0, sizeof(re_exec), NULL, __FILE__, __LINE__);
+  re_exec *exec = r->alloc(0, sizeof(re_exec), NULL);
   *pexec = exec;
   assert(re_prog_size(r));
   if (!exec)
@@ -3007,7 +3104,7 @@ void re_exec_destroy(re_exec *exec)
     return;
   re_nfa_destroy(exec->r, &exec->nfa);
   re_dfa_destroy(exec->r, &exec->dfa);
-  exec->r->alloc(sizeof(re_exec), 0, exec, __FILE__, __LINE__);
+  exec->r->alloc(sizeof(re_exec), 0, exec);
 }
 
 int re_compile(re *r)
@@ -3597,7 +3694,7 @@ void d_cctree_i(const re_buf(re_compcc_tree) cc_tree, u32 ref, u32 lvl)
 {
   u32 i;
   const re_compcc_tree *node = cc_tree + ref;
-  printf("%04X [%08X] ", ref, node->aux);
+  printf("%04X [%08X] ", ref, node->aux.pc);
   for (i = 0; i < lvl; i++)
     printf("  ");
   printf(

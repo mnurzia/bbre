@@ -720,7 +720,7 @@ MPTEST_API mptest_rand mptest__fuzz_rand(struct mptest__state *state);
 #define MPTEST_INJECT_MALLOC(size) MPTEST_INJECT_MALLOC_FL(size, __FILE__, __LINE__)
 #define MPTEST_INJECT_FREE_FL(ptr, file, line)                                                \
   mptest__leakcheck_hook_free(&mptest__state_g, file, line, (ptr))
-#define MPTEST_INECT_FREE(ptr) MPTEST_INJECT_FREE_FL(ptr, __FILE__, __LINE__)
+#define MPTEST_INJECT_FREE(ptr) MPTEST_INJECT_FREE_FL(ptr, __FILE__, __LINE__)
 #define MPTEST_INJECT_REALLOC_FL(old_ptr, new_size, file, line)                               \
   mptest__leakcheck_hook_realloc(&mptest__state_g, file, line,         \
                                  (old_ptr), (new_size))

@@ -54,28 +54,28 @@ void bench_run(bench_func f, const char *bench_name)
   f();
   sec = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;
   ups = ((double)num_units) / sec;
-  printf("%s:\t%.2f s\t %.2f MB/s\n", bench_name, sec, ups / (1000.0 * 1000.0));
+  printf("%30s: %.2fs %7.2fMB/s\n", bench_name, sec, ups / (1000.0 * 1000.0));
 }
 
 char run_pointer_chase(char *buf, size_t buf_size)
 {
   u32 state = 10;
-  static void *pointers[256];
+  static char *pointers[256];
   size_t i;
   char *end = buf + buf_size;
-  void **current = pointers + 0;
+  char **current = pointers + 0;
   for (i = 0; i < 256; i++) {
-    pointers[i] = pointers + i;
+    pointers[i] = (char *)(pointers + i);
   }
   for (i = 0; i < 65536; i++) {
     u32 a = xorshift32(&state) & 0xFF;
     u32 b = xorshift32(&state) & 0xFF;
-    void *temp = pointers[a];
+    char *temp = pointers[a];
     pointers[a] = pointers[b];
     pointers[b] = temp;
   }
   while (buf < end) {
-    current = *current;
+    current = (char **)*current;
     buf++;
   }
   return (char)(current - pointers);
@@ -83,16 +83,38 @@ char run_pointer_chase(char *buf, size_t buf_size)
 
 #define BENCH_SIZE 1048576 * 64 * 4
 
+int use(int val)
+{
+  char s[50];
+  sprintf(s, "%i\n", val);
+  return 0;
+}
+
 void pointer_chase(void)
 {
   char *buf = rand_buf(BENCH_SIZE);
   bench_start();
-  run_pointer_chase(buf, BENCH_SIZE);
+  use(run_pointer_chase(buf, BENCH_SIZE));
   bench_end(BENCH_SIZE);
   free(buf);
 }
 
-void bool_match(void)
+void bool_match_full(void)
+{
+  re *r = re_init("123456789123456789*");
+  re_exec *e;
+  char *buf = rand_buf(BENCH_SIZE);
+  re_compile(r);
+  re_exec_init(r, &e);
+  bench_start();
+  re_exec_match(e, buf, BENCH_SIZE, 0, 0, NULL, NULL, 'B');
+  bench_end(BENCH_SIZE);
+  re_exec_destroy(e);
+  re_destroy(r);
+  free(buf);
+}
+
+void bool_match_unanchored(void)
 {
   re *r = re_init("123456789123456789*");
   re_exec *e;
@@ -107,8 +129,11 @@ void bool_match(void)
   free(buf);
 }
 
+#define BENCH_RUN(b) bench_run(b, #b)
+
 int main(void)
 {
-  bench_run(pointer_chase, "pointer_chase");
-  bench_run(bool_match, "bool_match");
+  BENCH_RUN(pointer_chase);
+  BENCH_RUN(bool_match_full);
+  BENCH_RUN(bool_match_unanchored);
 }
