@@ -16,6 +16,80 @@
 /* Macro for declaring a buffer. Serves mostly for readability. */
 #define re_buf(x) x *
 
+/* Enumeration of AST types. */
+typedef enum re_ast_type {
+  /* A single character: /a/ */
+  RE_AST_TYPE_CHR = 1,
+  /* The concatenation of two regular expressions: /lr/
+   *   Argument 0: left child tree (AST)
+   *   Argument 1: right child tree (AST) */
+  RE_AST_TYPE_CAT,
+  /* The alternation of two regular expressions: /l|r/
+   *   Argument 0: primary alternation tree (AST)
+   *   Argument 1: secondary alternation tree (AST) */
+  RE_AST_TYPE_ALT,
+  /* A repeated regular expression: /a+/
+   *   Argument 0: child tree (AST)
+   *   Argument 1: lower bound, always <= upper bound (number)
+   *   Argument 2: upper bound, might be the constant `RE_INFTY` (number) */
+  RE_AST_TYPE_QUANT,
+  /* Like `QUANT`, but not greedy: /(a*?)/
+   *   Argument 0: child tree (AST)
+   *   Argument 1: lower bound, always <= upper bound (number)
+   *   Argument 2: upper bound, might be the constant `RE_INFTY` (number) */
+  RE_AST_TYPE_UQUANT,
+  /* A matching group: /(a)/
+   *   Argument 0: child tree (AST)
+   *   Argument 1: group flags, bitset of `enum group_flag` (number)
+   *   Argument 2: scratch used by the parser to store old flags (number) */
+  RE_AST_TYPE_GROUP,
+  /* An inline group: /(?i)a/
+   *   Argument 0: child tree (AST)
+   *   Argument 1: group flags, bitset of `enum group_flag` (number)
+   *   Argument 2: scratch used by the parser to store old flags (number) */
+  RE_AST_TYPE_IGROUP,
+  /* A character class: /[a-zA-Z]/
+   *   Argument 0: RE_REF_NONE or another CLS node in the charclass (AST)
+   *   Argument 1: character range begin (number)
+   *   Argument 2: character range end (number) */
+  RE_AST_TYPE_CC,
+  /* An inverted character class: /[^a-zA-Z]/
+   *   Argument 0: RE_REF_NONE or another CLS node in the charclass (AST)
+   *   Argument 1: character range begin (number)
+   *   Argument 2: character range end (number) */
+  RE_AST_TYPE_ICC,
+  /* Matches any byte: /\C/ */
+  RE_AST_TYPE_ANYBYTE,
+  /* Empty assertion: /\b/
+   *   Argument 0: assertion flags, bitset of `enum assert_flag` (number) */
+  RE_AST_TYPE_ASSERT
+} re_ast_type;
+
+/* Length (number of arguments) for each AST type. */
+static const unsigned int re_ast_type_lens[] = {
+    0, /* eps */
+    1, /* CHR */
+    2, /* CAT */
+    2, /* ALT */
+    3, /* QUANT */
+    3, /* UQUANT */
+    3, /* GROUP */
+    3, /* IGROUP */
+    3, /* CLS */
+    3, /* ICLS */
+    0, /* ANYBYTE */
+    1, /* AASSERT */
+};
+
+typedef enum re_group_flag {
+  RE_GROUP_FLAG_INSENSITIVE = 1,   /* case-insensitive matching */
+  RE_GROUP_FLAG_MULTILINE = 2,     /* ^$ match beginning/end of each line */
+  RE_GROUP_FLAG_DOTNEWLINE = 4,    /* . matches \n */
+  RE_GROUP_FLAG_UNGREEDY = 8,      /* ungreedy quantifiers */
+  RE_GROUP_FLAG_NONCAPTURING = 16, /* non-capturing group (?:...) */
+  RE_GROUP_FLAG_SUBEXPRESSION = 32 /* set-match component */
+} re_group_flag;
+
 /* Stack frame for the compiler, used to keep track of a single AST node being
  * compiled. */
 typedef struct re_compframe {
@@ -65,10 +139,16 @@ typedef struct re_inst {
                    /* \                  a = assert_flag (ASSERT) */
 } re_inst;
 
+/* Represents an inclusive range of bytes. */
+typedef struct re_byte_range {
+  u8 l,  /* min ordinal */
+      h; /* max ordinal */
+} re_byte_range;
+
 /* Represents an inclusive range of runes. */
 typedef struct re_rune_range {
-  u32 l, /* low rune */
-      h; /* high rune */
+  u32 l, /* min ordinal */
+      h; /* max ordinal */
 } re_rune_range;
 
 /* Auxiliary data for tree nodes used for accelerating compilation. */
@@ -381,83 +461,6 @@ void re_destroy(re *r)
   re_buf_destroy(r, (void **)&r->prog_set_idxs);
   r->alloc(sizeof(*r), 0, r);
 }
-
-typedef enum re_ast_type {
-  /* A single character: /a/ */
-  RE_AST_TYPE_CHR = 1,
-  /* The concatenation of two regular expressions: /lr/
-   *   Argument 0: left child tree (AST)
-   *   Argument 1: right child tree (AST) */
-  RE_AST_TYPE_CAT,
-  /* The alternation of two regular expressions: /l|r/
-   *   Argument 0: primary alternation tree (AST)
-   *   Argument 1: secondary alternation tree (AST) */
-  RE_AST_TYPE_ALT,
-  /* A repeated regular expression: /a+/
-   *   Argument 0: child tree (AST)
-   *   Argument 1: lower bound, always <= upper bound (number)
-   *   Argument 2: upper bound, might be the constant `RE_INFTY` (number) */
-  RE_AST_TYPE_QUANT,
-  /* Like `QUANT`, but not greedy: /(a*?)/
-   *   Argument 0: child tree (AST)
-   *   Argument 1: lower bound, always <= upper bound (number)
-   *   Argument 2: upper bound, might be the constant `RE_INFTY` (number) */
-  RE_AST_TYPE_UQUANT,
-  /* A matching group: /(a)/
-   *   Argument 0: child tree (AST)
-   *   Argument 1: group flags, bitset of `enum group_flag` (number)
-   *   Argument 2: scratch used by the parser to store old flags (number) */
-  RE_AST_TYPE_GROUP,
-  /* An inline group: /(?i)a/
-   *   Argument 0: child tree (AST)
-   *   Argument 1: group flags, bitset of `enum group_flag` (number)
-   *   Argument 2: scratch used by the parser to store old flags (number) */
-  RE_AST_TYPE_IGROUP,
-  /* A character class: /[a-zA-Z]/
-   *   Argument 0: RE_REF_NONE or another CLS node in the charclass (AST)
-   *   Argument 1: character range begin (number)
-   *   Argument 2: character range end (number) */
-  RE_AST_TYPE_CC,
-  /* An inverted character class: /[^a-zA-Z]/
-   *   Argument 0: RE_REF_NONE or another CLS node in the charclass (AST)
-   *   Argument 1: character range begin (number)
-   *   Argument 2: character range end (number) */
-  RE_AST_TYPE_ICC,
-  /* Matches any byte: /\C/ */
-  RE_AST_TYPE_ANYBYTE,
-  /* Empty assertion: /\b/
-   *   Argument 0: assertion flags, bitset of `enum assert_flag` (number) */
-  RE_AST_TYPE_ASSERT
-} re_ast_type;
-
-static const unsigned int re_ast_type_lens[] = {
-    0, /* eps */
-    1, /* CHR */
-    2, /* CAT */
-    2, /* ALT */
-    3, /* QUANT */
-    3, /* UQUANT */
-    3, /* GROUP */
-    3, /* IGROUP */
-    3, /* CLS */
-    3, /* ICLS */
-    0, /* ANYBYTE */
-    1, /* AASSERT */
-};
-
-typedef enum re_group_flag {
-  RE_GROUP_FLAG_INSENSITIVE = 1,   /* case-insensitive matching */
-  RE_GROUP_FLAG_MULTILINE = 2,     /* ^$ match beginning/end of each line */
-  RE_GROUP_FLAG_DOTNEWLINE = 4,    /* . matches \n */
-  RE_GROUP_FLAG_UNGREEDY = 8,      /* ungreedy quantifiers */
-  RE_GROUP_FLAG_NONCAPTURING = 16, /* non-capturing group (?:...) */
-  RE_GROUP_FLAG_SUBEXPRESSION = 32 /* set-match component */
-} re_group_flag;
-
-/* Represents an inclusive range of bytes. */
-typedef struct re_byte_range {
-  u8 l /* min ordinal */, h /* max ordinal */;
-} re_byte_range;
 
 /* Make a byte range inline; more convenient than initializing a struct. */
 static re_byte_range re_byte_range_make(u8 l, u8 h)
@@ -3540,6 +3543,8 @@ static char *d_quant(char *buf, u32 quantval)
   if (quantval >= RE_INFTY)
     strcat(buf, "\xe2\x88\x9e"); /* infinity symbol */
   else {
+    /* macos doesn't have sprintf(), gcc --std=c89 doesn't have snprintf() */
+    /* nice! */
     char buf_reverse[32] = {0}, buf_fwd[32] = {0};
     int i = 0, j = 0;
     do {
