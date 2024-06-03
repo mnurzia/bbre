@@ -12,9 +12,9 @@ typedef signed short re_s16;
 typedef unsigned short re_u16;
 typedef unsigned char re_u8;
 
-#define ERR_MEM   (-1)
-#define ERR_PARSE (-2)
-#define ERR_LIMIT (-3)
+#define RE_ERR_MEM   (-1)
+#define RE_ERR_PARSE (-2)
+#define RE_ERR_LIMIT (-3)
 
 typedef void *(*re_alloc)(size_t, size_t, void *);
 

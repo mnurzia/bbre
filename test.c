@@ -62,7 +62,7 @@ int check_match_results(
   assert(e);
   if ((err = re_exec_match(
            e, s, n, max_span, max_set, found_span, found_set, anchor)) ==
-      ERR_MEM)
+      RE_ERR_MEM)
     goto oom_re;
   ASSERT_GTEm(err, 0, "re_match() returned an error");
   ASSERT_EQm(
@@ -109,15 +109,15 @@ int check_matches_n(
    * regex, otherwise union all input regexes */
   if ((err = re_init_full(
            &r, nregex == 1 ? *regexes : NULL, nregex == 1 ? regex_n[0] : 0,
-           NULL)) == ERR_MEM)
+           NULL)) == RE_ERR_MEM)
     goto oom_re;
   ASSERT_EQm(err, 0, "re_init_full() returned a nonzero value");
   for (i = 0; i < nregex && nregex != 1; i++) {
-    if ((err = re_union(r, regexes[i], regex_n[i])) == ERR_MEM)
+    if ((err = re_union(r, regexes[i], regex_n[i])) == RE_ERR_MEM)
       goto oom_re;
     ASSERT_EQm(err, 0, "re_union() returned a nonzero value");
   }
-  if ((err = re_compile(r)) == ERR_MEM)
+  if ((err = re_compile(r)) == RE_ERR_MEM)
     goto oom_re;
   ASSERT_EQm(err, 0, "re_compile() returned a nonzero value");
   if ((err = re_exec_init(r, &e)))
@@ -146,7 +146,7 @@ int check_matches_n(
     re_u32 found_set[TEST_MAX_SET], idx;
     err =
         re_exec_match(e, s, n, 1, TEST_MAX_SET, found_span, found_set, anchor);
-    if (err == ERR_MEM)
+    if (err == RE_ERR_MEM)
       goto oom_re;
     ASSERT_GTE(err, 0);
     for (idx = 0; idx < (unsigned)err; idx++) {
@@ -156,15 +156,15 @@ int check_matches_n(
       re_u32 found_set_2[1];
       if ((err2 = re_init_full(
                &r2, regexes[found_set[idx]], regex_n[found_set[idx]], NULL)) ==
-          ERR_MEM)
+          RE_ERR_MEM)
         goto oom_re2;
       ASSERT_EQm(err2, 0, "re_init_full() returned nonzero value");
-      if ((err2 = re_compile(r2)) == ERR_MEM)
+      if ((err2 = re_compile(r2)) == RE_ERR_MEM)
         goto oom_re2;
       ASSERT_EQm(err2, 0, "re_compile() returned nonzero value");
       /* both anchors */
       if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'B')) ==
-          ERR_MEM)
+          RE_ERR_MEM)
         goto oom_re2;
       ASSERT_GTE(err2, 0);
       if (err2 == 1) {
@@ -179,7 +179,7 @@ int check_matches_n(
       }
       /* start anchored */
       if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'S')) ==
-          ERR_MEM)
+          RE_ERR_MEM)
         goto oom_re2;
       if (err2 == 1) {
         ASSERT_EQ(found_span_2[0].begin, 0);
@@ -193,7 +193,7 @@ int check_matches_n(
       }
       /* end anchored */
       if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'E')) ==
-          ERR_MEM)
+          RE_ERR_MEM)
         goto oom_re2;
       if (err2 == 1) {
         ASSERT_EQ(found_span_2[0].end, n);
@@ -206,7 +206,7 @@ int check_matches_n(
       }
       /* unanchored */
       if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'U')) ==
-          ERR_MEM)
+          RE_ERR_MEM)
         goto oom_re2;
       if (err2 == 1) {
         ASSERT_EQ(found_set_2[0], 0);
@@ -356,9 +356,9 @@ int check_noparse_n(const char *regex, size_t n)
 {
   re *r;
   int err;
-  if ((err = re_init_full(&r, regex, n, NULL)) == ERR_MEM)
+  if ((err = re_init_full(&r, regex, n, NULL)) == RE_ERR_MEM)
     goto oom;
-  ASSERT_EQ(err, ERR_PARSE);
+  ASSERT_EQ(err, RE_ERR_PARSE);
   re_destroy(r);
   PASS();
 oom:
@@ -378,10 +378,10 @@ int check_compiles_n(const char *regex, size_t n)
 {
   re *r;
   int err;
-  if ((err = re_init_full(&r, regex, n, NULL)) == ERR_MEM)
+  if ((err = re_init_full(&r, regex, n, NULL)) == RE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, 0);
-  if ((err = re_match(r, "", 0, 0, 0, NULL, NULL, 'U')) == ERR_MEM)
+  if ((err = re_match(r, "", 0, 0, 0, NULL, NULL, 'U')) == RE_ERR_MEM)
     goto oom;
   re_destroy(r);
   PASS();
@@ -447,19 +447,19 @@ int assert_cc_match(const char *regex, const char *spec, int invert)
   rrange ranges[64];
   re_u32 num_ranges = matchspec(spec, ranges), range_idx;
   re_exec *exec = NULL;
-  if ((err = re_init_full(&r, regex, strlen(regex), NULL)) == ERR_MEM)
+  if ((err = re_init_full(&r, regex, strlen(regex), NULL)) == RE_ERR_MEM)
     goto oom;
   ASSERT(!err);
-  if ((err = re_compile(r)) == ERR_MEM)
+  if ((err = re_compile(r)) == RE_ERR_MEM)
     goto oom;
   ASSERT(!err);
-  if ((err = re_exec_init(r, &exec)) == ERR_MEM)
+  if ((err = re_exec_init(r, &exec)) == RE_ERR_MEM)
     goto oom;
   ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
     size_t sz = utf_encode(utf8, codep);
     if ((err = re_exec_match(exec, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) ==
-        ERR_MEM)
+        RE_ERR_MEM)
       goto oom;
     for (range_idx = 0; range_idx < num_ranges; range_idx++) {
       if (codep >= ranges[range_idx].lo && codep <= ranges[range_idx].hi) {
@@ -469,7 +469,7 @@ int assert_cc_match(const char *regex, const char *spec, int invert)
     }
     if (range_idx == num_ranges) {
       if ((err = re_exec_match(exec, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) ==
-          ERR_MEM)
+          RE_ERR_MEM)
         goto oom;
       ASSERT_EQ(err, invert);
     }
@@ -511,7 +511,7 @@ TEST(init_full_default_alloc)
   re *r;
   int err = re_init_full(&r, "abc", 3, re_default_alloc);
   re_destroy(r);
-  if (err == ERR_MEM)
+  if (err == RE_ERR_MEM)
     OOM();
   ASSERT_EQ(err, 0);
   return err;
@@ -2482,14 +2482,14 @@ TEST(set_many)
   re *r;
   int err = re_init_full(&r, NULL, 0, NULL);
   re_u32 i;
-  if (err == ERR_MEM)
+  if (err == RE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, 0);
   for (i = 0; i < 26; i++) {
     char reg[] = "a";
     reg[0] += i;
     err = re_union(r, reg, 1);
-    if (err == ERR_MEM)
+    if (err == RE_ERR_MEM)
       goto oom;
     ASSERT_EQ(err, 0);
   }
@@ -2928,9 +2928,9 @@ TEST(limit_program_size)
   int err;
   if (!r)
     goto oom;
-  if ((err = re_compile(r)) == ERR_MEM)
+  if ((err = re_compile(r)) == RE_ERR_MEM)
     goto oom;
-  ASSERT_EQ(err, ERR_LIMIT);
+  ASSERT_EQ(err, RE_ERR_LIMIT);
   re_destroy(r);
   PASS();
 oom:

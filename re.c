@@ -318,7 +318,7 @@ static int re_buf_reserve_t(const re *r, void **buf, size_t size)
       r, hdr->alloc ? sizeof(re_buf_hdr) + hdr->alloc : /* sentinel */ 0,
       sizeof(re_buf_hdr) + next_alloc, hdr->alloc ? hdr : /* sentinel */ NULL);
   if (!next_ptr)
-    return ERR_MEM;
+    return RE_ERR_MEM;
   hdr = next_ptr;
   hdr->alloc = next_alloc;
   hdr->size = size;
@@ -385,7 +385,7 @@ void re_buf_clear(void *buf)
 /* Push an element. */
 #define re_buf_push(r, b, e)                                                   \
   (re_buf_grow_t((r), (void **)(b), re_buf_esz(b))                             \
-       ? ERR_MEM                                                               \
+       ? RE_ERR_MEM                                                            \
        : (((*b)[re_buf_tail_t((void *)(*b), re_buf_esz(b)) / re_buf_esz(b)]) = \
               (e),                                                             \
           0))
@@ -430,7 +430,7 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
   r = alloc(0, sizeof(re), NULL);
   *pr = r;
   if (!r)
-    return (err = ERR_MEM);
+    return (err = RE_ERR_MEM);
   r->alloc = alloc;
   re_buf_init(&r->ast);
   r->ast_root = r->ast_sets = 0;
@@ -588,11 +588,11 @@ static re_u32 re_utf8_decode(re_u32 *state, re_u32 *codep, re_u32 byte)
 }
 
 /* Create and propagate a parsing error.
- * Returns `ERR_PARSE` unconditionally. */
+ * Returns `RE_ERR_PARSE` unconditionally. */
 static int re_parse_err(re *r, const char *msg)
 {
   r->error = msg, r->error_pos = r->expr_pos;
-  return ERR_PARSE;
+  return RE_ERR_PARSE;
 }
 
 /* Check if we are at the end of the regex string. */
@@ -650,7 +650,7 @@ static re_u32 re_peek_next_new(re *r)
 
 /* Given nodes R_1..R_N on the argument stack, fold them into a single CAT
  * node. If there are no nodes on the stack, create an epsilon node.
- * Returns `ERR_MEM` if out of memory. */
+ * Returns `RE_ERR_MEM` if out of memory. */
 static int re_fold(re *r)
 {
   int err = 0;
@@ -676,7 +676,7 @@ static int re_fold(re *r)
 /* Given a node R on the argument stack and an arbitrary number of ALT nodes at
  * the end of the operator stack, fold and finish each ALT node into a single
  * resulting ALT node on the argument stack.
- * Returns `ERR_MEM` if out of memory. */
+ * Returns `RE_ERR_MEM` if out of memory. */
 static void re_fold_alts(re *r, re_u32 *flags)
 {
   assert(re_buf_size(r->arg_stk) == 1);
@@ -740,7 +740,7 @@ static re_u32 re_ast_cls_union(re *r, re_u32 rest, re_u32 first)
 }
 
 /* Helper function to add a character to the argument stack.
- * Returns `ERR_MEM` if out of memory. */
+ * Returns `RE_ERR_MEM` if out of memory. */
 static int re_parse_escape_addchr(re *r, re_u32 ch, re_u32 allowed_outputs)
 {
   int err = 0;
@@ -1364,7 +1364,7 @@ static int re_inst_emit(re *r, re_inst i, re_compframe *frame)
 {
   int err = 0;
   if (re_prog_size(r) == RE_PROG_MAX_INSTS)
-    return ERR_LIMIT;
+    return RE_ERR_LIMIT;
   if ((err = re_buf_push(r, &r->prog, i)) ||
       (err = re_buf_push(r, &r->prog_set_idxs, frame->set_idx)))
     return err;
@@ -1980,7 +1980,7 @@ static int re_compcc(re *r, re_u32 root, re_compframe *frame, int reversed)
     re_buf_clear(&r->compcc_tree_2);
     for (i = 1 /* skip sentinel */; i < re_buf_size(r->compcc_tree); i++) {
       if ((err = re_compcc_tree_new(
-               r, &r->compcc_tree_2, r->compcc_tree[i], NULL)) == ERR_MEM)
+               r, &r->compcc_tree_2, r->compcc_tree[i], NULL)) == RE_ERR_MEM)
         return err;
       assert(!err);
     }
@@ -2333,7 +2333,7 @@ static int re_save_slots_new(const re *r, re_save_slots *s, re_u32 *next)
           r, s->slots_alloc * sizeof(size_t), new_alloc * sizeof(size_t),
           s->slots);
       if (!new_slots)
-        return ERR_MEM;
+        return RE_ERR_MEM;
       s->slots = new_slots, s->slots_alloc = new_alloc;
     }
     if (!s->slots_size) {
@@ -2806,7 +2806,7 @@ static int re_dfa_construct(
     re_dfa_state **next_cache =
         re_ialloc(r, 0, sizeof(re_dfa_state *) * RE_DFA_MAX_NUM_STATES, NULL);
     if (!next_cache)
-      return ERR_MEM;
+      return RE_ERR_MEM;
     memset(next_cache, 0, sizeof(re_dfa_state *) * RE_DFA_MAX_NUM_STATES);
     assert(!d->states);
     d->states = next_cache, d->states_size = RE_DFA_MAX_NUM_STATES;
@@ -2868,7 +2868,7 @@ static int re_dfa_construct(
       if (prev_alloc < next_alloc) {
         next_state = re_ialloc(r, prev_alloc, next_alloc, d->states[table_pos]);
         if (!next_state)
-          return ERR_MEM;
+          return RE_ERR_MEM;
         d->states[table_pos] = next_state;
       } else {
         next_state = d->states[table_pos];
@@ -3105,7 +3105,7 @@ int re_exec_init(const re *r, re_exec **pexec)
   *pexec = exec;
   assert(re_prog_size(r));
   if (!exec)
-    return ERR_MEM;
+    return RE_ERR_MEM;
   memset(exec, 0, sizeof(re_exec));
   exec->r = r;
   re_nfa_init(&exec->nfa);
