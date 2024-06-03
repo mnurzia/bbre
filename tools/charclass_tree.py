@@ -1,8 +1,19 @@
 """A readable implementation of the character class compiler."""
 
+from argparse import ArgumentParser, FileType
 from dataclasses import dataclass
 from typing import Iterator, Self
-from util import ByteRange, RuneRange, RuneRanges, nrange_isect
+from util import (
+    ByteRange,
+    RuneRange,
+    RuneRanges,
+    insert_c_file,
+    make_appender_func,
+    nrange_isect,
+    UTF_MAX,
+)
+from functools import reduce
+from operator import and_
 
 
 def byte_length_digits(l: int):
@@ -261,3 +272,97 @@ def split_ranges_utf8(
                 clamped_max = max_bound if cur_max > max_bound else cur_max
                 yield ((clamped_min, clamped_max), byte_length)
             min_bound = max_bound + 1
+
+
+def cmd_dfa(args) -> int:
+    RANGES = [(0, 0xD7FF), (0xE000, UTF_MAX)]
+    tree = Tree()
+    for r, l in split_ranges_utf8(RANGES):
+        tree.add(r, X_BITS[l], Y_BITS[l])
+        while tree.step_build():
+            continue
+    while tree.step_reduce():
+        continue
+
+    state_n: dict[CCTree, int] = {}
+
+    def make_byte_classes(in_node: CCTree) -> dict[CCTree, list[frozenset[int]]]:
+        out: dict[CCTree, list[frozenset[int]]] = {}
+        byte_classes: list[frozenset[int]] = list(frozenset() for _ in range(256))
+        node: CCTree | None = in_node
+        state_n[in_node] = state_n.get(in_node, len(state_n))
+        while node is not None:
+            assert isinstance(node, TreeNode)
+            this_set = frozenset(range(node.range[0], node.range[1] + 1))
+            for i in range(node.range[0], node.range[1] + 1):
+                byte_classes[i] = this_set
+            if node.right is not None:
+                out |= make_byte_classes(node.right)
+            node = node.left
+        empties = frozenset(i for i in range(256) if len(byte_classes[i]) == 0)
+        for i in empties:
+            byte_classes[i] = empties
+        out[in_node] = byte_classes
+        return out
+
+    assert tree.right is not None
+    node_classes = make_byte_classes(tree.right)
+    common_classes: list[frozenset[int]] = list(
+        sorted(
+            frozenset(
+                reduce(lambda l, r: l & r, (v[i] for v in node_classes.values()))
+                for i in range(256)
+            ),
+            key=tuple,
+        )
+    )
+
+    class_table = [0] * 256
+    for i, cc in enumerate(common_classes):
+        for j in cc:
+            class_table[j] = i
+
+    state_table = []
+    for state in state_n.keys():
+        this_trans_table = [len(state_n)] * 256
+        node = state
+        while node is not None:
+            assert isinstance(node, TreeNode)
+            for j in range(node.range[0], node.range[1] + 1):
+                this_trans_table[j] = (
+                    state_n[node.right] if isinstance(node.right, TreeNode) else 0
+                )
+            node = node.left
+        for i, cc in enumerate(common_classes):
+            assert all(
+                this_trans_table[next(iter(cc))] == this_trans_table[elem]
+                for elem in cc
+            )
+            state_table.append(this_trans_table[next(iter(cc))])
+
+    def shift_amt(n):
+        binv = f"{n:08b}"
+        return len(binv) - len(binv.lstrip("1")) if n >= 0xC0 and n <= 0xF4 else 0
+
+    lines, out = make_appender_func()
+    out(f"static const u32 re_utf8_dfa_num_range = {len(common_classes)};")
+    out(f"static const u32 re_utf8_dfa_num_state = {len(state_n) + 1};")
+    out(f"static const u8 re_utf8_dfa_trans[] = {{")
+    out(",".join(map(str, state_table)) + "};")
+    out(f"static const u8 re_utf8_dfa_class[] = {{")
+    out(",".join(map(str, class_table)) + "};")
+    out(f"static const u8 re_utf8_dfa_shift[] = {{")
+    out(",".join(map(str, (shift_amt(next(iter(cc))) for cc in common_classes))) + "};")
+
+    insert_c_file(args.file, lines, "dfa", file_name="charclass_tree.py")
+    return 0
+
+
+if __name__ == "__main__":
+    ap = ArgumentParser()
+    sub = ap.add_subparsers()
+    sub_cmd_dfa = sub.add_parser("dfa")
+    sub_cmd_dfa.set_defaults(func=cmd_dfa)
+    sub_cmd_dfa.add_argument("file", type=FileType("r+"))
+    args = ap.parse_args()
+    exit(args.func(args))
