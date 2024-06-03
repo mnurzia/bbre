@@ -20,25 +20,25 @@
 
 #define IMPLIES(c, pred) (!(c) || (pred))
 
-size_t utf_encode(char *out_buf, u32 codep)
+size_t utf_encode(char *out_buf, re_u32 codep)
 {
   if (codep <= 0x7F) {
     out_buf[0] = codep & 0x7F;
     return 1;
   } else if (codep <= 0x07FF) {
-    out_buf[0] = (u8)(((codep >> 6) & 0x1F) | 0xC0);
-    out_buf[1] = (u8)(((codep >> 0) & 0x3F) | 0x80);
+    out_buf[0] = (re_u8)(((codep >> 6) & 0x1F) | 0xC0);
+    out_buf[1] = (re_u8)(((codep >> 0) & 0x3F) | 0x80);
     return 2;
   } else if (codep <= 0xFFFF) {
-    out_buf[0] = (u8)(((codep >> 12) & 0x0F) | 0xE0);
-    out_buf[1] = (u8)(((codep >> 6) & 0x3F) | 0x80);
-    out_buf[2] = (u8)(((codep >> 0) & 0x3F) | 0x80);
+    out_buf[0] = (re_u8)(((codep >> 12) & 0x0F) | 0xE0);
+    out_buf[1] = (re_u8)(((codep >> 6) & 0x3F) | 0x80);
+    out_buf[2] = (re_u8)(((codep >> 0) & 0x3F) | 0x80);
     return 3;
   } else if (codep <= 0x10FFFF) {
-    out_buf[0] = (u8)(((codep >> 18) & 0x07) | 0xF0);
-    out_buf[1] = (u8)(((codep >> 12) & 0x3F) | 0x80);
-    out_buf[2] = (u8)(((codep >> 6) & 0x3F) | 0x80);
-    out_buf[3] = (u8)(((codep >> 0) & 0x3F) | 0x80);
+    out_buf[0] = (re_u8)(((codep >> 18) & 0x07) | 0xF0);
+    out_buf[1] = (re_u8)(((codep >> 12) & 0x3F) | 0x80);
+    out_buf[2] = (re_u8)(((codep >> 6) & 0x3F) | 0x80);
+    out_buf[3] = (re_u8)(((codep >> 0) & 0x3F) | 0x80);
     return 4;
   } else {
     assert(0);
@@ -50,14 +50,14 @@ size_t utf_encode(char *out_buf, u32 codep)
 #define TEST_MAX_SET  10
 
 int check_match_results(
-    re *r, re_exec *e, const char *s, size_t n, u32 max_span, u32 max_set,
-    anchor_type anchor, span *check_span, u32 *check_set, u32 check_nsets)
+    re *r, re_exec *e, const char *s, size_t n, re_u32 max_span, re_u32 max_set,
+    anchor_type anchor, span *check_span, re_u32 *check_set, re_u32 check_nsets)
 {
   int err;
   /* memory for found spans and found sets */
   span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
-  u32 found_set[TEST_MAX_SET], sets_to_check;
-  u32 i, j;
+  re_u32 found_set[TEST_MAX_SET], sets_to_check;
+  re_u32 i, j;
   /* perform the match */
   assert(e);
   if ((err = re_exec_match(
@@ -66,7 +66,7 @@ int check_match_results(
     goto oom_re;
   ASSERT_GTEm(err, 0, "re_match() returned an error");
   ASSERT_EQm(
-      (u32)err, check_nsets,
+      (re_u32)err, check_nsets,
       "re_match() didn't match the correct number of sets");
   /* we only actually need to check a subset of the sets matched, according to
    * the `check_nsets` parameter. also, in the case of boolean matches, max_set
@@ -94,14 +94,14 @@ oom_re:
 }
 
 int check_matches_n(
-    const char **regexes, size_t *regex_n, u32 nregex, const char *s, size_t n,
-    u32 max_span, u32 max_set, anchor_type anchor, span *check_span,
-    u32 *check_set, u32 check_nsets)
+    const char **regexes, size_t *regex_n, re_u32 nregex, const char *s,
+    size_t n, re_u32 max_span, re_u32 max_set, anchor_type anchor,
+    span *check_span, re_u32 *check_set, re_u32 check_nsets)
 {
   re *r = NULL;
   re_exec *e = NULL;
   int err;
-  u32 i;
+  re_u32 i;
   ASSERT_LTEm(nregex, TEST_MAX_SET, "too many regexes to match");
   ASSERT_LTEm(max_span, TEST_MAX_SPAN, "too many spans to match");
   ASSERT_LTEm(max_set, TEST_MAX_SET, "too many sets to match");
@@ -143,7 +143,7 @@ int check_matches_n(
   if (1) {
     /* start with just bounds */
     span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
-    u32 found_set[TEST_MAX_SET], idx;
+    re_u32 found_set[TEST_MAX_SET], idx;
     err =
         re_exec_match(e, s, n, 1, TEST_MAX_SET, found_span, found_set, anchor);
     if (err == ERR_MEM)
@@ -153,7 +153,7 @@ int check_matches_n(
       re *r2;
       int err2;
       span found_span_2[1];
-      u32 found_set_2[1];
+      re_u32 found_set_2[1];
       if ((err2 = re_init_full(
                &r2, regexes[found_set[idx]], regex_n[found_set[idx]], NULL)) ==
           ERR_MEM)
@@ -233,8 +233,8 @@ oom_re:
 }
 
 int check_match(
-    const char *regex, const char *s, size_t n, u32 max_span, u32 max_set,
-    anchor_type anchor, span *check_span, u32 *check_set, u32 check_nsets)
+    const char *regex, const char *s, size_t n, re_u32 max_span, re_u32 max_set,
+    anchor_type anchor, span *check_span, re_u32 *check_set, re_u32 check_nsets)
 {
   size_t regex_n = strlen(regex);
   return check_matches_n(
@@ -283,7 +283,7 @@ int check_match_g2_a(
 int check_match_s2_a(
     const char *r1, const char *r2, const char *s, anchor_type anchor)
 {
-  u32 set[2] = {0, 1};
+  re_u32 set[2] = {0, 1};
   const char *regexes[2];
   size_t regexes_n[2];
   regexes[0] = r1, regexes[1] = r2;
@@ -296,7 +296,7 @@ int check_match_s2_g1_a(
     const char *r1, const char *r2, const char *s, size_t b11, size_t e11,
     size_t b21, size_t e21, anchor_type anchor)
 {
-  u32 set[2] = {0, 1};
+  re_u32 set[2] = {0, 1};
   span g[2];
   const char *regexes[2];
   size_t regexes_n[2];
@@ -313,7 +313,7 @@ int check_match_s2_g2_a(
     size_t b12, size_t e12, size_t b21, size_t e21, size_t b22, size_t e22,
     anchor_type anchor)
 {
-  u32 set[2] = {0, 1};
+  re_u32 set[2] = {0, 1};
   span g[4];
   const char *regexes[2];
   size_t regexes_n[2];
@@ -397,12 +397,12 @@ int check_compiles(const char *regex)
 }
 
 typedef struct rrange {
-  u32 lo, hi;
+  re_u32 lo, hi;
 } rrange;
 
-u32 matchnum(const char *num)
+re_u32 matchnum(const char *num)
 {
-  u32 out = 0;
+  re_u32 out = 0;
   unsigned char chout;
   if (sscanf(num, "0x%X", &out))
     return out;
@@ -413,9 +413,9 @@ u32 matchnum(const char *num)
   return 0;
 }
 
-u32 matchspec(const char *spec, rrange *ranges)
+re_u32 matchspec(const char *spec, rrange *ranges)
 {
-  u32 n = 0;
+  re_u32 n = 0;
   while (*spec) {
     const char *comma = strchr(spec, ',');
     const char *nextspec = comma ? comma + 1 : comma;
@@ -442,10 +442,10 @@ int assert_cc_match(const char *regex, const char *spec, int invert)
 {
   re *r;
   int err;
-  u32 codep;
+  re_u32 codep;
   char utf8[16];
   rrange ranges[64];
-  u32 num_ranges = matchspec(spec, ranges), range_idx;
+  re_u32 num_ranges = matchspec(spec, ranges), range_idx;
   re_exec *exec = NULL;
   if ((err = re_init_full(&r, regex, strlen(regex), NULL)) == ERR_MEM)
     goto oom;
@@ -2481,7 +2481,7 @@ TEST(set_many)
 {
   re *r;
   int err = re_init_full(&r, NULL, 0, NULL);
-  u32 i;
+  re_u32 i;
   if (err == ERR_MEM)
     goto oom;
   ASSERT_EQ(err, 0);

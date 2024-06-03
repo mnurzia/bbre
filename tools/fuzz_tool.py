@@ -64,7 +64,7 @@ def _declare_cstr(id: str, a: bytes) -> str:
     if (
         len(a) > 500
     ):  # c89 disallows 509+ bytes but let's be safe here... you never know when you might hit a compiler limit!!!
-        return f"const u8 {id}[{len(a)}] = {{" + ",".join(map(str, a)) + "};"
+        return f"const re_u8 {id}[{len(a)}] = {{" + ",".join(map(str, a)) + "};"
     return f"const char* {id} = {_escape_cstr(a)};"
 
 
@@ -292,7 +292,7 @@ class MatchTest(Test):
             out("span spans[] = {")
             out(",".join(f"{{{s[0]}, {s[1]}}}" for s in self.match_spans) + "};")
         if self.num_sets != 0:
-            out("u32 sets[] = {")
+            out("re_u32 sets[] = {")
             out(",".join([str(s) for s in self.match_sets]) + ";")
         out("PROPAGATE(check_matches_n(")
         out(

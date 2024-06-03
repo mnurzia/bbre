@@ -159,7 +159,7 @@ def _cmd_gen_casefold(args) -> int:
         out(",".join(fmt_hex(n, data_types[i], num_digits) for n in array))
         out("};")
 
-    out("static s32 re_compcc_fold_next(u32 rune) { return ")
+    out("static re_s32 re_compcc_fold_next(re_u32 rune) { return ")
 
     def shift_mask_expr(name: str, i: int) -> str:
         return f"({f"({name} >> {shifts[i]})" if shifts[i] != 0 else name} & 0x{masks[i]:02X})"
@@ -171,12 +171,12 @@ def _cmd_gen_casefold(args) -> int:
     out(";}")
 
     out(
-        "static int re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf(re_rune_range) *cc_out) {"
+        "static int re_compcc_fold_range(re *r, re_u32 begin, re_u32 end, re_buf(re_rune_range) *cc_out) {"
     )
 
     types = {
         "int": ["err = 0"],
-        "u32": ["current"] + [f"x{i}" for i in range(len(arrays))],
+        "re_u32": ["current"] + [f"x{i}" for i in range(len(arrays))],
     }
 
     for i, data_type in enumerate(data_types):
@@ -210,7 +210,7 @@ def _cmd_gen_casefold(args) -> int:
     out("while (current != begin) {")
     out("  if ((err = re_buf_push(r, cc_out, re_rune_range_make(current, current))))")
     out("    return err;")
-    out("  current = (u32)((s32)current + re_compcc_fold_next(current));")
+    out("  current = (re_u32)((re_s32)current + re_compcc_fold_next(current));")
     out("}")
     out("begin++;")
 

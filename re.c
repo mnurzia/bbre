@@ -93,14 +93,14 @@ typedef enum re_group_flag {
 /* Stack frame for the compiler, used to keep track of a single AST node being
  * compiled. */
 typedef struct re_compframe {
-  u32 root_ref,   /* reference to the AST node being compiled */
-      child_ref,  /* reference to the child AST node to be compiled next */
-      idx,        /* used keep track of repetition index */
-      patch_head, /* head of the outgoing patch linked list */
-      patch_tail, /* tail of the outgoing patch linked list */
-      pc,         /* location of first instruction compiled for this node */
-      flags,      /* group flags in effect (INSENSITIVE, etc.) */
-      set_idx;    /* index of the current pattern being compiled */
+  re_u32 root_ref, /* reference to the AST node being compiled */
+      child_ref,   /* reference to the child AST node to be compiled next */
+      idx,         /* used keep track of repetition index */
+      patch_head,  /* head of the outgoing patch linked list */
+      patch_tail,  /* tail of the outgoing patch linked list */
+      pc,          /* location of first instruction compiled for this node */
+      flags,       /* group flags in effect (INSENSITIVE, etc.) */
+      set_idx;     /* index of the current pattern being compiled */
 } re_compframe;
 
 typedef enum re_assert_flag {
@@ -127,39 +127,39 @@ typedef struct re_inst {
    * target), and param is opcode-specific data */
   /*                  3   2   2   2   1   1   0   0   0  */
   /*                   2   8   4   0   6   2   8   4   0 */
-  u32 opcode_next, /* / nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnoo */
-                   /* \          n = next PC, o = opcode */
-      param;       /* / 0000000000000000hhhhhhhhllllllll (RANGE) */
-                   /* \      h = high byte, l = low byte (RANGE) */
-                   /* / NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN (SPLIT) */
-                   /* \            N = secondary next PC (SPLIT) */
-                   /* / iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiie (MATCH) */
-                   /* \     i = group idx, e = start/end (MATCH) */
-                   /* / 00000000000000000000000000aaaaaa (ASSERT) */
-                   /* \                  a = assert_flag (ASSERT) */
+  re_u32 opcode_next, /* / nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnoo */
+                      /* \          n = next PC, o = opcode */
+      param;          /* / 0000000000000000hhhhhhhhllllllll (RANGE) */
+                      /* \      h = high byte, l = low byte (RANGE) */
+                      /* / NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN (SPLIT) */
+                      /* \            N = secondary next PC (SPLIT) */
+                      /* / iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiie (MATCH) */
+                      /* \     i = group idx, e = start/end (MATCH) */
+                      /* / 00000000000000000000000000aaaaaa (ASSERT) */
+                      /* \                  a = assert_flag (ASSERT) */
 } re_inst;
 
 /* Represents an inclusive range of bytes. */
 typedef struct re_byte_range {
-  u8 l,  /* min ordinal */
-      h; /* max ordinal */
+  re_u8 l, /* min ordinal */
+      h;   /* max ordinal */
 } re_byte_range;
 
 /* Represents an inclusive range of runes. */
 typedef struct re_rune_range {
-  u32 l, /* min ordinal */
-      h; /* max ordinal */
+  re_u32 l, /* min ordinal */
+      h;    /* max ordinal */
 } re_rune_range;
 
 /* Auxiliary data for tree nodes used for accelerating compilation. */
 typedef union re_compcc_tree_aux {
-  u32 hash, /* node hash, used for tree reduction */
-      pc;   /* compiled location, nonzero if this node was compiled already */
+  re_u32 hash, /* node hash, used for tree reduction */
+      pc; /* compiled location, nonzero if this node was compiled already */
 } re_compcc_tree_aux;
 
 /* Tree node for the character class compiler. */
 typedef struct re_compcc_tree {
-  u32 range,              /* range of bytes this node matches */
+  re_u32 range,           /* range of bytes this node matches */
       child_ref,          /* concatenation */
       sibling_ref;        /* alternation */
   re_compcc_tree_aux aux; /* node hash OR cached PC TODO: replace with union */
@@ -175,25 +175,25 @@ typedef enum re_prog_entry {
 /* A set of regular expressions. */
 struct re {
   re_alloc alloc;                /* allocator function */
-  re_buf(u32) ast;               /* AST arena */
-  u32 ast_root,                  /* AST root node reference */
+  re_buf(re_u32) ast;            /* AST arena */
+  re_u32 ast_root,               /* AST root node reference */
       ast_sets;                  /* number of subpatterns */
-  re_buf(u32) arg_stk;           /* parser argument stack */
-  re_buf(u32) op_stk;            /* parser operator stack */
+  re_buf(re_u32) arg_stk;        /* parser argument stack */
+  re_buf(re_u32) op_stk;         /* parser operator stack */
   re_buf(re_compframe) comp_stk; /* compiler frame stack (see re_compframe) */
   re_buf(re_inst) prog;          /* compiled program */
-  re_buf(u32) prog_set_idxs;     /* pattern index for each instruction */
+  re_buf(re_u32) prog_set_idxs;  /* pattern index for each instruction */
   re_buf(re_rune_range) compcc_ranges;
   re_buf(re_rune_range) compcc_ranges_2;
   re_buf(re_compcc_tree) compcc_tree;
   re_buf(re_compcc_tree) compcc_tree_2;
-  re_buf(u32) compcc_hash;
-  u32 entry[RE_PROG_ENTRY_MAX]; /* program entrypoints (see RE_PROG_ENTRY) */
-  const u8 *expr;               /* input parser expression */
-  size_t expr_pos,              /* current position in expr */
-      expr_size;                /* number of bytes in expr */
-  const char *error;            /* error message, if any */
-  size_t error_pos;             /* position the error was encountered in expr */
+  re_buf(re_u32) compcc_hash;
+  re_u32 entry[RE_PROG_ENTRY_MAX]; /* program entrypoints (see RE_PROG_ENTRY) */
+  const re_u8 *expr;               /* input parser expression */
+  size_t expr_pos,                 /* current position in expr */
+      expr_size;                   /* number of bytes in expr */
+  const char *error;               /* error message, if any */
+  size_t error_pos; /* position the error was encountered in expr */
 };
 
 /* Helper macro for assertions. */
@@ -408,7 +408,7 @@ void re_buf_clear(void *buf)
 /* Destroy a dynamic array. */
 #define re_buf_destroy(r, b) (re_buf_destroy_t((r), (void **)(b)))
 
-static int re_parse(re *r, const u8 *s, size_t sz, u32 *root);
+static int re_parse(re *r, const re_u8 *s, size_t sz, re_u32 *root);
 
 re *re_init(const char *regex)
 {
@@ -441,7 +441,7 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
   re_buf_init(&r->prog), re_buf_init(&r->prog_set_idxs);
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
-    if ((err = re_parse(r, (const u8 *)regex, n, &r->ast_root))) {
+    if ((err = re_parse(r, (const re_u8 *)regex, n, &r->ast_root))) {
       return err;
     } else {
       r->ast_sets = 1;
@@ -466,7 +466,7 @@ void re_destroy(re *r)
 }
 
 /* Make a byte range inline; more convenient than initializing a struct. */
-static re_byte_range re_byte_range_make(u8 l, u8 h)
+static re_byte_range re_byte_range_make(re_u8 l, re_u8 h)
 {
   re_byte_range out;
   out.l = l, out.h = h;
@@ -474,13 +474,13 @@ static re_byte_range re_byte_range_make(u8 l, u8 h)
 }
 
 /* Pack a byte range into a u32, low byte first. */
-static u32 re_byte_range_to_u32(re_byte_range br)
+static re_u32 re_byte_range_to_u32(re_byte_range br)
 {
-  return ((u32)br.l) | ((u32)br.h) << 8;
+  return ((re_u32)br.l) | ((re_u32)br.h) << 8;
 }
 
 /* Unpack a byte range from a u32. */
-static re_byte_range re_u32_to_byte_range(u32 u)
+static re_byte_range re_u32_to_byte_range(re_u32 u)
 {
   return re_byte_range_make(u & 0xFF, u >> 8 & 0xFF);
 }
@@ -488,11 +488,11 @@ static re_byte_range re_u32_to_byte_range(u32 u)
 /* Check if two byte ranges are adjacent (right directly supersedes left) */
 static int re_byte_range_is_adjacent(re_byte_range left, re_byte_range right)
 {
-  return ((u32)left.h) + 1 == ((u32)right.l);
+  return ((re_u32)left.h) + 1 == ((re_u32)right.l);
 }
 
 /* Make a rune range inline. */
-static re_rune_range re_rune_range_make(u32 l, u32 h)
+static re_rune_range re_rune_range_make(re_u32 l, re_u32 h)
 {
   re_rune_range out;
   out.l = l, out.h = h;
@@ -500,10 +500,10 @@ static re_rune_range re_rune_range_make(u32 l, u32 h)
 }
 
 /* Make a new AST node within the regular expression. */
-static int
-re_ast_make(re *r, re_ast_type type, u32 p0, u32 p1, u32 p2, u32 *out_node)
+static int re_ast_make(
+    re *r, re_ast_type type, re_u32 p0, re_u32 p1, re_u32 p2, re_u32 *out_node)
 {
-  u32 args[4], i;
+  re_u32 args[4], i;
   int err;
   args[0] = type, args[1] = p0, args[2] = p1, args[3] = p2;
   if (type && !re_buf_size(r->ast) &&
@@ -517,17 +517,17 @@ re_ast_make(re *r, re_ast_type type, u32 p0, u32 p1, u32 p2, u32 *out_node)
 }
 
 /* Decompose a given AST node, given its reference, into `out_args`. */
-static void re_ast_decompose(re *r, u32 node, u32 *out_args)
+static void re_ast_decompose(re *r, re_u32 node, re_u32 *out_args)
 {
-  u32 *in_args = r->ast + node;
-  memcpy(out_args, in_args + 1, re_ast_type_lens[*in_args] * sizeof(u32));
+  re_u32 *in_args = r->ast + node;
+  memcpy(out_args, in_args + 1, re_ast_type_lens[*in_args] * sizeof(re_u32));
 }
 
 /* Get the type of the given AST node. */
-static u32 *re_ast_type_ref(re *r, u32 node) { return r->ast + node; }
+static re_u32 *re_ast_type_ref(re *r, re_u32 node) { return r->ast + node; }
 
 /* Get a pointer to the `n`'th parameter of the given AST node. */
-static u32 *re_ast_param_ref(re *r, u32 node, u32 n)
+static re_u32 *re_ast_param_ref(re *r, re_u32 node, re_u32 n)
 {
   assert(re_ast_type_lens[*re_ast_type_ref(r, node)] > n);
   return r->ast + node + 1 + n;
@@ -538,12 +538,12 @@ static u32 *re_ast_param_ref(re *r, u32 node, u32 n)
 int re_union(re *r, const char *regex, size_t n)
 {
   int err = 0;
-  u32 next_reg, next_root;
+  re_u32 next_reg, next_root;
   if (!r->ast_sets) {
     r->ast_sets++;
-    return re_parse(r, (const u8 *)regex, n, &r->ast_root);
+    return re_parse(r, (const re_u8 *)regex, n, &r->ast_root);
   }
-  if ((err = re_parse(r, (const u8 *)regex, n, &next_reg)) ||
+  if ((err = re_parse(r, (const re_u8 *)regex, n, &next_reg)) ||
       (err = re_ast_make(
            r, RE_AST_TYPE_ALT, r->ast_root, next_reg, 0, &next_root)))
     return err;
@@ -553,15 +553,15 @@ int re_union(re *r, const char *regex, size_t n)
 }
 
 /*T Generated by `charclass_tree.py dfa` */
-static const u32 re_utf8_dfa_num_range = 13;
-static const u32 re_utf8_dfa_num_state = 9;
-static const u8 re_utf8_dfa_trans[] = {
+static const re_u32 re_utf8_dfa_num_range = 13;
+static const re_u32 re_utf8_dfa_num_state = 9;
+static const re_u8 re_utf8_dfa_trans[] = {
     0, 8, 8, 8, 8, 3, 7, 2, 6, 2, 5, 4, 1, 8, 2, 8, 8, 8, 8, 8, 8,
     8, 8, 8, 8, 8, 8, 3, 3, 3, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 0, 0,
     0, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 2, 2, 2, 8, 8, 8, 8, 8, 8, 8,
     8, 8, 8, 8, 2, 2, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 3, 3, 8, 8, 8,
     8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 3, 8, 8, 8, 8, 8, 8, 8, 8, 8};
-static const u8 re_utf8_dfa_class[] = {
+static const re_u8 re_utf8_dfa_class[] = {
     0,  0,  0,  0,  0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0,  0,  0,  0,  0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0,  0,  0,  0,  0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -573,13 +573,14 @@ static const u8 re_utf8_dfa_class[] = {
     4,  4,  5,  5,  5,  5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
     5,  5,  5,  5,  5,  5, 5, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 9, 9,
     10, 11, 11, 11, 12, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4};
-static const u8 re_utf8_dfa_shift[] = {0, 0, 0, 0, 2, 2, 3, 3, 3, 3, 4, 4, 4};
+static const re_u8 re_utf8_dfa_shift[] = {0, 0, 0, 0, 2, 2, 3,
+                                          3, 3, 3, 4, 4, 4};
 
 /*t Generated by `charclass_tree.py dfa` */
 
-static u32 re_utf8_decode(u32 *state, u32 *codep, u32 byte)
+static re_u32 re_utf8_decode(re_u32 *state, re_u32 *codep, re_u32 byte)
 {
-  u32 type = re_utf8_dfa_class[byte];
+  re_u32 type = re_utf8_dfa_class[byte];
   *codep = *state ? (byte & 0x3F) | (*codep << 6)
                   : (0xFF >> re_utf8_dfa_shift[type]) & (byte);
   *state = re_utf8_dfa_trans[*state * re_utf8_dfa_num_range + type];
@@ -597,9 +598,9 @@ static int re_parse_err(re *r, const char *msg)
 /* Check if we are at the end of the regex string. */
 static int re_parse_has_more(re *r) { return r->expr_pos != r->expr_size; }
 
-static u32 re_parse_next(re *r)
+static re_u32 re_parse_next(re *r)
 {
-  u32 state = 0, codep;
+  re_u32 state = 0, codep;
   assert(re_parse_has_more(r));
   while (re_utf8_decode(&state, &codep, r->expr[r->expr_pos++]) != 0)
     assert(r->expr_pos < r->expr_size);
@@ -609,7 +610,7 @@ static u32 re_parse_next(re *r)
 
 /* Get the next input codepoint, or raise a parse error with the given error
  * message if there is no more input. */
-static int re_parse_next_or(re *r, u32 *codep, const char *else_msg)
+static int re_parse_next_or(re *r, re_u32 *codep, const char *else_msg)
 {
   assert(else_msg);
   if (!re_parse_has_more(r))
@@ -621,7 +622,7 @@ static int re_parse_next_or(re *r, u32 *codep, const char *else_msg)
 /* Check that the input string is well-formed UTF-8. */
 static int re_parse_checkutf8(re *r)
 {
-  u32 state = 0, codep;
+  re_u32 state = 0, codep;
   while (r->expr_pos < r->expr_size &&
          re_utf8_decode(&state, &codep, r->expr[r->expr_pos]) !=
              re_utf8_dfa_num_state - 1)
@@ -633,10 +634,10 @@ static int re_parse_checkutf8(re *r)
 }
 
 /* Without advancing the parser, check the next character. */
-static u32 re_peek_next_new(re *r)
+static re_u32 re_peek_next_new(re *r)
 {
   size_t prev_pos = r->expr_pos;
-  u32 out = re_parse_next(r);
+  re_u32 out = re_parse_next(r);
   r->expr_pos = prev_pos;
   return out;
 }
@@ -660,7 +661,7 @@ static int re_fold(re *r)
   }
   while (re_buf_size(r->arg_stk) > 1) {
     /* arg_stk: | ... | R_N-1 | R_N | */
-    u32 right, left, rest;
+    re_u32 right, left, rest;
     right = re_buf_pop(&r->arg_stk);
     left = *re_buf_peek(&r->arg_stk, 0);
     if ((err = re_ast_make(r, RE_AST_TYPE_CAT, left, right, 0, &rest)))
@@ -676,7 +677,7 @@ static int re_fold(re *r)
  * the end of the operator stack, fold and finish each ALT node into a single
  * resulting ALT node on the argument stack.
  * Returns `ERR_MEM` if out of memory. */
-static void re_fold_alts(re *r, u32 *flags)
+static void re_fold_alts(re *r, re_u32 *flags)
 {
   assert(re_buf_size(r->arg_stk) == 1);
   /* First pop all inline groups. */
@@ -685,8 +686,8 @@ static void re_fold_alts(re *r, u32 *flags)
              RE_AST_TYPE_IGROUP) {
     /* arg_stk: |  R  | */
     /* op_stk:  | ... | (S) | */
-    u32 igrp = re_buf_pop(&r->op_stk), cat = *re_ast_param_ref(r, igrp, 0),
-        old_flags = *re_ast_param_ref(r, igrp, 2);
+    re_u32 igrp = re_buf_pop(&r->op_stk), cat = *re_ast_param_ref(r, igrp, 0),
+           old_flags = *re_ast_param_ref(r, igrp, 2);
     *re_ast_param_ref(r, igrp, 0) = *re_buf_peek(&r->arg_stk, 0);
     *flags = old_flags;
     *re_ast_param_ref(r, cat, 1) = igrp;
@@ -709,7 +710,7 @@ static void re_fold_alts(re *r, u32 *flags)
            *re_ast_type_ref(r, *re_buf_peek(&r->op_stk, 1)) ==
                RE_AST_TYPE_ALT) {
       /* op_stk:  | ... | A_1 | A_2 | */
-      u32 right = re_buf_pop(&r->op_stk), left = *re_buf_peek(&r->op_stk, 0);
+      re_u32 right = re_buf_pop(&r->op_stk), left = *re_buf_peek(&r->op_stk, 0);
       *re_ast_param_ref(r, left, 1) = right;
       *re_buf_peek(&r->op_stk, 0) = left;
       /* op_stk:  | ... | A_1(|A_2) | */
@@ -724,9 +725,9 @@ static void re_fold_alts(re *r, u32 *flags)
 }
 
 /* Add the CC node `rest` to the CC node `first`. */
-static u32 re_ast_cls_union(re *r, u32 rest, u32 first)
+static re_u32 re_ast_cls_union(re *r, re_u32 rest, re_u32 first)
 {
-  u32 cur = first, *next;
+  re_u32 cur = first, *next;
   assert(first);
   assert(
       *re_ast_type_ref(r, first) == RE_AST_TYPE_CC ||
@@ -740,10 +741,10 @@ static u32 re_ast_cls_union(re *r, u32 rest, u32 first)
 
 /* Helper function to add a character to the argument stack.
  * Returns `ERR_MEM` if out of memory. */
-static int re_parse_escape_addchr(re *r, u32 ch, u32 allowed_outputs)
+static int re_parse_escape_addchr(re *r, re_u32 ch, re_u32 allowed_outputs)
 {
   int err = 0;
-  u32 res;
+  re_u32 res;
   (void)allowed_outputs, assert(allowed_outputs & (1 << RE_AST_TYPE_CHR));
   if ((err = re_ast_make(r, RE_AST_TYPE_CHR, ch, 0, 0, &res)) ||
       (err = re_buf_push(r, &r->arg_stk, res)))
@@ -754,7 +755,7 @@ static int re_parse_escape_addchr(re *r, u32 ch, u32 allowed_outputs)
 /* Convert a hexadecimal digit to a number.
  * Returns -1 on invalid hex digit.
  * TODO: convert this to an idiomatic error function */
-static int re_parse_hexdig(u32 ch)
+static int re_parse_hexdig(re_u32 ch)
 {
   if (ch >= '0' && ch <= '9')
     return ch - '0';
@@ -766,7 +767,7 @@ static int re_parse_hexdig(u32 ch)
     return -1;
 }
 
-static int re_parse_octdig(u32 ch)
+static int re_parse_octdig(re_u32 ch)
 {
   if (ch >= '0' && ch <= '7')
     return ch - '0';
@@ -774,7 +775,7 @@ static int re_parse_octdig(u32 ch)
 }
 
 typedef struct re_parse_builtin_cc {
-  u8 name_len, cc_len;
+  re_u8 name_len, cc_len;
   const char *name;
   const char *chars;
 } re_parse_builtin_cc;
@@ -800,23 +801,23 @@ static const re_parse_builtin_cc re_parse_builtin_ccs[15] = {
 
 /*t Generated by `unicode_data.py gen_ascii_charclasses impl` */
 
-static const re_parse_builtin_cc *re_parse_named_cc(const u8 *s, size_t sz)
+static const re_parse_builtin_cc *re_parse_named_cc(const re_u8 *s, size_t sz)
 {
   const re_parse_builtin_cc *p = re_parse_builtin_ccs;
   while (p < re_parse_builtin_ccs + (sizeof(re_parse_builtin_ccs) /
                                      sizeof(*re_parse_builtin_ccs))) {
-    if ((size_t)p->name_len == sz && !memcmp(s, (const u8 *)p->name, sz))
+    if ((size_t)p->name_len == sz && !memcmp(s, (const re_u8 *)p->name, sz))
       return p;
     p++;
   }
   return NULL;
 }
 
-static int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert)
+static int re_parse_add_namedcc(re *r, const re_u8 *s, size_t sz, int invert)
 {
   int err = 0;
   const re_parse_builtin_cc *named = re_parse_named_cc(s, sz);
-  u32 res = RE_REF_NONE, i, max = 0, cur_min = 0, cur_max = 0;
+  re_u32 res = RE_REF_NONE, i, max = 0, cur_min = 0, cur_max = 0;
   if (!named)
     return re_parse_err(r, "unknown builtin character class name");
   for (i = 0; i < named->cc_len; i++) {
@@ -844,9 +845,9 @@ static int re_parse_add_namedcc(re *r, const u8 *s, size_t sz, int invert)
 }
 
 /* after a \ */
-static int re_parse_escape(re *r, u32 allowed_outputs)
+static int re_parse_escape(re *r, re_u32 allowed_outputs)
 {
-  u32 ch;
+  re_u32 ch;
   int err = 0;
   if ((err = re_parse_next_or(r, &ch, "expected escape sequence")))
     return err;
@@ -874,7 +875,7 @@ static int re_parse_escape(re *r, u32 allowed_outputs)
     return re_parse_escape_addchr(r, ch, allowed_outputs);
   } else if (re_parse_octdig(ch) >= 0) { /* octal escape */
     int digs = 1;
-    u32 ord = ch - '0';
+    re_u32 ord = ch - '0';
     while (digs++ < 3 && re_parse_has_more(r) &&
            re_parse_octdig(ch = re_peek_next_new(r)) >= 0) {
       ch = re_parse_next(r);
@@ -883,12 +884,12 @@ static int re_parse_escape(re *r, u32 allowed_outputs)
     }
     return re_parse_escape_addchr(r, ord, allowed_outputs);
   } else if (ch == 'x') { /* hex escape */
-    u32 ord = 0;
+    re_u32 ord = 0;
     if ((err = re_parse_next_or(
              r, &ch, "expected two hex characters or a bracketed hex literal")))
       return err;
     if (ch == '{') { /* bracketed hex lit */
-      u32 i = 0;
+      re_u32 i = 0;
       while (1) {
         if ((i == 7) || (err = re_parse_next_or(
                              r, &ch, "expected up to six hex characters")))
@@ -916,14 +917,14 @@ static int re_parse_escape(re *r, u32 allowed_outputs)
       return re_parse_err(r, "ordinal value out of range [0, 0x10FFFF]");
     return re_parse_escape_addchr(r, ord, allowed_outputs);
   } else if (ch == 'C') { /* any byte: \C */
-    u32 res;
+    re_u32 res;
     if (!(allowed_outputs & (1 << RE_AST_TYPE_ANYBYTE)))
       return re_parse_err(r, "cannot use \\C here");
     if ((err = re_ast_make(r, RE_AST_TYPE_ANYBYTE, 0, 0, 0, &res)) ||
         (err = re_buf_push(r, &r->arg_stk, res)))
       return err;
   } else if (ch == 'Q') { /* quote string */
-    u32 cat = RE_REF_NONE, chr = RE_REF_NONE;
+    re_u32 cat = RE_REF_NONE, chr = RE_REF_NONE;
     if (!(allowed_outputs & (1 << RE_AST_TYPE_CAT)))
       return re_parse_err(r, "cannot use \\Q...\\E here");
     while (re_parse_has_more(r)) {
@@ -960,11 +961,11 @@ static int re_parse_escape(re *r, u32 allowed_outputs)
     if (!(allowed_outputs & (1 << RE_AST_TYPE_CC)))
       return re_parse_err(r, "cannot use a character class here");
     if ((err = re_parse_add_namedcc(
-             r, (const u8 *)cc_name, strlen(cc_name), inverted)))
+             r, (const re_u8 *)cc_name, strlen(cc_name), inverted)))
       return err;
   } else if (ch == 'A' || ch == 'z' || ch == 'B' || ch == 'b') { /* empty
                                                                     asserts */
-    u32 res;
+    re_u32 res;
     if (!(allowed_outputs & (1 << RE_AST_TYPE_ASSERT)))
       return re_parse_err(r, "cannot use an epsilon assertion here");
     if ((err = re_ast_make(
@@ -982,10 +983,10 @@ static int re_parse_escape(re *r, u32 allowed_outputs)
   return 0;
 }
 
-static int re_parse_number(re *r, u32 *out, u32 max_digits)
+static int re_parse_number(re *r, re_u32 *out, re_u32 max_digits)
 {
   int err = 0;
-  u32 ch, acc = 0, ndigs = 0;
+  re_u32 ch, acc = 0, ndigs = 0;
   if (!re_parse_has_more(r))
     return re_parse_err(r, "expected at least one decimal digit");
   while (ndigs < max_digits && re_parse_has_more(r) &&
@@ -999,18 +1000,18 @@ static int re_parse_number(re *r, u32 *out, u32 max_digits)
   return err;
 }
 
-static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
+static int re_parse(re *r, const re_u8 *ts, size_t tsz, re_u32 *root)
 {
   int err;
-  u32 flags = 0;
+  re_u32 flags = 0;
   r->expr = ts;
   r->expr_size = tsz, r->expr_pos = 0;
   if ((err = re_parse_checkutf8(r)))
     return err;
   while (re_parse_has_more(r)) {
-    u32 ch = re_parse_next(r), res = RE_REF_NONE;
+    re_u32 ch = re_parse_next(r), res = RE_REF_NONE;
     if (ch == '*' || ch == '+' || ch == '?') {
-      u32 q = ch, greedy = 1;
+      re_u32 q = ch, greedy = 1;
       /* arg_stk: | ... |  R  | */
       /* pop one from arg stk, create quant, push to arg stk */
       if (!re_buf_size(r->arg_stk))
@@ -1039,7 +1040,7 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* arg_stk: | */
       /* op_stk:  | ... | R(|) | */
     } else if (ch == '(') {
-      u32 old_flags = flags, inline_group = 0, child;
+      re_u32 old_flags = flags, inline_group = 0, child;
       if (!re_parse_has_more(r))
         return re_parse_err(r, "expected ')' to close group");
       ch = re_peek_next_new(r);
@@ -1068,7 +1069,7 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
               break;
           }
         } else {
-          u32 neg = 0, flag = RE_GROUP_FLAG_UNGREEDY;
+          re_u32 neg = 0, flag = RE_GROUP_FLAG_UNGREEDY;
           while (1) {
             if (ch == ':' || ch == ')')
               break;
@@ -1112,7 +1113,7 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
         return err;
       /* op_stk:  | ... | (R) | */
     } else if (ch == ')') {
-      u32 grp, prev;
+      re_u32 grp, prev;
       /* arg_stk: | S_1 | S_2 | ... | S_N | */
       /* op_stk:  | ... | (R) | ... | */
       /* fold the arg stk into a concat, fold remaining alts, create group,
@@ -1155,10 +1156,10 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
       /* arg_stk: | ... |  .  | */
     } else if (ch == '[') { /* charclass */
       size_t start = r->expr_pos;
-      u32 inverted = 0, min, max;
+      re_u32 inverted = 0, min, max;
       res = RE_REF_NONE;
       while (1) {
-        u32 next;
+        re_u32 next;
         if ((err = re_parse_next_or(r, &ch, "unclosed character class")))
           return err;
         if ((r->expr_pos - start == 1) && ch == '^') {
@@ -1257,7 +1258,7 @@ static int re_parse(re *r, const u8 *ts, size_t tsz, u32 *root)
                       1 << RE_AST_TYPE_ASSERT)))
         return err;
     } else if (ch == '{') { /* repetition */
-      u32 min = 0, max = 0;
+      re_u32 min = 0, max = 0;
       if ((err = re_parse_number(r, &min, 6)))
         return err;
       if ((err = re_parse_next_or(
@@ -1326,35 +1327,36 @@ static re_opcode re_inst_opcode(re_inst i)
   return i.opcode_next & ((1 << RE_INST_OPCODE_BITS) - 1);
 }
 
-static u32 re_inst_next(re_inst i)
+static re_u32 re_inst_next(re_inst i)
 {
   return i.opcode_next >> RE_INST_OPCODE_BITS;
 }
 
-static u32 re_inst_param(re_inst i) { return i.param; }
+static re_u32 re_inst_param(re_inst i) { return i.param; }
 
-static re_inst re_inst_make(re_opcode op, u32 next, u32 param)
+static re_inst re_inst_make(re_opcode op, re_u32 next, re_u32 param)
 {
   re_inst out;
   out.opcode_next = op | next << RE_INST_OPCODE_BITS, out.param = param;
   return out;
 }
 
-static u32 re_inst_match_param_make(u32 begin_or_end, u32 slot_idx_or_set_idx)
+static re_u32
+re_inst_match_param_make(re_u32 begin_or_end, re_u32 slot_idx_or_set_idx)
 {
   assert(begin_or_end == 0 || begin_or_end == 1);
   return begin_or_end | (slot_idx_or_set_idx << 1);
 }
 
-static u32 re_inst_match_param_end(u32 param) { return param & 1; }
+static re_u32 re_inst_match_param_end(re_u32 param) { return param & 1; }
 
-static u32 re_inst_match_param_idx(u32 param) { return param >> 1; }
+static re_u32 re_inst_match_param_idx(re_u32 param) { return param >> 1; }
 
-static void re_prog_set(re *r, u32 pc, re_inst i) { r->prog[pc] = i; }
+static void re_prog_set(re *r, re_u32 pc, re_inst i) { r->prog[pc] = i; }
 
-static re_inst re_prog_get(const re *r, u32 pc) { return r->prog[pc]; }
+static re_inst re_prog_get(const re *r, re_u32 pc) { return r->prog[pc]; }
 
-static u32 re_prog_size(const re *r) { return re_buf_size(r->prog); }
+static re_u32 re_prog_size(const re *r) { return re_buf_size(r->prog); }
 
 #define RE_PROG_MAX_INSTS 100000
 
@@ -1369,7 +1371,7 @@ static int re_inst_emit(re *r, re_inst i, re_compframe *frame)
   return err;
 }
 
-static re_inst re_patch_set(re *r, u32 pc, u32 val)
+static re_inst re_patch_set(re *r, re_u32 pc, re_u32 val)
 {
   re_inst prev = re_prog_get(r, pc >> 1);
   assert(pc);
@@ -1381,9 +1383,9 @@ static re_inst re_patch_set(re *r, u32 pc, u32 val)
   return prev;
 }
 
-static void re_patch_add(re *r, re_compframe *f, u32 dest_pc, int p)
+static void re_patch_add(re *r, re_compframe *f, re_u32 dest_pc, int p)
 {
-  u32 out_val = dest_pc << 1 | !!p;
+  re_u32 out_val = dest_pc << 1 | !!p;
   assert(dest_pc);
   if (!f->patch_head)
     f->patch_head = f->patch_tail = out_val;
@@ -1411,9 +1413,9 @@ static void re_patch_xfer(re_compframe *dst, re_compframe *src)
   src->patch_head = src->patch_tail = RE_REF_NONE;
 }
 
-static void re_patch_apply(re *r, re_compframe *p, u32 dest_pc)
+static void re_patch_apply(re *r, re_compframe *p, re_u32 dest_pc)
 {
-  u32 i = p->patch_head;
+  re_u32 i = p->patch_head;
   while (i) {
     re_inst prev = re_patch_set(r, i, dest_pc);
     i = i & 1 ? re_inst_param(prev) : re_inst_next(prev);
@@ -1421,7 +1423,7 @@ static void re_patch_apply(re *r, re_compframe *p, u32 dest_pc)
   p->patch_head = p->patch_tail = RE_REF_NONE;
 }
 
-static u32 re_compcc_array_key(re_buf(re_rune_range) cc, size_t idx)
+static re_u32 re_compcc_array_key(re_buf(re_rune_range) cc, size_t idx)
 {
   return cc[idx].l;
 }
@@ -1456,7 +1458,7 @@ static void re_compcc_hsort(re_buf(re_rune_range) cc)
 }
 
 static int re_compcc_tree_new(
-    re *r, re_buf(re_compcc_tree) * cc_out, re_compcc_tree node, u32 *out)
+    re *r, re_buf(re_compcc_tree) * cc_out, re_compcc_tree node, re_u32 *out)
 {
   int err = 0;
   if (!re_buf_size(*cc_out)) {
@@ -1473,10 +1475,11 @@ static int re_compcc_tree_new(
 }
 
 static int re_compcc_tree_append(
-    re *r, re_buf(re_compcc_tree) * cc, u32 range, u32 parent, u32 *out)
+    re *r, re_buf(re_compcc_tree) * cc, re_u32 range, re_u32 parent,
+    re_u32 *out)
 {
   re_compcc_tree *parent_node, child_node = {0};
-  u32 child_ref;
+  re_u32 child_ref;
   int err;
   parent_node = (*cc) + parent;
   child_node.sibling_ref = parent_node->child_ref, child_node.range = range;
@@ -1493,12 +1496,13 @@ static int re_compcc_tree_append(
 }
 
 static int re_compcc_tree_build_one(
-    re *r, re_buf(re_compcc_tree) * cc_out, u32 parent, u32 min, u32 max,
-    u32 x_bits, u32 y_bits)
+    re *r, re_buf(re_compcc_tree) * cc_out, re_u32 parent, re_u32 min,
+    re_u32 max, re_u32 x_bits, re_u32 y_bits)
 {
-  u32 x_mask = (1 << x_bits) - 1, y_min = min >> x_bits, y_max = max >> x_bits,
-      u_mask = (0xFE << y_bits) & 0xFF, byte_min = (y_min & 0xFF) | u_mask,
-      byte_max = (y_max & 0xFF) | u_mask, i, next;
+  re_u32 x_mask = (1 << x_bits) - 1, y_min = min >> x_bits,
+         y_max = max >> x_bits, u_mask = (0xFE << y_bits) & 0xFF,
+         byte_min = (y_min & 0xFF) | u_mask, byte_max = (y_max & 0xFF) | u_mask,
+         i, next;
   int err = 0;
   assert(y_bits <= 7);
   if (x_bits == 0) {
@@ -1509,7 +1513,8 @@ static int re_compcc_tree_build_one(
       return err;
   } else {
     /* nonterminal */
-    u32 x_min = min & x_mask, x_max = max & x_mask, brs[3], mins[3], maxs[3], n;
+    re_u32 x_min = min & x_mask, x_max = max & x_mask, brs[3], mins[3], maxs[3],
+           n;
     if (y_min == y_max || (x_min == 0 && x_max == x_mask)) {
       /* Range can be split into either a single byte followed by a range,
        * _or_ one range followed by another maximal range */
@@ -1571,7 +1576,7 @@ static int re_compcc_tree_build_one(
     }
     for (i = 0; i < n; i++) {
       re_compcc_tree *parent_node;
-      u32 child_ref;
+      re_u32 child_ref;
       /* check if previous child intersects and then compute intersection */
       assert(parent);
       parent_node = (*cc_out) + parent;
@@ -1602,7 +1607,7 @@ static int re_compcc_tree_build(
     re *r, const re_buf(re_rune_range) cc_in, re_buf(re_compcc_tree) * cc_out)
 {
   size_t i = 0, j = 0, min_bound = 0;
-  u32 root_ref;
+  re_u32 root_ref;
   re_compcc_tree root_node;
   int err = 0;
   root_node.child_ref = root_node.sibling_ref = root_node.aux.hash =
@@ -1612,13 +1617,14 @@ static int re_compcc_tree_build(
   if ((err = re_compcc_tree_new(r, cc_out, root_node, &root_ref)))
     return err;
   for (i = 0, j = 0; i < re_buf_size(cc_in) && j < 4;) {
-    static const u32 y_bits[4] = {7, 5, 4, 3};
-    static const u32 x_bits[4] = {0, 6, 12, 18};
-    u32 max_bound = (1 << (x_bits[j] + y_bits[j])) - 1;
+    static const re_u32 y_bits[4] = {7, 5, 4, 3};
+    static const re_u32 x_bits[4] = {0, 6, 12, 18};
+    re_u32 max_bound = (1 << (x_bits[j] + y_bits[j])) - 1;
     re_rune_range rr = cc_in[i];
     if (min_bound <= rr.h && rr.l <= max_bound) {
       /* [min,max] intersects [min_bound,max_bound] */
-      u32 clamped_min = rr.l < min_bound ? min_bound : rr.l, /* clamp range */
+      re_u32 clamped_min =
+                 rr.l < min_bound ? min_bound : rr.l, /* clamp range */
           clamped_max = rr.h > max_bound ? max_bound : rr.h;
       if ((err = re_compcc_tree_build_one(
                r, cc_out, root_ref, clamped_min, clamped_max, x_bits[j],
@@ -1636,7 +1642,7 @@ static int re_compcc_tree_build(
 }
 
 static int re_compcc_tree_eq(
-    re *r, const re_buf(re_compcc_tree) cc_tree_in, u32 a_ref, u32 b_ref)
+    re *r, const re_buf(re_compcc_tree) cc_tree_in, re_u32 a_ref, re_u32 b_ref)
 {
   while (a_ref && b_ref) {
     const re_compcc_tree *a = cc_tree_in + a_ref, *b = cc_tree_in + b_ref;
@@ -1651,7 +1657,7 @@ static int re_compcc_tree_eq(
 }
 
 static void re_compcc_tree_merge_one(
-    re_buf(re_compcc_tree) cc_tree_in, u32 child_ref, u32 sibling_ref)
+    re_buf(re_compcc_tree) cc_tree_in, re_u32 child_ref, re_u32 sibling_ref)
 {
   re_compcc_tree *child = cc_tree_in + child_ref,
                  *sibling = cc_tree_in + sibling_ref;
@@ -1665,7 +1671,7 @@ static void re_compcc_tree_merge_one(
 }
 
 /*https://nullprogram.com/blog/2018/07/31/*/
-static u32 re_hashington(u32 x)
+static re_u32 re_hashington(re_u32 x)
 {
   x ^= x >> 16;
   x *= 0x7feb352dU;
@@ -1677,7 +1683,7 @@ static u32 re_hashington(u32 x)
 
 /* hash table */
 static int re_compcc_hash_init(
-    re *r, const re_buf(re_compcc_tree) cc_tree_in, re_buf(u32) * cc_ht_out)
+    re *r, const re_buf(re_compcc_tree) cc_tree_in, re_buf(re_u32) * cc_ht_out)
 {
   int err = 0;
   if ((err = re_buf_reserve(
@@ -1689,11 +1695,11 @@ static int re_compcc_hash_init(
 }
 
 static void
-re_compcc_tree_hash(re *r, re_buf(re_compcc_tree) cc_tree_in, u32 parent_ref)
+re_compcc_tree_hash(re *r, re_buf(re_compcc_tree) cc_tree_in, re_u32 parent_ref)
 {
   /* flip links and hash everything */
   re_compcc_tree *parent_node = cc_tree_in + parent_ref;
-  u32 child_ref, next_child_ref, sibling_ref = 0;
+  re_u32 child_ref, next_child_ref, sibling_ref = 0;
   child_ref = parent_node->child_ref;
   while (child_ref) {
     re_compcc_tree *child_node = cc_tree_in + child_ref, *sibling_node;
@@ -1714,7 +1720,7 @@ re_compcc_tree_hash(re *r, re_buf(re_compcc_tree) cc_tree_in, u32 parent_ref)
       }
     }
     {
-      u32 hash_plain[3] = {0x6D99232E, 0xC281FF0B, 0x54978D96};
+      re_u32 hash_plain[3] = {0x6D99232E, 0xC281FF0B, 0x54978D96};
       memset(hash_plain, 0, sizeof(hash_plain));
       hash_plain[0] ^= child_node->range;
       if (child_node->sibling_ref) {
@@ -1738,15 +1744,15 @@ re_compcc_tree_hash(re *r, re_buf(re_compcc_tree) cc_tree_in, u32 parent_ref)
 }
 
 static void re_compcc_tree_reduce(
-    re *r, re_buf(re_compcc_tree) cc_tree_in, re_buf(u32) cc_ht, u32 node_ref,
-    u32 *my_out_ref)
+    re *r, re_buf(re_compcc_tree) cc_tree_in, re_buf(re_u32) cc_ht,
+    re_u32 node_ref, re_u32 *my_out_ref)
 {
-  u32 prev_sibling_ref = 0;
+  re_u32 prev_sibling_ref = 0;
   assert(node_ref);
   assert(!*my_out_ref);
   while (node_ref) {
     re_compcc_tree *node = cc_tree_in + node_ref;
-    u32 probe, found, child_ref = 0;
+    re_u32 probe, found, child_ref = 0;
     probe = node->aux.hash;
     node->aux.pc = 0;
     /* check if child is in the hash table */
@@ -1781,11 +1787,11 @@ static void re_compcc_tree_reduce(
 }
 
 static int re_compcc_tree_render(
-    re *r, re_buf(re_compcc_tree) cc_tree_in, u32 node_ref, u32 *my_out_pc,
-    re_compframe *frame)
+    re *r, re_buf(re_compcc_tree) cc_tree_in, re_u32 node_ref,
+    re_u32 *my_out_pc, re_compframe *frame)
 {
   int err = 0;
-  u32 split_from = 0, my_pc = 0, range_pc = 0;
+  re_u32 split_from = 0, my_pc = 0, range_pc = 0;
   while (node_ref) {
     re_compcc_tree *node = cc_tree_in + node_ref;
     if (node->aux.pc) {
@@ -1826,7 +1832,7 @@ static int re_compcc_tree_render(
       return err;
     if (node->child_ref) {
       /* need to down-compile */
-      u32 their_pc = 0;
+      re_u32 their_pc = 0;
       re_inst i = re_prog_get(r, range_pc);
       if ((err = re_compcc_tree_render(
                r, cc_tree_in, node->child_ref, &their_pc, frame)))
@@ -1846,14 +1852,14 @@ static int re_compcc_tree_render(
 
 static void re_compcc_tree_xpose(
     const re_buf(re_compcc_tree) cc_tree_in, re_buf(re_compcc_tree) cc_tree_out,
-    u32 node_ref, u32 root_ref)
+    re_u32 node_ref, re_u32 root_ref)
 {
   const re_compcc_tree *src_node;
   re_compcc_tree *dst_node, *parent_node;
   assert(node_ref != RE_REF_NONE);
   assert(re_buf_size(cc_tree_out) == re_buf_size(cc_tree_in));
   while (node_ref) {
-    u32 parent_ref = root_ref;
+    re_u32 parent_ref = root_ref;
     src_node = cc_tree_in + node_ref;
     dst_node = cc_tree_out + node_ref;
     dst_node->sibling_ref = dst_node->child_ref = RE_REF_NONE;
@@ -1868,21 +1874,21 @@ static void re_compcc_tree_xpose(
   }
 }
 
-static int
-re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf(re_rune_range) * cc_out);
+static int re_compcc_fold_range(
+    re *r, re_u32 begin, re_u32 end, re_buf(re_rune_range) * cc_out);
 
-static int re_compcc(re *r, u32 root, re_compframe *frame, int reversed)
+static int re_compcc(re *r, re_u32 root, re_compframe *frame, int reversed)
 {
   int err = 0,
       inverted = *re_ast_type_ref(r, frame->root_ref) == RE_AST_TYPE_ICC,
       insensitive = !!(frame->flags & RE_GROUP_FLAG_INSENSITIVE);
-  u32 start_pc = 0;
+  re_u32 start_pc = 0;
   re_buf_clear(&r->compcc_ranges), re_buf_clear(&r->compcc_ranges_2),
       re_buf_clear(&r->compcc_tree), re_buf_clear(&r->compcc_tree_2),
       re_buf_clear(&r->compcc_hash);
   /* push ranges */
   while (root) {
-    u32 args[3], min, max;
+    re_u32 args[3], min, max;
     re_ast_decompose(r, root, args);
     root = args[0], min = args[1], max = args[2];
     /* handle out-of-order ranges (min > max) */
@@ -1932,7 +1938,7 @@ static int re_compcc(re *r, u32 root, re_compframe *frame, int reversed)
   } while (insensitive && insensitive-- /* re-normalize by looping again */);
   /* invert ranges */
   if (inverted) {
-    u32 max = 0, i, write = 0, old_size = re_buf_size(r->compcc_ranges_2);
+    re_u32 max = 0, i, write = 0, old_size = re_buf_size(r->compcc_ranges_2);
     re_rune_range cur = re_rune_range_make(0, 0);
     for (i = 0; i < old_size; i++) {
       cur = r->compcc_ranges_2[i];
@@ -1969,7 +1975,7 @@ static int re_compcc(re *r, u32 root, re_compframe *frame, int reversed)
   /* reduce tree */
   re_compcc_tree_reduce(r, r->compcc_tree, r->compcc_hash, 2, &start_pc);
   if (reversed) {
-    u32 i;
+    re_u32 i;
     re_buf(re_compcc_tree) tmp;
     re_buf_clear(&r->compcc_tree_2);
     for (i = 1 /* skip sentinel */; i < re_buf_size(r->compcc_tree); i++) {
@@ -1993,11 +1999,11 @@ static int re_compcc(re *r, u32 root, re_compframe *frame, int reversed)
   return err;
 }
 
-static int re_compile_internal(re *r, u32 root, u32 reverse)
+static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
 {
   int err = 0;
   re_compframe initial_frame = {0}, returned_frame = {0}, child_frame = {0};
-  u32 set_idx = 0, grp_idx = 1, tmp_cc_ast = RE_REF_NONE;
+  re_u32 set_idx = 0, grp_idx = 1, tmp_cc_ast = RE_REF_NONE;
   if (!re_prog_size(r) &&
       ((err = re_buf_push(r, &r->prog, re_inst_make(RE_OPCODE_RANGE, 0, 0))) ||
        (err = re_buf_push(r, &r->prog_set_idxs, 0))))
@@ -2014,7 +2020,7 @@ static int re_compile_internal(re *r, u32 root, u32 reverse)
   while (re_buf_size(r->comp_stk)) {
     re_compframe frame = *re_buf_peek(&r->comp_stk, 0);
     re_ast_type type;
-    u32 args[4], my_pc = re_prog_size(r);
+    re_u32 args[4], my_pc = re_prog_size(r);
     frame.child_ref = frame.root_ref;
     child_frame.child_ref = child_frame.root_ref = child_frame.patch_head =
         child_frame.patch_tail = RE_REF_NONE;
@@ -2101,9 +2107,9 @@ static int re_compile_internal(re *r, u32 root, u32 reverse)
        * ---> S -> [A] ---+
        *       \             out
        *        +-----------------> */
-      u32 child = args[0], min = args[1], max = args[2],
-          is_greedy = !(frame.flags & RE_GROUP_FLAG_UNGREEDY) ^
-                      (type == RE_AST_TYPE_UQUANT);
+      re_u32 child = args[0], min = args[1], max = args[2],
+             is_greedy = !(frame.flags & RE_GROUP_FLAG_UNGREEDY) ^
+                         (type == RE_AST_TYPE_UQUANT);
       assert(min <= max);
       assert(RE_IMPLIES((min == RE_INFTY || max == RE_INFTY), min != max));
       assert(RE_IMPLIES(max == RE_INFTY, frame.idx <= min + 1));
@@ -2142,7 +2148,7 @@ static int re_compile_internal(re *r, u32 root, u32 reverse)
     } else if (type == RE_AST_TYPE_GROUP || type == RE_AST_TYPE_IGROUP) {
       /*  in                 out
        * ---> M -> [A] -> M ----> */
-      u32 child = args[0], flags = args[1];
+      re_u32 child = args[0], flags = args[1];
       frame.flags =
           flags &
           ~RE_GROUP_FLAG_SUBEXPRESSION; /* we shouldn't propagate this */
@@ -2184,7 +2190,7 @@ static int re_compile_internal(re *r, u32 root, u32 reverse)
       if ((err = re_compcc(r, frame.root_ref, &frame, reverse)))
         return err;
     } else if (type == RE_AST_TYPE_ASSERT) {
-      u32 assert_flag = args[0];
+      re_u32 assert_flag = args[0];
       re_patch_apply(r, &frame, my_pc);
       if ((err = re_inst_emit(
                r, re_inst_make(RE_OPCODE_ASSERT, 0, assert_flag), &frame)))
@@ -2215,7 +2221,7 @@ static int re_compile_internal(re *r, u32 root, u32 reverse)
   assert(!re_buf_size(r->comp_stk));
   assert(!returned_frame.patch_head && !returned_frame.patch_tail);
   {
-    u32 dstar =
+    re_u32 dstar =
         r->entry
             [RE_PROG_ENTRY_DOTSTAR | (reverse ? RE_PROG_ENTRY_REVERSE : 0)] =
             re_prog_size(r);
@@ -2239,12 +2245,12 @@ static int re_compile_internal(re *r, u32 root, u32 reverse)
 }
 
 typedef struct re_nfa_thrd {
-  u32 pc, slot;
+  re_u32 pc, slot;
 } re_nfa_thrd;
 
 typedef struct re_sset {
-  u32 size, dense_size;
-  re_buf(u32) sparse;
+  re_u32 size, dense_size;
+  re_buf(re_u32) sparse;
   re_buf(re_nfa_thrd) dense;
 } re_sset;
 
@@ -2273,7 +2279,7 @@ static void re_sset_destroy(const re *r, re_sset *s)
   re_buf_destroy(r, &s->sparse), re_buf_destroy(r, &s->dense);
 }
 
-static int re_sset_is_memb(re_sset *s, u32 pc)
+static int re_sset_is_memb(re_sset *s, re_u32 pc)
 {
   assert(pc < s->size);
   return s->sparse[pc] < s->dense_size && s->dense[s->sparse[pc]].pc == pc;
@@ -2311,7 +2317,7 @@ static void re_save_slots_clear(re_save_slots *s, size_t per_thrd)
   s->per_thrd = per_thrd + 1 /* for refcnt */;
 }
 
-static int re_save_slots_new(const re *r, re_save_slots *s, u32 *next)
+static int re_save_slots_new(const re *r, re_save_slots *s, re_u32 *next)
 {
   assert(s->per_thrd);
   if (s->last_empty) {
@@ -2344,14 +2350,14 @@ static int re_save_slots_new(const re *r, re_save_slots *s, u32 *next)
   return 0;
 }
 
-static u32 re_save_slots_fork(re_save_slots *s, u32 ref)
+static re_u32 re_save_slots_fork(re_save_slots *s, re_u32 ref)
 {
   if (s->per_thrd)
     s->slots[ref * s->per_thrd + s->per_thrd - 1]++;
   return ref;
 }
 
-static void re_save_slots_kill(re_save_slots *s, u32 ref)
+static void re_save_slots_kill(re_save_slots *s, re_u32 ref)
 {
   if (!s->per_thrd)
     return;
@@ -2363,7 +2369,8 @@ static void re_save_slots_kill(re_save_slots *s, u32 ref)
 }
 
 static int re_save_slots_set_internal(
-    const re *r, re_save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
+    const re *r, re_save_slots *s, re_u32 ref, re_u32 idx, size_t v,
+    re_u32 *out)
 {
   int err;
   *out = ref;
@@ -2388,19 +2395,20 @@ static int re_save_slots_set_internal(
   return 0;
 }
 
-static u32 re_save_slots_per_thrd(re_save_slots *s)
+static re_u32 re_save_slots_per_thrd(re_save_slots *s)
 {
   return s->per_thrd ? s->per_thrd - 1 : s->per_thrd;
 }
 
 static int re_save_slots_set(
-    const re *r, re_save_slots *s, u32 ref, u32 idx, size_t v, u32 *out)
+    const re *r, re_save_slots *s, re_u32 ref, re_u32 idx, size_t v,
+    re_u32 *out)
 {
   assert(idx < re_save_slots_per_thrd(s));
   return re_save_slots_set_internal(r, s, ref, idx, v, out);
 }
 
-static u32 re_save_slots_get(re_save_slots *s, u32 ref, u32 idx)
+static re_u32 re_save_slots_get(re_save_slots *s, re_u32 ref, re_u32 idx)
 {
   assert(idx < re_save_slots_per_thrd(s));
   return s->slots[ref * s->per_thrd + idx];
@@ -2410,8 +2418,8 @@ typedef struct re_nfa {
   re_sset a, b, c;
   re_buf(re_nfa_thrd) thrd_stk;
   re_save_slots slots;
-  re_buf(u32) pri_stk;
-  re_buf(u32) pri_bmp_tmp;
+  re_buf(re_u32) pri_stk;
+  re_buf(re_u32) pri_bmp_tmp;
   int reversed, pri;
 } re_nfa;
 
@@ -2428,7 +2436,7 @@ typedef enum re_dfa_state_flag {
 
 typedef struct re_dfa_state {
   struct re_dfa_state *ptrs[256 + 1];
-  u32 flags, nstate, nset, alloc;
+  re_u32 flags, nstate, nset, alloc;
 } re_dfa_state;
 
 typedef struct re_dfa {
@@ -2437,9 +2445,9 @@ typedef struct re_dfa {
   re_dfa_state
       *entry[RE_PROG_ENTRY_MAX][RE_DFA_STATE_FLAG_MAX]; /* program entry type
                                                          * dfa_state_flag */
-  re_buf(u32) set_buf;
+  re_buf(re_u32) set_buf;
   re_buf(size_t) loc_buf;
-  re_buf(u32) set_bmp;
+  re_buf(re_u32) set_bmp;
 } re_dfa;
 
 struct re_exec {
@@ -2467,11 +2475,11 @@ static void re_nfa_destroy(const re *r, re_nfa *n)
   re_buf_destroy(r, &n->pri_stk), re_buf_destroy(r, &n->pri_bmp_tmp);
 }
 
-#define RE_BITS_PER_U32 (sizeof(u32) * CHAR_BIT)
+#define RE_BITS_PER_U32 (sizeof(re_u32) * CHAR_BIT)
 
-static int re_bmp_init(const re *r, re_buf(u32) * b, u32 size)
+static int re_bmp_init(const re *r, re_buf(re_u32) * b, re_u32 size)
 {
-  u32 i;
+  re_u32 i;
   int err = 0;
   re_buf_clear(b);
   for (i = 0; i < (size + RE_BITS_PER_U32) / RE_BITS_PER_U32; i++)
@@ -2481,25 +2489,25 @@ static int re_bmp_init(const re *r, re_buf(u32) * b, u32 size)
   return err;
 }
 
-static void re_bmp_clear(re_buf(u32) * b) { memset(*b, 0, re_buf_size(*b)); }
+static void re_bmp_clear(re_buf(re_u32) * b) { memset(*b, 0, re_buf_size(*b)); }
 
-static void re_bmp_set(re_buf(u32) b, u32 idx)
+static void re_bmp_set(re_buf(re_u32) b, re_u32 idx)
 {
   /* TODO: assert idx < nsets */
   b[idx / RE_BITS_PER_U32] |= (1 << (idx % RE_BITS_PER_U32));
 }
 
 /* returns 0 or a positive value (not necessarily 1) */
-static u32 re_bmp_get(re_buf(u32) b, u32 idx)
+static re_u32 re_bmp_get(re_buf(re_u32) b, re_u32 idx)
 {
   return b[idx / RE_BITS_PER_U32] & (1 << (idx % RE_BITS_PER_U32));
 }
 
-static int
-re_nfa_start(const re *r, re_nfa *n, u32 pc, u32 noff, int reversed, int pri)
+static int re_nfa_start(
+    const re *r, re_nfa *n, re_u32 pc, re_u32 noff, int reversed, int pri)
 {
   re_nfa_thrd initial_thrd;
-  u32 i;
+  re_u32 i;
   int err = 0;
   if ((err = re_sset_reset(r, &n->a, re_prog_size(r))) ||
       (err = re_sset_reset(r, &n->b, re_prog_size(r))) ||
@@ -2544,8 +2552,8 @@ static int re_nfa_eps(const re *r, re_nfa *n, size_t pos, re_assert_flag ass)
       re_sset_add(&n->c, thrd);
       switch (re_inst_opcode(re_prog_get(r, thrd.pc))) {
       case RE_OPCODE_MATCH: {
-        u32 idx = re_inst_match_param_idx(re_inst_param(op)) * 2 +
-                  re_inst_match_param_end(re_inst_param(op));
+        re_u32 idx = re_inst_match_param_idx(re_inst_param(op)) * 2 +
+                     re_inst_match_param_end(re_inst_param(op));
         if (idx < re_save_slots_per_thrd(&n->slots) &&
             (err = re_save_slots_set(
                  r, &n->slots, thrd.slot, idx, pos, &thrd.slot)))
@@ -2600,14 +2608,14 @@ static int re_nfa_match_end(
     const re *r, re_nfa *n, re_nfa_thrd thrd, size_t pos, unsigned int ch)
 {
   int err = 0;
-  u32 idx = r->prog_set_idxs[thrd.pc];
-  u32 *memo = n->pri_stk + idx - 1;
+  re_u32 idx = r->prog_set_idxs[thrd.pc];
+  re_u32 *memo = n->pri_stk + idx - 1;
   assert(idx > 0);
   assert(idx - 1 < re_buf_size(n->pri_stk));
   if (!n->pri && ch < 256)
     goto out_kill;
   if (n->slots.per_thrd) {
-    u32 slot_idx = !n->reversed;
+    re_u32 slot_idx = !n->reversed;
     if (*memo)
       re_save_slots_kill(&n->slots, *memo);
     *memo = thrd.slot;
@@ -2634,8 +2642,8 @@ static int re_nfa_chr(const re *r, re_nfa *n, unsigned int ch, size_t pos)
   for (i = 0; i < n->b.dense_size; i++) {
     re_nfa_thrd thrd = n->b.dense[i];
     re_inst op = re_prog_get(r, thrd.pc);
-    u32 pri = re_bmp_get(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]),
-        opcode = re_inst_opcode(op);
+    re_u32 pri = re_bmp_get(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]),
+           opcode = re_inst_opcode(op);
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
     assert(opcode == RE_OPCODE_RANGE || opcode == RE_OPCODE_MATCH);
@@ -2660,14 +2668,15 @@ static int re_nfa_chr(const re *r, re_nfa *n, unsigned int ch, size_t pos)
 
 #define RE_SENTINEL_CH 256
 
-static u32 re_is_word_char(u32 ch)
+static re_u32 re_is_word_char(re_u32 ch)
 {
   return (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') ||
          (ch >= 'a' && ch <= 'z') || ch == '_';
 }
 
 static re_assert_flag re_make_assert_flag_raw(
-    u32 prev_text_begin, u32 prev_line_begin, u32 prev_word, u32 next_ch)
+    re_u32 prev_text_begin, re_u32 prev_line_begin, re_u32 prev_word,
+    re_u32 next_ch)
 {
   return !!prev_text_begin * RE_ASSERT_TEXT_BEGIN |
          (next_ch == RE_SENTINEL_CH) * RE_ASSERT_TEXT_END |
@@ -2677,7 +2686,7 @@ static re_assert_flag re_make_assert_flag_raw(
                                                     : RE_ASSERT_WORD);
 }
 
-static re_assert_flag re_make_assert_flag(u32 prev_ch, u32 next_ch)
+static re_assert_flag re_make_assert_flag(re_u32 prev_ch, re_u32 next_ch)
 {
   return re_make_assert_flag_raw(
       prev_ch == RE_SENTINEL_CH, (prev_ch == RE_SENTINEL_CH || prev_ch == '\n'),
@@ -2691,8 +2700,8 @@ static re_assert_flag re_make_assert_flag(u32 prev_ch, u32 next_ch)
 /* if max_set == 0 and max_span != 0 */
 /* if max_set != 0 and max_span != 0 */
 static int re_nfa_end(
-    const re *r, size_t pos, re_nfa *n, u32 max_span, u32 max_set,
-    span *out_span, u32 *out_set, u32 prev_ch)
+    const re *r, size_t pos, re_nfa *n, re_u32 max_span, re_u32 max_set,
+    span *out_span, re_u32 *out_set, re_u32 prev_ch)
 {
   int err;
   size_t j, sets = 0, nset = 0;
@@ -2702,7 +2711,7 @@ static int re_nfa_end(
     return err;
   for (sets = 0; sets < r->ast_sets && (max_set ? nset < max_set : nset < 1);
        sets++) {
-    u32 slot = n->pri_stk[sets];
+    re_u32 slot = n->pri_stk[sets];
     if (!slot)
       continue; /* no match for this set */
     for (j = 0; (j < max_span) && out_span; j++) {
@@ -2718,7 +2727,8 @@ static int re_nfa_end(
   return nset;
 }
 
-static int re_nfa_run(const re *r, re_nfa *n, u32 ch, size_t pos, u32 prev_ch)
+static int
+re_nfa_run(const re *r, re_nfa *n, re_u32 ch, size_t pos, re_u32 prev_ch)
 {
   int err;
   if ((err = re_nfa_eps(r, n, pos, re_make_assert_flag(prev_ch, ch))))
@@ -2759,28 +2769,28 @@ static void re_dfa_destroy(const re *r, re_dfa *d)
       re_buf_destroy(r, &d->set_bmp);
 }
 
-static u32 re_dfa_state_alloc(u32 nstate, u32 nset)
+static re_u32 re_dfa_state_alloc(re_u32 nstate, re_u32 nset)
 {
-  u32 minsz = sizeof(re_dfa_state) + (nstate + nset) * sizeof(u32);
-  u32 alloc = sizeof(re_dfa_state) & 0x800;
+  re_u32 minsz = sizeof(re_dfa_state) + (nstate + nset) * sizeof(re_u32);
+  re_u32 alloc = sizeof(re_dfa_state) & 0x800;
   while (alloc < minsz)
     alloc *= 2;
   return alloc;
 }
 
-static u32 *re_dfa_state_data(re_dfa_state *state)
+static re_u32 *re_dfa_state_data(re_dfa_state *state)
 {
-  return (u32 *)(state + 1);
+  return (re_u32 *)(state + 1);
 }
 
 /* need: current state, but ALSO the previous state's matches */
 static int re_dfa_construct(
     const re *r, re_dfa *d, re_dfa_state *prev_state, unsigned int ch,
-    u32 prev_flag, re_nfa *n, re_dfa_state **out_next_state)
+    re_u32 prev_flag, re_nfa *n, re_dfa_state **out_next_state)
 {
   size_t i;
   int err = 0;
-  u32 hash, table_pos, num_checked, *state_data, next_alloc;
+  re_u32 hash, table_pos, num_checked, *state_data, next_alloc;
   re_dfa_state *next_state;
   assert(!(prev_flag & RE_DFA_STATE_FLAG_DIRTY));
   /* check threads in n, and look them up in the dfa cache */
@@ -2852,7 +2862,8 @@ static int re_dfa_construct(
         d->states[table_pos],
         d->states[table_pos]->flags & RE_DFA_STATE_FLAG_DIRTY));
     {
-      u32 prev_alloc = d->states[table_pos] ? d->states[table_pos]->alloc : 0;
+      re_u32 prev_alloc =
+          d->states[table_pos] ? d->states[table_pos]->alloc : 0;
       next_alloc = re_dfa_state_alloc(n->a.dense_size, re_buf_size(d->set_buf));
       if (prev_alloc < next_alloc) {
         next_state = re_ialloc(r, prev_alloc, next_alloc, d->states[table_pos]);
@@ -2886,7 +2897,7 @@ static int re_dfa_construct(
 }
 
 static int re_dfa_construct_start(
-    const re *r, re_dfa *d, re_nfa *n, u32 entry, u32 prev_flag,
+    const re *r, re_dfa *d, re_nfa *n, re_u32 entry, re_u32 prev_flag,
     re_dfa_state **out_next_state)
 {
   int err = 0;
@@ -2976,7 +2987,7 @@ static int re_dfa_construct_chr(
 
 static void re_dfa_save_matches(re_dfa *dfa, re_dfa_state *state, size_t pos)
 {
-  u32 i;
+  re_u32 i;
   for (i = 0; i < state->nset; i++) {
     dfa->loc_buf[re_dfa_state_data(state)[state->nstate + i]] = pos;
     re_bmp_set(dfa->set_bmp, i);
@@ -2984,18 +2995,18 @@ static void re_dfa_save_matches(re_dfa *dfa, re_dfa_state *state, size_t pos)
 }
 
 static int re_dfa_match(
-    re_exec *exec, re_nfa *nfa, u8 *s, size_t n, u32 max_span, u32 max_set,
-    span *out_span, u32 *out_set, anchor_type anchor)
+    re_exec *exec, re_nfa *nfa, re_u8 *s, size_t n, re_u32 max_span,
+    re_u32 max_set, span *out_span, re_u32 *out_set, anchor_type anchor)
 {
   int err;
   re_dfa_state *state = NULL;
   size_t i;
-  u32 entry = anchor == A_END          ? RE_PROG_ENTRY_REVERSE
-              : anchor == A_UNANCHORED ? RE_PROG_ENTRY_DOTSTAR
-                                       : 0;
-  u32 incoming_assert_flag =
-          RE_DFA_STATE_FLAG_FROM_TEXT_BEGIN | RE_DFA_STATE_FLAG_FROM_LINE_BEGIN,
-      reversed = !!(entry & RE_PROG_ENTRY_REVERSE);
+  re_u32 entry = anchor == A_END          ? RE_PROG_ENTRY_REVERSE
+                 : anchor == A_UNANCHORED ? RE_PROG_ENTRY_DOTSTAR
+                                          : 0;
+  re_u32 incoming_assert_flag = RE_DFA_STATE_FLAG_FROM_TEXT_BEGIN |
+                                RE_DFA_STATE_FLAG_FROM_LINE_BEGIN,
+         reversed = !!(entry & RE_PROG_ENTRY_REVERSE);
   int pri = anchor != A_BOTH;
   assert(max_span == 0 || max_span == 1);
   assert(anchor == A_BOTH || anchor == A_START || anchor == A_END);
@@ -3027,11 +3038,12 @@ static int re_dfa_match(
      * dereference+increment it every iteration of the character loop. So, we
      * compute the start and end pointers of the span of the string, and then
      * rip through the string until start == end. */
-    const u8 *start = reversed ? s + n - 1 : s, *end = reversed ? s - 1 : s + n;
+    const re_u8 *start = reversed ? s + n - 1 : s,
+                *end = reversed ? s - 1 : s + n;
     /* The amount to increment each iteration of the loop. */
     int increment = reversed ? -1 : 1;
     while (start != end) {
-      u8 ch = *start;
+      re_u8 ch = *start;
       re_dfa_state *next = state->ptrs[ch];
       if (!next) {
         if ((err = re_dfa_construct_chr(
@@ -3122,18 +3134,18 @@ int re_compile(re *r)
 }
 
 int re_exec_match(
-    re_exec *exec, const char *s, size_t n, u32 max_span, u32 max_set,
-    span *out_span, u32 *out_set, anchor_type anchor)
+    re_exec *exec, const char *s, size_t n, re_u32 max_span, re_u32 max_set,
+    span *out_span, re_u32 *out_set, anchor_type anchor)
 {
   int err = 0;
-  u32 entry = anchor == A_END          ? RE_PROG_ENTRY_REVERSE
-              : anchor == A_UNANCHORED ? RE_PROG_ENTRY_DOTSTAR
-                                       : 0;
+  re_u32 entry = anchor == A_END          ? RE_PROG_ENTRY_REVERSE
+                 : anchor == A_UNANCHORED ? RE_PROG_ENTRY_DOTSTAR
+                                          : 0;
   size_t i;
-  u32 prev_ch = RE_SENTINEL_CH;
+  re_u32 prev_ch = RE_SENTINEL_CH;
   if (!(entry & RE_PROG_ENTRY_DOTSTAR) && (max_span == 0 || max_span == 1)) {
     err = re_dfa_match(
-        exec, &exec->nfa, (u8 *)s, n, max_span, max_set, out_span, out_set,
+        exec, &exec->nfa, (re_u8 *)s, n, max_span, max_set, out_span, out_set,
         anchor);
     return err;
   }
@@ -3144,9 +3156,9 @@ int re_exec_match(
   if (entry & RE_PROG_ENTRY_REVERSE) {
     for (i = n; i > 0; i--) {
       if ((err = re_nfa_run(
-               exec->r, &exec->nfa, ((const u8 *)s)[i - 1], i, prev_ch)))
+               exec->r, &exec->nfa, ((const re_u8 *)s)[i - 1], i, prev_ch)))
         return err;
-      prev_ch = ((const u8 *)s)[i - 1];
+      prev_ch = ((const re_u8 *)s)[i - 1];
     }
     if ((err = re_nfa_end(
              exec->r, 0, &exec->nfa, max_span, max_set, out_span, out_set,
@@ -3154,10 +3166,10 @@ int re_exec_match(
       return err;
   } else {
     for (i = 0; i < n; i++) {
-      if ((err =
-               re_nfa_run(exec->r, &exec->nfa, ((const u8 *)s)[i], i, prev_ch)))
+      if ((err = re_nfa_run(
+               exec->r, &exec->nfa, ((const re_u8 *)s)[i], i, prev_ch)))
         return err;
-      prev_ch = ((const u8 *)s)[i];
+      prev_ch = ((const re_u8 *)s)[i];
     }
     if ((err = re_nfa_end(
              exec->r, n, &exec->nfa, max_span, max_set, out_span, out_set,
@@ -3168,8 +3180,8 @@ int re_exec_match(
 }
 
 int re_match(
-    const re *r, const char *s, size_t n, u32 max_span, u32 max_set,
-    span *out_span, u32 *out_set, anchor_type anchor)
+    const re *r, const char *s, size_t n, re_u32 max_span, re_u32 max_set,
+    span *out_span, re_u32 *out_set, anchor_type anchor)
 {
   re_exec *exec = NULL;
   int err;
@@ -3184,7 +3196,7 @@ done:
 }
 
 /*T Generated by `unicode_data.py gen_casefold` */
-static const s32 re_compcc_fold_array_0[] = {
+static const re_s32 re_compcc_fold_array_0[] = {
     -0x0040, +0x0000, -0x0022, -0x0022, +0x0022, +0x0022, -0x0040, -0x0040,
     +0x0040, +0x0040, -0x0027, -0x0027, +0x0027, +0x0027, -0x0028, -0x0028,
     +0x0028, +0x0028, -0x97D0, -0x97D0, -0x1C60, -0x1C60, -0x2A3F, -0x2A3F,
@@ -3235,7 +3247,7 @@ static const s32 re_compcc_fold_array_0[] = {
     +0x0000, +0x0001, -0x0001, -0x0020, +0x0079, -0x0020, +0x2046, +0x0020,
     +0x1DBF, +0x0000, +0x02E7, -0x0020, +0x0000, -0x0020, +0x010C, -0x0020,
     +0x20BF, +0x0000, -0x0020, +0x0020, +0x0000, +0x0020};
-static const u16 re_compcc_fold_array_1[] = {
+static const re_u16 re_compcc_fold_array_1[] = {
     0x002, 0x002, 0x060, 0x060, 0x004, 0x002, 0x002, 0x002, 0x002, 0x004, 0x004,
     0x004, 0x004, 0x006, 0x006, 0x006, 0x006, 0x008, 0x008, 0x008, 0x008, 0x00A,
     0x00A, 0x00A, 0x00A, 0x00C, 0x00C, 0x00C, 0x00C, 0x00E, 0x00E, 0x00E, 0x00E,
@@ -3293,7 +3305,7 @@ static const u16 re_compcc_fold_array_1[] = {
     0x05E, 0x05E, 0x17F, 0x05E, 0x05E, 0x05E, 0x18B, 0x05C, 0x183, 0x060, 0x060,
     0x189, 0x05C, 0x05C, 0x05C, 0x05E, 0x18B, 0x060, 0x060, 0x18C, 0x05E, 0x05E,
     0x05E};
-static const u16 re_compcc_fold_array_2[] = {
+static const re_u16 re_compcc_fold_array_2[] = {
     0x000, 0x07D, 0x005, 0x005, 0x009, 0x009, 0x075, 0x075, 0x00D, 0x00D, 0x011,
     0x011, 0x01D, 0x01D, 0x021, 0x021, 0x025, 0x025, 0x029, 0x029, 0x02D, 0x02D,
     0x031, 0x031, 0x035, 0x035, 0x039, 0x039, 0x04D, 0x04D, 0x051, 0x051, 0x055,
@@ -3316,7 +3328,7 @@ static const u16 re_compcc_fold_array_2[] = {
     0x211, 0x21D, 0x219, 0x225, 0x221, 0x22D, 0x229, 0x235, 0x231, 0x071, 0x239,
     0x06D, 0x23D, 0x245, 0x241, 0x24D, 0x249, 0x0B6, 0x075, 0x255, 0x251, 0x0BC,
     0x07D, 0x0DE, 0x259, 0x25D, 0x0E1, 0x079, 0x261, 0x265, 0x079};
-static const u8 re_compcc_fold_array_3[] = {
+static const re_u8 re_compcc_fold_array_3[] = {
     0x0E, 0x0E, 0x44, 0x0C, 0x0C, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x0E,
     0x0E, 0x42, 0x0C, 0x40, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x3E,
     0x3E, 0x3C, 0x3A, 0x38, 0x30, 0x30, 0x30, 0x30, 0x26, 0x26, 0x26, 0x24,
@@ -3358,7 +3370,7 @@ static const u8 re_compcc_fold_array_3[] = {
     0x30, 0x30, 0x30, 0x30, 0xEE, 0xEC, 0xEA, 0xE8, 0x30, 0x30, 0x30, 0xE6,
     0x2E, 0xE4, 0xE2, 0xE0, 0x2C, 0x2C, 0x2C, 0xDE, 0xDC, 0x2C, 0x2C, 0xDA,
     0xD8, 0xD6, 0xD4, 0xD2, 0xD0, 0xCE, 0x2C, 0xCC};
-static const u16 re_compcc_fold_array_4[] = {
+static const re_u16 re_compcc_fold_array_4[] = {
     0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC,
     0x0CC, 0x0CC, 0x046, 0x0CC, 0x06A, 0x0F3, 0x0CC, 0x05B, 0x0CC, 0x0CC, 0x0CC,
     0x020, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x000,
@@ -3369,7 +3381,7 @@ static const u16 re_compcc_fold_array_4[] = {
     0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x1C8, 0x1A8, 0x188,
     0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x036, 0x168, 0x0CC, 0x0CC, 0x0CC, 0x0CC,
     0x10C, 0x148};
-static const u8 re_compcc_fold_array_5[] = {
+static const re_u8 re_compcc_fold_array_5[] = {
     0x55, 0x10, 0x3C, 0x3C, 0x3C, 0x2B, 0x3C, 0x00, 0x1E, 0x3C, 0x3C, 0x45,
     0x3C, 0x3C, 0x3C, 0x37, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C,
     0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C,
@@ -3383,7 +3395,7 @@ static const u8 re_compcc_fold_array_5[] = {
     0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C,
     0x3C, 0x3C, 0x3C, 0x3C};
 
-static s32 re_compcc_fold_next(u32 rune)
+static re_s32 re_compcc_fold_next(re_u32 rune)
 {
   return re_compcc_fold_array_0
       [re_compcc_fold_array_1
@@ -3398,14 +3410,14 @@ static s32 re_compcc_fold_next(u32 rune)
        (rune & 0x01)];
 }
 
-static int
-re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf(re_rune_range) * cc_out)
+static int re_compcc_fold_range(
+    re *r, re_u32 begin, re_u32 end, re_buf(re_rune_range) * cc_out)
 {
   int err = 0;
-  s32 a0;
-  u16 a1, a2, a4;
-  u32 current, x0, x1, x2, x3, x4, x5;
-  u8 a3, a5;
+  re_s32 a0;
+  re_u16 a1, a2, a4;
+  re_u32 current, x0, x1, x2, x3, x4, x5;
+  re_u8 a3, a5;
   assert(begin <= RE_UTF_MAX && end <= RE_UTF_MAX && begin <= end);
   for (x5 = ((begin >> 13) & 0xFF); x5 <= 0x87 && begin <= end; x5++) {
     if ((a5 = re_compcc_fold_array_5[x5]) == 0x3C) {
@@ -3442,7 +3454,8 @@ re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf(re_rune_range) * cc_out)
                 if ((err = re_buf_push(
                          r, cc_out, re_rune_range_make(current, current))))
                   return err;
-                current = (u32)((s32)current + re_compcc_fold_next(current));
+                current =
+                    (re_u32)((re_s32)current + re_compcc_fold_next(current));
               }
               begin++;
             }
@@ -3463,7 +3476,7 @@ re_compcc_fold_range(re *r, u32 begin, u32 end, re_buf(re_rune_range) * cc_out)
 
 enum dumpformat { TERM, GRAPHVIZ };
 
-static char d_hex(u8 d)
+static char d_hex(re_u8 d)
 {
   d &= 0xF;
   if (d < 10)
@@ -3472,7 +3485,7 @@ static char d_hex(u8 d)
     return 'A' + d - 10;
 }
 
-static char *d_chr(char *buf, u32 ch, int ascii)
+static char *d_chr(char *buf, re_u32 ch, int ascii)
 {
   if ((ch == '\a' && ch == 'a') || (ch == '\b' && ch == 'b') ||
       (ch == '\t' && ch == 't') || (ch == '\n' && ch == 'n') ||
@@ -3493,9 +3506,9 @@ static char *d_chr(char *buf, u32 ch, int ascii)
   return buf;
 }
 
-static char *d_chr_ascii(char *buf, u32 ch) { return d_chr(buf, ch, 1); }
+static char *d_chr_ascii(char *buf, re_u32 ch) { return d_chr(buf, ch, 1); }
 
-static char *d_chr_unicode(char *buf, u32 ch) { return d_chr(buf, ch, 0); }
+static char *d_chr_unicode(char *buf, re_u32 ch) { return d_chr(buf, ch, 0); }
 
 static char *d_assert(char *buf, re_assert_flag af)
 {
@@ -3519,7 +3532,7 @@ static char *d_group_flag(char *buf, re_group_flag gf)
   return buf;
 }
 
-static char *d_quant(char *buf, u32 quantval)
+static char *d_quant(char *buf, re_u32 quantval)
 {
   if (quantval >= RE_INFTY)
     strcat(buf, "\xe2\x88\x9e"); /* infinity symbol */
@@ -3539,11 +3552,11 @@ static char *d_quant(char *buf, u32 quantval)
   return buf;
 }
 
-void d_ast_i(re *r, u32 root, u32 ilvl, int format)
+void d_ast_i(re *r, re_u32 root, re_u32 ilvl, int format)
 {
   const char *colors[] = {"1", "2", "3", "4"};
-  u32 i, first = root ? *re_ast_type_ref(r, root) : 0;
-  u32 sub[2] = {0xFF, 0xFF};
+  re_u32 i, first = root ? *re_ast_type_ref(r, root) : 0;
+  re_u32 sub[2] = {0xFF, 0xFF};
   char buf[32] = {0}, buf2[32] = {0};
   const char *node_name =
       root == RE_REF_NONE             ? "\xc9\x9b" /* epsilon */
@@ -3589,7 +3602,7 @@ void d_ast_i(re *r, u32 root, u32 ilvl, int format)
     printf("\n");
   for (i = 0; i < sizeof(sub) / sizeof(*sub); i++)
     if (sub[i] != 0xFF) {
-      u32 child = *re_ast_param_ref(r, root, sub[i]);
+      re_u32 child = *re_ast_param_ref(r, root, sub[i]);
       d_ast_i(r, child, ilvl + 1, format);
       if (format == GRAPHVIZ)
         printf(
@@ -3599,20 +3612,20 @@ void d_ast_i(re *r, u32 root, u32 ilvl, int format)
     printf("}\n");
 }
 
-void d_ast(re *r, u32 root) { d_ast_i(r, root, 0, TERM); }
+void d_ast(re *r, re_u32 root) { d_ast_i(r, root, 0, TERM); }
 
 void d_ast_gv(re *r) { d_ast_i(r, r->ast_root, 0, GRAPHVIZ); }
 
 void d_sset(re_sset *s)
 {
-  u32 i;
+  re_u32 i;
   for (i = 0; i < s->dense_size; i++)
     printf("%04X pc: %04X slot: %04X\n", i, s->dense[i].pc, s->dense[i].slot);
 }
 
-void d_prog_range(const re *r, u32 start, u32 end, int format)
+void d_prog_range(const re *r, re_u32 start, re_u32 end, int format)
 {
-  u32 j, k;
+  re_u32 j, k;
   assert(end <= re_prog_size(r));
   if (format == GRAPHVIZ)
     printf("node [colorscheme=pastel16]\n");
@@ -3686,9 +3699,9 @@ void d_prog_gv(const re *r)
   d_prog_range(r, 1, r->entry[RE_PROG_ENTRY_DOTSTAR], GRAPHVIZ);
 }
 
-void d_cctree_i(const re_buf(re_compcc_tree) cc_tree, u32 ref, u32 lvl)
+void d_cctree_i(const re_buf(re_compcc_tree) cc_tree, re_u32 ref, re_u32 lvl)
 {
-  u32 i;
+  re_u32 i;
   const re_compcc_tree *node = cc_tree + ref;
   printf("%04X [%08X] ", ref, node->aux.pc);
   for (i = 0; i < lvl; i++)
@@ -3702,7 +3715,7 @@ void d_cctree_i(const re_buf(re_compcc_tree) cc_tree, u32 ref, u32 lvl)
     d_cctree_i(cc_tree, node->sibling_ref, lvl);
 }
 
-void d_cctree(const re_buf(re_compcc_tree) cc_tree, u32 ref)
+void d_cctree(const re_buf(re_compcc_tree) cc_tree, re_u32 ref)
 {
   d_cctree_i(cc_tree, ref, 0);
 }

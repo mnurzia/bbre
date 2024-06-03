@@ -345,13 +345,13 @@ def cmd_dfa(args) -> int:
         return len(binv) - len(binv.lstrip("1")) if n >= 0xC0 and n <= 0xF4 else 0
 
     lines, out = make_appender_func()
-    out(f"static const u32 re_utf8_dfa_num_range = {len(common_classes)};")
-    out(f"static const u32 re_utf8_dfa_num_state = {len(state_n) + 1};")
-    out(f"static const u8 re_utf8_dfa_trans[] = {{")
+    out(f"static const re_u32 re_utf8_dfa_num_range = {len(common_classes)};")
+    out(f"static const re_u32 re_utf8_dfa_num_state = {len(state_n) + 1};")
+    out(f"static const re_u8 re_utf8_dfa_trans[] = {{")
     out(",".join(map(str, state_table)) + "};")
-    out(f"static const u8 re_utf8_dfa_class[] = {{")
+    out(f"static const re_u8 re_utf8_dfa_class[] = {{")
     out(",".join(map(str, class_table)) + "};")
-    out(f"static const u8 re_utf8_dfa_shift[] = {{")
+    out(f"static const re_u8 re_utf8_dfa_shift[] = {{")
     out(",".join(map(str, (shift_amt(next(iter(cc))) for cc in common_classes))) + "};")
 
     insert_c_file(args.file, lines, "dfa", file_name="charclass_tree.py")

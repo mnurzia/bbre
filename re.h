@@ -6,11 +6,11 @@
 typedef struct re re;
 typedef struct re_exec re_exec;
 
-typedef signed int s32;
-typedef unsigned int u32;
-typedef signed short s16;
-typedef unsigned short u16;
-typedef unsigned char u8;
+typedef signed int re_s32;
+typedef unsigned int re_u32;
+typedef signed short re_s16;
+typedef unsigned short re_u16;
+typedef unsigned char re_u8;
 
 #define ERR_MEM   (-1)
 #define ERR_PARSE (-2)
@@ -41,12 +41,12 @@ typedef enum anchor_type {
 
 /* max_span: 1 means match bounds, 2+ means match group n */
 int re_match(
-    const re *r, const char *s, size_t n, u32 max_span, u32 max_set,
-    span *out_span, u32 *out_set, anchor_type anchor);
+    const re *r, const char *s, size_t n, re_u32 max_span, re_u32 max_set,
+    span *out_span, re_u32 *out_set, anchor_type anchor);
 
 int re_exec_match(
-    re_exec *exec, const char *s, size_t n, u32 max_span, u32 max_set,
-    span *out_span, u32 *out_set, anchor_type anchor);
+    re_exec *exec, const char *s, size_t n, re_u32 max_span, re_u32 max_set,
+    span *out_span, re_u32 *out_set, anchor_type anchor);
 
 int re_exec_init(const re *r, re_exec **exec);
 void re_exec_destroy(re_exec *exec);
