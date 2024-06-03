@@ -125,8 +125,8 @@ typedef enum re_opcode {
 typedef struct re_inst {
   /* opcode_next is the opcode and the next program counter (primary branch
    * target), and param is opcode-specific data */
-  /*                  3   2   2   2   1   1   0   0   0  */
-  /*                   2   8   4   0   6   2   8   4   0 */
+  /*                     3   2   2   2   1   1   0   0   0  */
+  /*                      2   8   4   0   6   2   8   4   0 */
   re_u32 opcode_next, /* / nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnoo */
                       /* \          n = next PC, o = opcode */
       param;          /* / 0000000000000000hhhhhhhhllllllll (RANGE) */
