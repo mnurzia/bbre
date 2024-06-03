@@ -3001,15 +3001,17 @@ static int re_dfa_match(
   int err;
   re_dfa_state *state = NULL;
   size_t i;
-  re_u32 entry = anchor == A_END          ? RE_PROG_ENTRY_REVERSE
-                 : anchor == A_UNANCHORED ? RE_PROG_ENTRY_DOTSTAR
-                                          : 0;
+  re_u32 entry = anchor == RE_ANCHOR_END   ? RE_PROG_ENTRY_REVERSE
+                 : anchor == RE_UNANCHORED ? RE_PROG_ENTRY_DOTSTAR
+                                           : 0;
   re_u32 incoming_assert_flag = RE_DFA_STATE_FLAG_FROM_TEXT_BEGIN |
                                 RE_DFA_STATE_FLAG_FROM_LINE_BEGIN,
          reversed = !!(entry & RE_PROG_ENTRY_REVERSE);
-  int pri = anchor != A_BOTH;
+  int pri = anchor != RE_ANCHOR_BOTH;
   assert(max_span == 0 || max_span == 1);
-  assert(anchor == A_BOTH || anchor == A_START || anchor == A_END);
+  assert(
+      anchor == RE_ANCHOR_BOTH || anchor == RE_ANCHOR_START ||
+      anchor == RE_ANCHOR_END);
   re_dfa_reset(&exec->dfa);
   if ((err = re_nfa_start(
            exec->r, &exec->nfa, exec->r->entry[entry], 0, reversed, pri)))
@@ -3138,9 +3140,9 @@ int re_exec_match(
     span *out_span, re_u32 *out_set, anchor_type anchor)
 {
   int err = 0;
-  re_u32 entry = anchor == A_END          ? RE_PROG_ENTRY_REVERSE
-                 : anchor == A_UNANCHORED ? RE_PROG_ENTRY_DOTSTAR
-                                          : 0;
+  re_u32 entry = anchor == RE_ANCHOR_END   ? RE_PROG_ENTRY_REVERSE
+                 : anchor == RE_UNANCHORED ? RE_PROG_ENTRY_DOTSTAR
+                                           : 0;
   size_t i;
   re_u32 prev_ch = RE_SENTINEL_CH;
   if (!(entry & RE_PROG_ENTRY_DOTSTAR) && (max_span == 0 || max_span == 1)) {
@@ -3151,7 +3153,7 @@ int re_exec_match(
   }
   if ((err = re_nfa_start(
            exec->r, &exec->nfa, exec->r->entry[entry], max_span * 2,
-           entry & RE_PROG_ENTRY_REVERSE, entry != A_BOTH)))
+           entry & RE_PROG_ENTRY_REVERSE, entry != RE_ANCHOR_BOTH)))
     return err;
   if (entry & RE_PROG_ENTRY_REVERSE) {
     for (i = n; i > 0; i--) {

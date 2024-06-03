@@ -19,7 +19,7 @@ typedef unsigned char re_u8;
 typedef void *(*re_alloc)(size_t, size_t, void *);
 
 /* return NULL on parse error or mem error */
-re *re_init(const char *regex_null_terminated);
+re *re_init(const char *regex_nt);
 
 int re_init_full(re **r, const char *s, size_t n, re_alloc alloc);
 
@@ -33,10 +33,10 @@ typedef struct span {
 } span;
 
 typedef enum anchor_type {
-  A_BOTH = 'B',
-  A_START = 'S',
-  A_END = 'E',
-  A_UNANCHORED = 'U'
+  RE_ANCHOR_BOTH = 'B',
+  RE_ANCHOR_START = 'S',
+  RE_ANCHOR_END = 'E',
+  RE_UNANCHORED = 'U'
 } anchor_type;
 
 /* max_span: 1 means match bounds, 2+ means match group n */

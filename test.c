@@ -244,12 +244,12 @@ int check_match(
 
 int check_fullmatch_n(const char *regex, const char *s, size_t n)
 {
-  return check_match(regex, s, n, 0, 0, A_BOTH, NULL, NULL, 1);
+  return check_match(regex, s, n, 0, 0, RE_ANCHOR_BOTH, NULL, NULL, 1);
 }
 
 int check_not_fullmatch_n(const char *regex, const char *s, size_t n)
 {
-  return check_match(regex, s, n, 0, 0, A_BOTH, NULL, NULL, 0);
+  return check_match(regex, s, n, 0, 0, RE_ANCHOR_BOTH, NULL, NULL, 0);
 }
 
 int check_fullmatch(const char *regex, const char *s)
@@ -336,19 +336,20 @@ int check_match_s2_g2_a(
 #define ASSERT_MATCH_G1_A(regex, str, b, e, anchor)                            \
   PROPAGATE(check_match_g1_a(regex, str, b, e, anchor))
 #define ASSERT_MATCH_G1(regex, str, b, e)                                      \
-  ASSERT_MATCH_G1_A(regex, str, b, e, A_BOTH)
+  ASSERT_MATCH_G1_A(regex, str, b, e, RE_ANCHOR_BOTH)
 #define ASSERT_MATCH_G2_A(regex, str, b, e, b2, e2, anchor)                    \
   PROPAGATE(check_match_g2_a(regex, str, b, e, b2, e2, anchor))
 #define ASSERT_MATCH_G2(regex, str, b, e, b2, e2)                              \
-  ASSERT_MATCH_G2_A(regex, str, b, e, b2, e2, A_BOTH)
+  ASSERT_MATCH_G2_A(regex, str, b, e, b2, e2, RE_ANCHOR_BOTH)
 #define ASSERT_MATCH_S2(r1, r2, str)                                           \
-  PROPAGATE(check_match_s2_a(r1, r2, str, A_BOTH))
+  PROPAGATE(check_match_s2_a(r1, r2, str, RE_ANCHOR_BOTH))
 #define ASSERT_MATCH_S2_G1(r1, r2, str, b11, e11, b21, e21)                    \
-  PROPAGATE(check_match_s2_g1_a(r1, r2, str, b11, e11, b21, e21, A_BOTH))
+  PROPAGATE(                                                                   \
+      check_match_s2_g1_a(r1, r2, str, b11, e11, b21, e21, RE_ANCHOR_BOTH))
 #define ASSERT_MATCH_S2_G2(                                                    \
     r1, r2, str, b11, e11, b12, e12, b21, e21, b22, e22)                       \
   PROPAGATE(check_match_s2_g2_a(                                               \
-      r1, r2, str, b11, e11, b12, e12, b21, e21, b22, e22, A_BOTH))
+      r1, r2, str, b11, e11, b12, e12, b21, e21, b22, e22, RE_ANCHOR_BOTH))
 
 #define ASSERT_MATCH_ONLY(regex, str) ASSERT_MATCH(regex, str)
 
@@ -458,8 +459,8 @@ int assert_cc_match(const char *regex, const char *spec, int invert)
   ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
     size_t sz = utf_encode(utf8, codep);
-    if ((err = re_exec_match(exec, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) ==
-        RE_ERR_MEM)
+    if ((err = re_exec_match(
+             exec, utf8, sz, 0, 0, NULL, NULL, RE_ANCHOR_BOTH)) == RE_ERR_MEM)
       goto oom;
     for (range_idx = 0; range_idx < num_ranges; range_idx++) {
       if (codep >= ranges[range_idx].lo && codep <= ranges[range_idx].hi) {
@@ -468,8 +469,8 @@ int assert_cc_match(const char *regex, const char *spec, int invert)
       }
     }
     if (range_idx == num_ranges) {
-      if ((err = re_exec_match(exec, utf8, sz, 0, 0, NULL, NULL, A_BOTH)) ==
-          RE_ERR_MEM)
+      if ((err = re_exec_match(
+               exec, utf8, sz, 0, 0, NULL, NULL, RE_ANCHOR_BOTH)) == RE_ERR_MEM)
         goto oom;
       ASSERT_EQ(err, invert);
     }
@@ -637,13 +638,13 @@ TEST(star_ungreedy_then_greedy)
 
 TEST(star_ungreedy_with_assert)
 {
-  ASSERT_MATCH_G2_A("(a*?)\\b a*", "a a b", 0, 3, 0, 1, A_START);
+  ASSERT_MATCH_G2_A("(a*?)\\b a*", "a a b", 0, 3, 0, 1, RE_ANCHOR_START);
   PASS();
 }
 
 TEST(star_ungreedy_with_assert_unanchored)
 {
-  ASSERT_MATCH_G2_A("(a*?)\\b a*", "lauaaa a", 3, 8, 3, 6, A_UNANCHORED);
+  ASSERT_MATCH_G2_A("(a*?)\\b a*", "lauaaa a", 3, 8, 3, 6, RE_UNANCHORED);
   PASS();
 }
 
