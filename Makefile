@@ -162,6 +162,7 @@ tables:
 	$(UDATA) gen_casefold re.c
 	$(UDATA) gen_ascii_charclasses impl re.c
 	python3 tools/charclass_tree.py dfa re.c
+	$(UDATA) gen_props re.c
 	$(FORMAT) re.c
 
 ## run clang-format/black on all .c/.py sources

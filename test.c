@@ -1692,6 +1692,12 @@ SUITE(escape_quote)
 
 SUITE(escape_perlclass); /* provided by test-gen.c */
 
+TEST(escape_unicode_property_simple)
+{
+  ASSERT_CC_MATCH("\\P{Cc}", "0x0 0x1F,0x7F 0x9F");
+  PASS();
+}
+
 TEST(escape_unfinished)
 {
   ASSERT_NOPARSE("\\");
@@ -1735,6 +1741,7 @@ SUITE(escape)
   RUN_SUITE(escape_perlclass);
   RUN_TEST(escape_unfinished);
   RUN_TEST(escape_invalid);
+  RUN_TEST(escape_unicode_property_simple);
 }
 
 TEST(repetition_zero_empty)
