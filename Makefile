@@ -7,6 +7,7 @@ CFLAGS_debug=-O0 -g -fsanitize=address,undefined
 CFLAGS_noopt=-O0 -g -DNDEBUG
 CFLAGS_bench=-O3 -g -DNDEBUG
 CFLAGS_opt=-O3 -DNDEBUG
+CFLAGS_optopt=-Ofast -DNDEBUG
 CFLAGS_cov=-O0 --coverage -DRE_COV -DNDEBUG
 
 # tell em to bring out the whole... set of compiler flags!
@@ -54,7 +55,7 @@ $(OUT_DIR)/mptest.o: $(OUT_DIR) mptest.c
 	$(CC) $(CFLAGS) mptest.c -c -o $@
 
 $(OUT_DIR)/re.o: $(OUT_DIR) re.c
-	$(CC) $(CFLAGS) -DRE_CONFIG_HEADER_FILE=\"test_config.h\" re.c -c -o $@
+	$(CC) $(CFLAGS) -DRE_CONFIG_HEADER_FILE=\"test-config.h\" re.c -c -o $@
 
 $(OUT_DIR)/test.o: $(OUT_DIR) test.c
 	$(CC) $(CFLAGS) test.c -c -o $@
@@ -167,7 +168,7 @@ tables:
 
 ## run clang-format/black on all .c/.py sources
 format:
-	$(FORMAT) re.c re.h test-gen.c test.c test_config.h viz.c parser_fuzz.c
+	$(FORMAT) re.c re.h test-gen.c test.c test-config.h viz.c parser_fuzz.c
 	python -m black -q tools/*.py
 
 build/viz: build viz.c re.c
@@ -194,3 +195,8 @@ help_profiles:
 docs: build build/viz
 	python tools/make_docs.py --folder docs --debug re.c internals/AST.md
 	python tools/make_docs.py --folder docs --debug re.c internals/Charclass_Compiler.md
+
+## build a folder with re + tests for testing on other platforms
+test-port: build re.c test.c test-gen.c mptest.c mptest.h test-config.h
+	mkdir build/test-port
+	cp -f re.c test.c test-gen.c mptest.c mptest.h test-config.h build
