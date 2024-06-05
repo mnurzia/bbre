@@ -322,105 +322,11 @@ def _cmd_gen_ascii_charclasses_test(args) -> int:
     return 0
 
 
-def _encode_uleb128(i: int) -> Iterator[int]:
-    assert i >= 0
-    while i >= 128:
-        yield (i & 0x7F) | 0x80
-        i >>= 7
-    yield i
-
-
 def _encode_array_deltas(arr: Iterable[int]) -> Iterator[int]:
     last = 0
     for el in arr:
         yield el - last
         last = el
-
-
-def _encode_list_uleb128(arr: Iterable[int]) -> bytes:
-    return bytes(chain(*map(_encode_uleb128, _encode_array_deltas(arr))))
-
-
-def _encode_rle(arr: Iterator[int]) -> Iterator[int]:
-    for k, grp in groupby(arr):
-        yield sum(1 for _ in grp) - 1
-        yield k
-
-
-gt3 = []
-pairs = {}
-
-
-def _encode_shit(arr: Iterator[int]) -> Iterator[int]:
-    for el in arr:
-        gt3.append(el)
-        if el < 3:
-            yield el
-        else:
-            yield 3
-            el -= 3
-            while el > 7:
-                yield el & 3
-                el >>= 2
-                yield el & 1 | 2
-                el >>= 1
-            yield el & 3
-            el >>= 2
-            yield el & 1
-
-
-def _encode_shit2(arr: Iterator[int]) -> Iterator[int]:
-    l = list(arr)
-    prev = None
-    for el in l:
-        if prev == 0 and el == 0:
-            assert False
-        gt3.append(el)
-        pair = (prev, el)
-        pairs[pair] = pairs.get(pair, 0) + 1
-        if el == 0:
-            assert prev != el
-            yield 0
-        elif el == 2:
-            if prev == 0:
-                yield from [0]
-            else:
-                yield from [1, 0]
-        else:
-            if prev == 0:
-                yield from [1]
-            else:
-                yield from [1, 1]
-            nel = el - 2
-            if nel == -1:
-                nel = 1
-            while nel > 7:
-                yield from map(int, f"{nel:03b}"[-3:])
-                yield 1
-                nel >>= 3
-            yield from map(int, f"{nel:03b}"[-3:])
-            yield 0
-        prev = el
-
-
-def _encode_shit3(arr: Iterator[int]) -> Iterator[int]:
-    prev = None
-    for el in arr:
-        if el == 0 or prev == 0 and el == 2:
-            yield 0
-        elif el == 2:
-            yield from [1, 1]
-        else:
-            yield from [1, 1, 1]
-            gt3.append(el)
-            nel = el
-            while nel > 7:
-                yield from map(int, f"{nel:03b}"[-3:])
-                yield 1
-                nel >>= 3
-            yield from map(int, f"{nel:03b}"[-3:])
-            yield 0
-        prev = el
 
 
 def _encode_shit4(arr: Iterator[int]) -> Iterator[int]:
@@ -443,7 +349,6 @@ def _encode_shit4(arr: Iterator[int]) -> Iterator[int]:
             else:
                 yield from [1, 1]
             nel = el - 2
-            gt3.append(nel)
             chunks, chunk = [], []
             while nel > 7:
                 chunk = []
@@ -464,37 +369,12 @@ def _encode_shit4(arr: Iterator[int]) -> Iterator[int]:
         prev = el
 
 
-def _pack_bits(arr: Iterator[int]) -> Iterator[int]:
-    i, idx = 0, 0
-    for el in arr:
-        i |= el << idx
-        idx += 1
-        if idx == 8:
-            yield i
-            idx = 0
-            i = 0
-    yield i
-
-
 def _pack_bits_words(arr: Iterator[int]) -> Iterator[int]:
     i, idx = 0, 0
     for el in arr:
         i |= el << idx
         idx += 1
         if idx == 32:
-            yield i
-            idx = 0
-            i = 0
-    yield i
-
-
-# crumb == 2 bits
-def _pack_crumbs(arr: Iterator[int]) -> Iterator[int]:
-    i, idx = 0, 0
-    for el in arr:
-        i |= el << (2 * idx)
-        idx += 1
-        if idx == 4:
             yield i
             idx = 0
             i = 0
@@ -532,21 +412,6 @@ def _cmd_gen_props(args) -> int:
         for cat, norm in uncompressed.items()
     }
     encoded = {cat: list(_pack_bits_words(iter(ords))) for cat, ords in shit.items()}
-    """
-    # encoded = shit
-    stored_shit = sum(shit.values(), [])
-    stored = bytes().join(bytes(x) for x in encoded.values())
-    print(len(sum(uncompressed.values(), [])))
-    print(len(sum(uncompressed.values(), [])) * 4)
-    print(len(stored))
-    print(max(len(v) for v in uncompressed.values()))
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots()
-    print(len(gt3))
-    ax.hist(sorted(gt3)[:1000], bins=100)
-    plt.show()
-    """
     lines, out = make_appender_func()
     encoded_arr = []
     encoded_locs = {}

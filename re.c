@@ -327,7 +327,11 @@ static int re_buf_reserve_t(const re *r, void **buf, size_t size)
 }
 
 /* Initialize an empty dynamic array. */
-static void re_buf_init_t(void **b) { *b = &re_buf_sentinel + 1; }
+static void re_buf_init_t(void **b)
+{
+  *b = &re_buf_sentinel + 1;
+  assert(re_buf_get_hdr(*b)->size == 0 && re_buf_get_hdr(*b)->alloc == 0);
+}
 
 /* Destroy a dynamic array. */
 static void re_buf_destroy_t(const re *r, void **buf)
@@ -846,7 +850,10 @@ static int re_parse_add_namedcc(re *r, const re_u8 *s, size_t sz, int invert)
 
 static int re_utf8_prop_decode(re *r, const re_u8 *name, size_t name_len);
 
-/* after a \ */
+/* This function is called after receiving a \ character when parsing an
+ * expression or character class. Since some escape sequences are forbidden
+ * within charclasses, a bitmap `allowed_outputs` encodes, at each bit position,
+ * the respective ast_type that is allowed to be created in this context. */
 static int re_parse_escape(re *r, re_u32 allowed_outputs)
 {
   re_u32 ch;
@@ -1007,6 +1014,7 @@ static int re_parse_escape(re *r, re_u32 allowed_outputs)
   return 0;
 }
 
+/* Parse a decimal number, up to `max_digits`, into *out. */
 static int re_parse_number(re *r, re_u32 *out, re_u32 max_digits)
 {
   int err = 0;
@@ -1024,6 +1032,7 @@ static int re_parse_number(re *r, re_u32 *out, re_u32 max_digits)
   return err;
 }
 
+/* Parse a regular expression, storing its resulting AST node into *root. */
 static int re_parse(re *r, const re_u8 *ts, size_t tsz, re_u32 *root)
 {
   int err;
@@ -1346,18 +1355,24 @@ static int re_parse(re *r, const re_u8 *ts, size_t tsz, re_u32 *root)
   return 0;
 }
 
+/* Get the opcode of an instruction. */
 static re_opcode re_inst_opcode(re_inst i)
 {
   return i.opcode_next & ((1 << RE_INST_OPCODE_BITS) - 1);
 }
 
+/* Get the primary branch target of the instruction. All instructions have this
+ * field. */
 static re_u32 re_inst_next(re_inst i)
 {
   return i.opcode_next >> RE_INST_OPCODE_BITS;
 }
 
+/* Get the instruction-specific parameter of the instruction. Different
+ * instructions assign different meanings to this param. */
 static re_u32 re_inst_param(re_inst i) { return i.param; }
 
+/* Make an instruction from the relevant fields. */
 static re_inst re_inst_make(re_opcode op, re_u32 next, re_u32 param)
 {
   re_inst out;
@@ -1365,6 +1380,7 @@ static re_inst re_inst_make(re_opcode op, re_u32 next, re_u32 param)
   return out;
 }
 
+/* Make the parameter for a match instruction. */
 static re_u32
 re_inst_match_param_make(re_u32 begin_or_end, re_u32 slot_idx_or_set_idx)
 {
@@ -1372,22 +1388,29 @@ re_inst_match_param_make(re_u32 begin_or_end, re_u32 slot_idx_or_set_idx)
   return begin_or_end | (slot_idx_or_set_idx << 1);
 }
 
+/* Retrieve the end flag from a match instruction's parameter. */
 static re_u32 re_inst_match_param_end(re_u32 param) { return param & 1; }
 
+/* Retrieve the index number from a match instruction's parameter. */
 static re_u32 re_inst_match_param_idx(re_u32 param) { return param >> 1; }
 
+/* Set the program instruction at `pc` to `i`. */
 static void re_prog_set(re *r, re_u32 pc, re_inst i) { r->prog[pc] = i; }
 
+/* Get the program instruction at `pc`. */
 static re_inst re_prog_get(const re *r, re_u32 pc) { return r->prog[pc]; }
 
+/* Get the size (number of instructions) in the program. */
 static re_u32 re_prog_size(const re *r) { return re_buf_size(r->prog); }
 
-#define RE_PROG_MAX_INSTS 100000
+/* The maximum instructions allowed in a program. */
+#define RE_PROG_LIMIT_MAX_INSTS 100000
 
+/* Create the instruction `i` and append it to the program. Also */
 static int re_inst_emit(re *r, re_inst i, re_compframe *frame)
 {
   int err = 0;
-  if (re_prog_size(r) == RE_PROG_MAX_INSTS)
+  if (re_prog_size(r) == RE_PROG_LIMIT_MAX_INSTS)
     return RE_ERR_LIMIT;
   if ((err = re_buf_push(r, &r->prog, i)) ||
       (err = re_buf_push(r, &r->prog_set_idxs, frame->set_idx)))
