@@ -5,11 +5,12 @@ import io
 from logging import DEBUG, basicConfig, getLogger
 from pathlib import Path
 import sys
-from typing import IO, Any, Callable, Iterator, Iterable
+from typing import IO, Callable, Iterator, Iterable, NamedTuple
 import shutil
 from urllib.request import urlopen
 import zipfile
-from itertools import chain, groupby
+from itertools import chain
+from enum import StrEnum, auto
 
 from squish_casefold import (
     calculate_masks,
@@ -21,6 +22,7 @@ from squish_casefold import (
 from util import (
     UTF_MAX,
     DataType,
+    RuneRanges,
     SyntacticRanges,
     RuneRange,
     insert_c_file,
@@ -234,92 +236,19 @@ ASCII_CHARCLASSES: dict[str, SyntacticRanges] = {
     "ascii": ((0, 0x7F),),
     "blank": ("\t", " "),
     "cntrl": ((0, 0x1F), 0x7F),
-    "digit": (("0", "9")),
-    "graph": ((0x21, 0x7E)),
-    "lower": (("a", "z")),
+    "digit": (("0", "9"),),
+    "graph": ((0x21, 0x7E),),
+    "lower": (("a", "z"),),
     "print": ((0x20, 0x7E),),
     "punct": ((0x21, 0x2F), (0x3A, 0x40), (0x5B, 0x60), (0x7B, 0x7E)),
     "space": (0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20),
     "perl_space": (0x09, 0x0A, 0x0C, 0x0D, 0x20),
-    "upper": (("A", "Z")),
+    "upper": (("A", "Z"),),
     "word": (("0", "9"), ("A", "Z"), ("a", "z"), "_"),
     "xdigit": (("0", "9"), ("A", "F"), ("a", "f")),
 }
 
-PERL_CHARCLASSES = {
-    "D": ("digit", True),
-    "d": ("digit", False),
-    "S": ("perl_space", True),
-    "s": ("perl_space", False),
-    "W": ("word", True),
-    "w": ("word", False),
-}
-
-
-def _cmd_gen_ascii_charclasses_impl(args) -> int:
-    out_lines = [
-        f"static const re_parse_builtin_cc re_parse_builtin_ccs[{len(ASCII_CHARCLASSES)}] = {{\n"
-    ]
-    for name, cc in ASCII_CHARCLASSES.items():
-        normalized = list((nranges_normalize(list(ranges_expand(cc)))))
-        serialized = "".join(f"\\x{lo:02X}\\x{hi:02X}" for lo, hi in normalized)
-        out_lines.append(
-            f'{{{len(name)}, {len(normalized)}, "{name}", "{serialized}"}},\n'
-        )
-    out_lines.append("};\n")
-    file: IO = args.file
-    insert_c_file(file, out_lines, "gen_ascii_charclasses impl")
-    file.close()
-    return 0
-
-
-def _cmd_gen_ascii_charclasses_test(args) -> int:
-    tests = {}
-    output, out = make_appender_func()
-
-    def make_test(test_name: str, cc: SyntacticRanges, regex: str, invert: int) -> str:
-        regex = '"' + regex.replace("\\", "\\\\") + '"'
-        return f"""
-        TEST({test_name}) {{
-            PROPAGATE(assert_cc_match(
-                {regex},
-                "{','.join(f"0x{lo:X} 0x{hi:X}"
-                           for lo, hi in nranges_normalize(list(ranges_expand(cc))))}", {invert}));
-            PASS();
-        }}
-        """
-
-    def make_suite(suite_name: str, tests: dict[str, str]) -> str:
-        return f"""
-            SUITE({suite_name}) {{
-                {'\n'.join([f"RUN_TEST({test_name});" for test_name in tests])}
-            }}
-            """
-
-    # named charclasses
-    for name, cc in ASCII_CHARCLASSES.items():
-        test_name = f"cls_named_{name}"
-        tests[test_name] = make_test(test_name, cc, f"[[:{name}:]]", 0)
-        tests[test_name + "_invert"] = make_test(
-            test_name + "_invert", cc, f"[[:^{name}:]]", 1
-        )
-
-    out("\n".join(tests.values()))
-    out(make_suite("cls_named", tests))
-    tests = {}
-    # Perl charclasses
-    for ch, (name, inverted) in PERL_CHARCLASSES.items():
-        test_name = f"escape_perlclass_{ch}"
-        regex = f"\\{ch}"
-        cc = nranges_normalize(list(ranges_expand(ASCII_CHARCLASSES[name])))
-        if inverted:
-            cc = nranges_invert(list(cc), UTF_MAX)
-        tests[test_name] = make_test(test_name, tuple(cc), regex, 0)
-    out("\n".join(tests.values()))
-    out(make_suite("escape_perlclass", tests))
-
-    insert_c_file(args.file, output, "gen_ascii_charclasses test")
-    return 0
+PERL_CHARCLASSES = {"d": "digit", "s": "perl_space", "w": "word"}
 
 
 def _encode_array_deltas(arr: Iterable[int]) -> Iterator[int]:
@@ -393,43 +322,146 @@ def _flatten_ords(ords: Iterator[RuneRange]) -> Iterator[int]:
         yield h
 
 
-def _cmd_gen_props(args) -> int:
+class _BuiltinCCType(StrEnum):
+    ASCII = auto()
+    UNICODE_PROPERTY = auto()
+    PERL = auto()
+
+
+class _BuiltinCC(NamedTuple):
+    cctype: _BuiltinCCType
+    name: str
+    ranges: tuple[RuneRange, ...]
+
+    def encode(self) -> list[int]:
+        return list(
+            _pack_bits_words(
+                _encode_shit4(
+                    chain(iter(_encode_array_deltas(_flatten_ords(iter(self.ranges)))))
+                )
+            )
+        )
+
+
+def _gen_builtin_ccs(args) -> set[_BuiltinCC]:
     udata = UnicodeData(args.db, args.version)
-    logger.debug("loading casefold data...")
+    logger.debug("loading unicode property data...")
+    builtin_ccs: set[_BuiltinCC] = set()
     categories: dict[str, set[int]] = {}
     for code_str, _, general_category, *_ in udata.load_file(Path("UnicodeData.txt")):
         categories[general_category] = categories.get(general_category, set())
         categories[general_category].add(int(code_str, 16))
-    uncompressed = {
-        cat: list(_normalize_ords(sorted(ords))) for cat, ords in categories.items()
-    }
-    shit = {
-        cat: list(
-            _encode_shit4(
-                chain(iter(_encode_array_deltas(_flatten_ords(iter(norm))))),
+    for category, ords in categories.items():
+        builtin_ccs.add(
+            _BuiltinCC(
+                _BuiltinCCType.UNICODE_PROPERTY,
+                category,
+                tuple(_normalize_ords(sorted(ords))),
             )
         )
-        for cat, norm in uncompressed.items()
-    }
-    encoded = {cat: list(_pack_bits_words(iter(ords))) for cat, ords in shit.items()}
+    for name, cc in ASCII_CHARCLASSES.items():
+        builtin_ccs.add(
+            _BuiltinCC(
+                _BuiltinCCType.ASCII,
+                name,
+                tuple((nranges_normalize(list(ranges_expand(cc))))),
+            )
+        )
+    for name, source in PERL_CHARCLASSES.items():
+        builtin_ccs.add(
+            _BuiltinCC(
+                _BuiltinCCType.PERL,
+                name,
+                tuple(
+                    nranges_normalize(list(ranges_expand(ASCII_CHARCLASSES[source])))
+                ),
+            )
+        )
+    return builtin_ccs
+
+
+def _cmd_gen_ccs_impl(args) -> int:
+    builtin_ccs = _gen_builtin_ccs(args)
     lines, out = make_appender_func()
     encoded_arr = []
     encoded_locs = {}
-    for cat, encoding in sorted(encoded.items()):
-        encoded_locs[cat] = len(encoded_arr)
-        encoded_arr.extend(encoding)
-    num_ranges = sum(map(len, uncompressed.values()))
+    for builtin_cc in sorted(builtin_ccs):
+        encoded_locs[builtin_cc] = len(encoded_arr)
+        encoded_arr.extend(builtin_cc.encode())
+    num_ranges = sum([len(bcc.ranges) for bcc in builtin_ccs])
     out(
         f"/* {num_ranges} ranges, {num_ranges * 2} integers, {len(encoded_arr) * 4} bytes */"
     )
-    out(f"const re_u32 re_utf8_prop_data[{len(encoded_arr)}] = {{")
+    out(f"const re_u32 re_builtin_cc_data[{len(encoded_arr)}] = {{")
     out(",".join(f"0x{e:08X}" for e in encoded_arr))
     out("};")
-    out(f"const re_utf8_prop re_utf8_props[{len(encoded)}] = {{")
-    for cat in sorted(encoded):
-        out(f'{{ {len(cat)}, {len(uncompressed[cat])}, {encoded_locs[cat]}, "{cat}"}},')
-    out("};")
-    insert_c_file(args.file, lines, "gen_props")
+    for cc_type in _BuiltinCCType:
+        ccs = [cc for cc in builtin_ccs if cc.cctype == cc_type]
+        out(f"const re_builtin_cc re_builtin_ccs_{cc_type}[{len(ccs) + 1}] = {{")
+        for builtin_cc in ccs:
+            out(
+                f'{{ {len(builtin_cc.name)}, {len(builtin_cc.ranges)}, {encoded_locs[builtin_cc]}, "{builtin_cc.name}"}},'
+            )
+        out('{0, 0, 0, ""}')
+        out("};")
+    insert_c_file(args.file, lines, "gen_ccs impl")
+    return 0
+
+
+def _cmd_gen_ccs_test(args) -> int:
+    builtin_ccs = _gen_builtin_ccs(args)
+    tests = {}
+    lines, out = make_appender_func()
+
+    def make_test(
+        test_name: str, cc: tuple[RuneRange, ...], regex: str, invert: int
+    ) -> str:
+        regex = '"' + regex.replace("\\", "\\\\") + '"'
+        encoded_ranges = {",".join(f"0x{lo:X} 0x{hi:X}" for lo, hi in cc)}
+        return f"""
+        TEST({test_name}) {{
+            static const re_u32 ranges[] = {{{",".join(f"0x{r:X}" for c in cc for r in c)}}};
+            PROPAGATE(assert_cc_match_raw(
+                {regex},
+                ranges, {len(cc)}, {int(invert)}));
+            PASS();
+        }}
+        """
+
+    def make_suite(suite_name: str, tests: dict[str, str]) -> str:
+        return f"""
+            SUITE({suite_name}) {{
+                {'\n'.join([f"RUN_TEST({test_name});" for test_name in tests])}
+            }}
+            """
+
+    for cctype in _BuiltinCCType:
+        ccs = sorted([cc for cc in builtin_ccs if cc.cctype == cctype])
+        tests: dict[str, str] = {}
+        for cc in ccs:
+            for inverted in [False, True]:
+                test_name = f"cls_builtin_{cctype}_{cc.name}" + (
+                    "_inverted" if inverted else ""
+                )
+                match cctype:
+                    case _BuiltinCCType.ASCII:
+                        regexp = f"[[:{'^' if inverted else ''}{cc.name}:]]"
+                    case _BuiltinCCType.UNICODE_PROPERTY:
+                        regexp = f"\\{'P' if inverted else 'p'}{{{cc.name}}}"
+                    case _BuiltinCCType.PERL:
+                        regexp = f"\\{cc.name.upper() if inverted else cc.name}"
+                    case _:
+                        raise ValueError("unknown cc type")
+                tests[test_name] = make_test(test_name, cc.ranges, regexp, inverted)
+        out("\n".join(tests.values()))
+        out(make_suite(f"cls_builtin_{cctype}", tests))
+    out(
+        f"""SUITE(cls_builtin) {{
+                {'\n'.join([f"RUN_SUITE(cls_builtin_{cctype});" for cctype in _BuiltinCCType])}
+            }}
+            """
+    )
+    insert_c_file(args.file, lines, "gen_ccs test")
     return 0
 
 
@@ -472,35 +504,17 @@ def main() -> int:
         "sizes", type=str, nargs="?", default="2,4,2,32,16"
     )
 
-    subcmd_gen_ascii_charclasses = subcmds.add_parser(
-        "gen_ascii_charclasses", help="generate ascii character classes"
+    subcmd_gen_ccs = subcmds.add_parser(
+        "gen_ccs", help="generate code for builtin character classes"
     )
-    subcmd_gen_ascii_charclasses_subcmds = subcmd_gen_ascii_charclasses.add_subparsers()
-    subcmd_gen_ascii_charclasses_subcmd_impl = (
-        subcmd_gen_ascii_charclasses_subcmds.add_parser("impl")
-    )
-    subcmd_gen_ascii_charclasses_subcmd_impl.add_argument(
-        "file", type=argparse.FileType("r+")
-    )
-    subcmd_gen_ascii_charclasses_subcmd_impl.set_defaults(
-        func=_cmd_gen_ascii_charclasses_impl
-    )
+    subcmd_gen_ccs_subcmds = subcmd_gen_ccs.add_subparsers()
+    subcmd_gen_ccs_impl = subcmd_gen_ccs_subcmds.add_parser("impl")
+    subcmd_gen_ccs_impl.set_defaults(func=_cmd_gen_ccs_impl)
+    subcmd_gen_ccs_impl.add_argument("file", type=argparse.FileType("r+"))
+    subcmd_gen_ccs_test = subcmd_gen_ccs_subcmds.add_parser("test")
+    subcmd_gen_ccs_test.set_defaults(func=_cmd_gen_ccs_test)
+    subcmd_gen_ccs_test.add_argument("file", type=argparse.FileType("r+"))
 
-    subcmd_gen_ascii_charclasses_subcmd_test = (
-        subcmd_gen_ascii_charclasses_subcmds.add_parser("test")
-    )
-    subcmd_gen_ascii_charclasses_subcmd_test.set_defaults(
-        func=_cmd_gen_ascii_charclasses_test
-    )
-    subcmd_gen_ascii_charclasses_subcmd_test.add_argument(
-        "file", type=argparse.FileType("r+")
-    )
-
-    subcmd_gen_prop = subcmds.add_parser(
-        "gen_props", help="generate C code for property arrays"
-    )
-    subcmd_gen_prop.set_defaults(func=_cmd_gen_props)
-    subcmd_gen_prop.add_argument("file", type=argparse.FileType("r+"))
     args = parse.parse_args()
 
     if args.debug:

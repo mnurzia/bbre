@@ -397,10 +397,6 @@ int check_compiles(const char *regex)
   PASS();
 }
 
-typedef struct rrange {
-  re_u32 lo, hi;
-} rrange;
-
 re_u32 matchnum(const char *num)
 {
   re_u32 out = 0;
@@ -414,7 +410,7 @@ re_u32 matchnum(const char *num)
   return 0;
 }
 
-re_u32 matchspec(const char *spec, rrange *ranges)
+re_u32 matchspec(const char *spec, re_u32 *ranges)
 {
   re_u32 n = 0;
   while (*spec) {
@@ -428,25 +424,24 @@ re_u32 matchspec(const char *spec, rrange *ranges)
       space = comma;
     memset(tmp_buf, 0, sizeof tmp_buf);
     memcpy(tmp_buf, spec, space - spec);
-    ranges->lo = ranges->hi = matchnum(tmp_buf);
+    ranges[0] = ranges[1] = matchnum(tmp_buf);
     if (space < comma) {
       memset(tmp_buf, 0, sizeof tmp_buf);
       memcpy(tmp_buf, space + 1, comma - space);
-      ranges->hi = matchnum(tmp_buf);
+      ranges[1] = matchnum(tmp_buf);
     }
-    spec = nextspec, ranges++, n++;
+    spec = nextspec, ranges += 2, n++;
   }
   return n;
 }
 
-int assert_cc_match(const char *regex, const char *spec, int invert)
+int assert_cc_match_raw(
+    const char *regex, const re_u32 *ranges, re_u32 num_ranges, int invert)
 {
   re *r;
   int err;
-  re_u32 codep;
+  re_u32 codep, range_idx;
   char utf8[16];
-  rrange ranges[64];
-  re_u32 num_ranges = matchspec(spec, ranges), range_idx;
   re_exec *exec = NULL;
   if ((err = re_init_full(&r, regex, strlen(regex), NULL)) == RE_ERR_MEM)
     goto oom;
@@ -463,7 +458,8 @@ int assert_cc_match(const char *regex, const char *spec, int invert)
              exec, utf8, sz, 0, 0, NULL, NULL, RE_ANCHOR_BOTH)) == RE_ERR_MEM)
       goto oom;
     for (range_idx = 0; range_idx < num_ranges; range_idx++) {
-      if (codep >= ranges[range_idx].lo && codep <= ranges[range_idx].hi) {
+      if (codep >= ranges[range_idx * 2] &&
+          codep <= ranges[range_idx * 2 + 1]) {
         ASSERT_EQ(err, !invert);
         break;
       }
@@ -482,6 +478,14 @@ oom:
   re_exec_destroy(exec);
   re_destroy(r);
   OOM();
+}
+
+int assert_cc_match(const char *regex, const char *spec, int invert)
+{
+  re_u32 ranges[128];
+  re_u32 nrange = matchspec(spec, ranges);
+  PROPAGATE(assert_cc_match_raw(regex, ranges, nrange, invert));
+  PASS();
 }
 
 #define ASSERT_CC_MATCH(regex, spec) PROPAGATE(assert_cc_match(regex, spec, 0))
@@ -921,8 +925,6 @@ TEST(cls_escape_quote_range_end)
   PASS();
 }
 
-SUITE(cls_named); /* provided by test-gen.c */
-
 SUITE(cls_escape)
 {
   RUN_TEST(cls_escape_any_byte);
@@ -932,7 +934,6 @@ SUITE(cls_escape)
   RUN_TEST(cls_escape_range_both);
   RUN_TEST(cls_escape_quote);
   RUN_TEST(cls_escape_quote_range_end);
-  RUN_SUITE(cls_named);
 }
 
 TEST(cls_empty)
@@ -1230,6 +1231,8 @@ SUITE(cls_utf8)
   RUN_TEST(cls_utf8_insensitive_inverted);
 }
 
+SUITE(cls_builtin); /* provided by test-gen.c */
+
 SUITE(cls)
 {
   RUN_SUITE(cls_escape);
@@ -1261,6 +1264,7 @@ SUITE(cls)
   RUN_TEST(cls_reversed_nonmatch);
   RUN_TEST(cls_assert);
   RUN_SUITE(cls_utf8);
+  RUN_SUITE(cls_builtin);
 }
 
 TEST(escape_null)
@@ -1690,17 +1694,15 @@ SUITE(escape_quote)
   RUN_TEST(escape_quote_many);
 }
 
-SUITE(escape_perlclass); /* provided by test-gen.c */
-
 TEST(escape_unicode_property_simple)
 {
-  ASSERT_CC_MATCH("\\P{Cc}", "0x0 0x1F,0x7F 0x9F");
+  ASSERT_CC_MATCH("\\p{Cc}", "0x0 0x1F,0x7F 0x9F");
   PASS();
 }
 
 TEST(escape_unicode_property_inverted_simple)
 {
-  PROPAGATE(assert_cc_match("\\p{Cc}", "0x0 0x1F,0x7F 0x9F", 1));
+  PROPAGATE(assert_cc_match("\\P{Cc}", "0x0 0x1F,0x7F 0x9F", 1));
   PASS();
 }
 
@@ -1744,7 +1746,6 @@ SUITE(escape)
   RUN_SUITE(escape_hex_long);
   RUN_TEST(escape_any_byte);
   RUN_SUITE(escape_quote);
-  RUN_SUITE(escape_perlclass);
   RUN_TEST(escape_unfinished);
   RUN_TEST(escape_invalid);
   RUN_TEST(escape_unicode_property_simple);

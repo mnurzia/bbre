@@ -44,7 +44,7 @@ build:
 	mkdir -p build/{cov,fuzz/{artifact,new},fuzzington}
 
 test-gen.c: build fuzz_db.json tools/fuzz_tool.py
-	$(UDATA) gen_ascii_charclasses test test-gen.c
+	$(UDATA) gen_ccs test test-gen.c
 	python tools/fuzz_tool.py fuzz_db.json gen_tests test-gen.c
 	$(FORMAT) $@
 
@@ -161,9 +161,8 @@ fuzzington_run: build build/fuzzington/release/fuzzington
 ## generate data tables for re.c
 tables:
 	$(UDATA) gen_casefold re.c
-	$(UDATA) gen_ascii_charclasses impl re.c
 	python3 tools/charclass_tree.py dfa re.c
-	$(UDATA) gen_props re.c
+	$(UDATA) gen_ccs impl re.c
 	$(FORMAT) re.c
 
 ## run clang-format/black on all .c/.py sources
@@ -197,6 +196,7 @@ docs: build build/viz
 	python tools/make_docs.py --folder docs --debug re.c internals/Charclass_Compiler.md
 
 ## build a folder with re + tests for testing on other platforms
-test-port: build re.c test.c test-gen.c mptest.c mptest.h test-config.h
-	mkdir build/test-port
-	cp -f re.c test.c test-gen.c mptest.c mptest.h test-config.h build
+port: build re.c test.c test-gen.c mptest.c mptest.h test-config.h re.h
+	mkdir -p build/port
+	cp -f tools/port/* build/port
+	cp -f re.c test.c test-gen.c mptest.c mptest.h test-config.h re.h build/port
