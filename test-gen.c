@@ -198,15 +198,17 @@ TEST(cls_builtin_ascii_upper_inverted)
 
 TEST(cls_builtin_ascii_word)
 {
-  static const re_u32 ranges[] = {0x30, 0x39, 0x41, 0x5A, 0x61, 0x7A};
-  PROPAGATE(assert_cc_match_raw("[[:word:]]", ranges, 3, 0));
+  static const re_u32 ranges[] = {0x30, 0x39, 0x41, 0x5A,
+                                  0x5F, 0x5F, 0x61, 0x7A};
+  PROPAGATE(assert_cc_match_raw("[[:word:]]", ranges, 4, 0));
   PASS();
 }
 
 TEST(cls_builtin_ascii_word_inverted)
 {
-  static const re_u32 ranges[] = {0x30, 0x39, 0x41, 0x5A, 0x61, 0x7A};
-  PROPAGATE(assert_cc_match_raw("[[:^word:]]", ranges, 3, 1));
+  static const re_u32 ranges[] = {0x30, 0x39, 0x41, 0x5A,
+                                  0x5F, 0x5F, 0x61, 0x7A};
+  PROPAGATE(assert_cc_match_raw("[[:^word:]]", ranges, 4, 1));
   PASS();
 }
 
@@ -2420,15 +2422,17 @@ TEST(cls_builtin_perl_s_inverted)
 
 TEST(cls_builtin_perl_w)
 {
-  static const re_u32 ranges[] = {0x30, 0x39, 0x41, 0x5A, 0x61, 0x7A};
-  PROPAGATE(assert_cc_match_raw("\\w", ranges, 3, 0));
+  static const re_u32 ranges[] = {0x30, 0x39, 0x41, 0x5A,
+                                  0x5F, 0x5F, 0x61, 0x7A};
+  PROPAGATE(assert_cc_match_raw("\\w", ranges, 4, 0));
   PASS();
 }
 
 TEST(cls_builtin_perl_w_inverted)
 {
-  static const re_u32 ranges[] = {0x30, 0x39, 0x41, 0x5A, 0x61, 0x7A};
-  PROPAGATE(assert_cc_match_raw("\\W", ranges, 3, 1));
+  static const re_u32 ranges[] = {0x30, 0x39, 0x41, 0x5A,
+                                  0x5F, 0x5F, 0x61, 0x7A};
+  PROPAGATE(assert_cc_match_raw("\\W", ranges, 4, 1));
   PASS();
 }
 

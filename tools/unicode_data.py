@@ -386,8 +386,9 @@ def _cmd_gen_ccs_impl(args) -> int:
     encoded_arr = []
     encoded_locs = {}
     for builtin_cc in sorted(builtin_ccs):
-        encoded_locs[builtin_cc] = len(encoded_arr)
-        encoded_arr.extend(builtin_cc.encode())
+        if builtin_cc.ranges not in encoded_locs:
+            encoded_locs[builtin_cc.ranges] = len(encoded_arr)
+            encoded_arr.extend(builtin_cc.encode())
     num_ranges = sum([len(bcc.ranges) for bcc in builtin_ccs])
     out(
         f"/* {num_ranges} ranges, {num_ranges * 2} integers, {len(encoded_arr) * 4} bytes */"
@@ -396,11 +397,11 @@ def _cmd_gen_ccs_impl(args) -> int:
     out(",".join(f"0x{e:08X}" for e in encoded_arr))
     out("};")
     for cc_type in _BuiltinCCType:
-        ccs = [cc for cc in builtin_ccs if cc.cctype == cc_type]
+        ccs = sorted([cc for cc in builtin_ccs if cc.cctype == cc_type])
         out(f"const re_builtin_cc re_builtin_ccs_{cc_type}[{len(ccs) + 1}] = {{")
         for builtin_cc in ccs:
             out(
-                f'{{ {len(builtin_cc.name)}, {len(builtin_cc.ranges)}, {encoded_locs[builtin_cc]}, "{builtin_cc.name}"}},'
+                f'{{ {len(builtin_cc.name)}, {len(builtin_cc.ranges)}, {encoded_locs[builtin_cc.ranges]}, "{builtin_cc.name}"}},'
             )
         out('{0, 0, 0, ""}')
         out("};")

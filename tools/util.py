@@ -102,7 +102,7 @@ def nranges_normalize(r: RuneRanges) -> Iterator[RuneRange]:
     """
     local_min: int | None = None
     local_max: int | None = None
-    for i, (cur_min, cur_max) in enumerate(r):
+    for i, (cur_min, cur_max) in enumerate(sorted(r)):
         if i == 0:
             local_min, local_max = cur_min, cur_max
             continue

@@ -43,7 +43,7 @@ clean:
 build:
 	mkdir -p build/{cov,fuzz/{artifact,new},fuzzington}
 
-test-gen.c: build fuzz_db.json tools/fuzz_tool.py
+test-gen.c: build fuzz_db.json tools/fuzz_tool.py tools/unicode_data.py
 	$(UDATA) gen_ccs test test-gen.c
 	python tools/fuzz_tool.py fuzz_db.json gen_tests test-gen.c
 	$(FORMAT) $@
