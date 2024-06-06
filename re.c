@@ -782,6 +782,8 @@ static int
 re_builtin_cc_ascii(re *r, const re_u8 *name, size_t name_len, int invert);
 static int re_builtin_cc_unicode_property(
     re *r, const re_u8 *name, size_t name_len, int invert);
+static int
+re_builtin_cc_perl(re *r, const re_u8 *name, size_t name_len, int invert);
 
 /* This function is called after receiving a \ character when parsing an
  * expression or character class. Since some escape sequences are forbidden
@@ -895,15 +897,12 @@ static int re_parse_escape(re *r, re_u32 allowed_outputs)
       ch == 'D' || ch == 'd' || ch == 'S' || ch == 's' || ch == 'W' ||
       ch == 'w') {
     /* Perl builtin character classes */
-    const char *cc_name;
     int inverted =
-        ch == 'D' || ch == 'S' || ch == 'W'; /* uppercase are inverted */
-    ch = inverted ? ch - 'A' + 'a' : ch;     /* convert to lowercase */
-    cc_name = ch == 'd' ? "digit" : ch == 's' ? "perl_space" : "word";
+        ch == 'D' || ch == 'S' || ch == 'W';      /* uppercase are inverted */
+    re_u8 lower = inverted ? ch - 'A' + 'a' : ch; /* convert to lowercase */
     if (!(allowed_outputs & (1 << RE_AST_TYPE_CC)))
       return re_parse_err(r, "cannot use a character class here");
-    if ((err = re_builtin_cc_ascii(
-             r, (const re_u8 *)cc_name, strlen(cc_name), inverted)))
+    if ((err = re_builtin_cc_perl(r, &lower, 1, inverted)))
       return err;
   } else if (ch == 'P' || ch == 'p') { /* Unicode properties */
     size_t name_start = r->expr_pos, name_end;
@@ -3822,6 +3821,12 @@ static int
 re_builtin_cc_ascii(re *r, const re_u8 *name, size_t name_len, int invert)
 {
   return re_builtin_cc_decode(r, name, name_len, invert, re_builtin_ccs_ascii);
+}
+
+static int
+re_builtin_cc_perl(re *r, const re_u8 *name, size_t name_len, int invert)
+{
+  return re_builtin_cc_decode(r, name, name_len, invert, re_builtin_ccs_perl);
 }
 
 /*T The rest of this file contains functions that aid debugging. */
