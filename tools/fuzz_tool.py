@@ -191,6 +191,7 @@ class ParseTest(Test):
 
     regexes: tuple[bytes, ...]
     should_parse: tuple[bool, ...]
+    error_posns: tuple[int, ...] | None
 
     def __init__(
         self,
@@ -198,10 +199,14 @@ class ParseTest(Test):
         extra: Any | None,
         regexes: tuple[bytes, ...],
         should_parse: tuple[bool, ...],
+        error_msgs: tuple[str, ...] | None,
+        error_posns: tuple[int, ...] | None,
     ):
         super().__init__(stamp, extra)
         self.regexes = regexes
         self.should_parse = should_parse
+        self.error_msgs = error_msgs
+        self.error_posns = error_posns
 
     @classmethod
     def from_dict(cls, obj: dict) -> Self:
@@ -210,11 +215,16 @@ class ParseTest(Test):
             obj.get("extra", None),
             tuple(map(deserialize_bytes, obj["regexes"])),
             tuple(obj["should_parse"]),
+            obj.get("error_msgs", None),
+            obj.get("error_posns", None),
         )
 
     def to_dict(self) -> dict:
         return super().to_dict() | {
-            "regexes": [serialize_bytes(b) for b in self.regexes]
+            "regexes": [serialize_bytes(b) for b in self.regexes],
+            "should_parse": self.should_parse,
+            "error_msgs": self.error_msgs,
+            "error_posns": self.error_posns,
         }
 
     def to_c_code(self) -> list[str]:
@@ -222,7 +232,10 @@ class ParseTest(Test):
         return [
             "PROPAGATE(check_noparse_n(",
             _escape_cstr(self.regexes[0]) + ",",
-            str(len(self.regexes[0])),
+            str(len(self.regexes[0])) + ",",
+            _escape_cstr((self.error_msgs[0] if self.error_msgs else "").encode())
+            + ",",
+            str(self.error_posns[0] if self.error_posns else 0),
             "));",
             "PASS();",
         ]
@@ -365,12 +378,7 @@ def _cmd_import_parser(args) -> int:
     _import_tests(
         args,
         [
-            ParseTest(
-                None,
-                None,
-                (new_corpus_file.read(),),
-                (False,),
-            )
+            ParseTest(None, None, (new_corpus_file.read(),), (False,), None, None)
             for new_corpus_file in args.import_files
         ],
     )
@@ -455,7 +463,7 @@ def _cmd_gen_tests(args) -> int:
         out(f"RUN_TEST({test_name});")
     out("}")
 
-    insert_c_file(args.file, output, "gen_parser_fuzz_regression_tests")
+    insert_c_file(args.file, output, "gen_fuzz_regression_tests")
 
     logger.debug("generated %i tests", len(tests))
 

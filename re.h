@@ -73,7 +73,7 @@ int re_compile(re *r);
 /* Destroy the regular expression. */
 void re_destroy(re *r);
 
-int re_get_error(re *r, const char **out, size_t *pos);
+size_t re_get_error(re *r, const char **out, size_t *pos);
 
 typedef struct span {
   size_t begin, end;

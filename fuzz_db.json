@@ -12,6 +12,12 @@
     ],
     "should_parse": [
       false
+    ],
+    "error_msgs": [
+      "invalid utf-8 sequence"
+    ],
+    "error_posns": [
+      4
     ]
   },
   {

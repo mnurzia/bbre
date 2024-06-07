@@ -127,9 +127,9 @@ typedef struct re_inst {
    * target), and param is opcode-specific data */
   /*                     3   2   2   2   1   1   0   0   0  */
   /*                      2   8   4   0   6   2   8   4   0 */
-  re_u32 opcode_next, /* / nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnoo */
+  re_u32 opcode_next; /* / nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnoo */
                       /* \          n = next PC, o = opcode */
-      param;          /* / 0000000000000000hhhhhhhhllllllll (RANGE) */
+  re_u32 param;       /* / 0000000000000000hhhhhhhhllllllll (RANGE) */
                       /* \      h = high byte, l = low byte (RANGE) */
                       /* / NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN (SPLIT) */
                       /* \            N = secondary next PC (SPLIT) */
@@ -165,6 +165,16 @@ typedef struct re_compcc_tree {
   re_compcc_tree_aux aux; /* node hash OR cached PC TODO: replace with union */
 } re_compcc_tree;
 
+/* Internal storage used for the character class compiler. It uses enough state
+ * that it definitely warrants its own struct. */
+typedef struct re_compcc_data {
+  re_buf(re_rune_range) ranges;
+  re_buf(re_rune_range) ranges_2;
+  re_buf(re_compcc_tree) tree;
+  re_buf(re_compcc_tree) tree_2;
+  re_buf(re_u32) hash;
+} re_compcc_data;
+
 /* Bit flags to identify program entry points in the `entry` field of `re`. */
 typedef enum re_prog_entry {
   RE_PROG_ENTRY_REVERSE = 1, /* reverse execution */
@@ -174,20 +184,16 @@ typedef enum re_prog_entry {
 
 /* A set of regular expressions. */
 struct re {
-  re_alloc alloc;                /* allocator function */
-  re_buf(re_u32) ast;            /* AST arena */
-  re_u32 ast_root,               /* AST root node reference */
-      ast_sets;                  /* number of subpatterns */
-  re_buf(re_u32) arg_stk;        /* parser argument stack */
-  re_buf(re_u32) op_stk;         /* parser operator stack */
-  re_buf(re_compframe) comp_stk; /* compiler frame stack (see re_compframe) */
-  re_buf(re_inst) prog;          /* compiled program */
-  re_buf(re_u32) prog_set_idxs;  /* pattern index for each instruction */
-  re_buf(re_rune_range) compcc_ranges;
-  re_buf(re_rune_range) compcc_ranges_2;
-  re_buf(re_compcc_tree) compcc_tree;
-  re_buf(re_compcc_tree) compcc_tree_2;
-  re_buf(re_u32) compcc_hash;
+  re_alloc alloc;                  /* allocator function */
+  re_buf(re_u32) ast;              /* AST arena */
+  re_u32 ast_root,                 /* AST root node reference */
+      ast_sets;                    /* number of subpatterns */
+  re_buf(re_u32) arg_stk;          /* parser argument stack */
+  re_buf(re_u32) op_stk;           /* parser operator stack */
+  re_buf(re_compframe) comp_stk;   /* compiler frame stack (see re_compframe) */
+  re_buf(re_inst) prog;            /* compiled program */
+  re_buf(re_u32) prog_set_idxs;    /* pattern index for each instruction */
+  re_compcc_data compcc;           /* data used for the charclass compiler */
   re_u32 entry[RE_PROG_ENTRY_MAX]; /* program entrypoints (see RE_PROG_ENTRY) */
   const re_u8 *expr;               /* input parser expression */
   size_t expr_pos,                 /* current position in expr */
@@ -439,9 +445,9 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
   re_buf_init(&r->ast);
   r->ast_root = r->ast_sets = 0;
   re_buf_init(&r->arg_stk), re_buf_init(&r->op_stk), re_buf_init(&r->comp_stk);
-  re_buf_init(&r->compcc_ranges), re_buf_init(&r->compcc_tree),
-      re_buf_init(&r->compcc_ranges_2), re_buf_init(&r->compcc_tree_2),
-      re_buf_init(&r->compcc_hash);
+  re_buf_init(&r->compcc.ranges), re_buf_init(&r->compcc.tree),
+      re_buf_init(&r->compcc.ranges_2), re_buf_init(&r->compcc.tree_2),
+      re_buf_init(&r->compcc.hash);
   re_buf_init(&r->prog), re_buf_init(&r->prog_set_idxs);
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
@@ -461,12 +467,18 @@ void re_destroy(re *r)
   re_buf_destroy(r, (void **)&r->ast);
   re_buf_destroy(r, &r->op_stk), re_buf_destroy(r, &r->arg_stk),
       re_buf_destroy(r, &r->comp_stk);
-  re_buf_destroy(r, &r->compcc_ranges), re_buf_destroy(r, &r->compcc_ranges_2),
-      re_buf_destroy(r, &r->compcc_tree), re_buf_destroy(r, &r->compcc_tree_2),
-      re_buf_destroy(r, &r->compcc_hash);
+  re_buf_destroy(r, &r->compcc.ranges), re_buf_destroy(r, &r->compcc.ranges_2),
+      re_buf_destroy(r, &r->compcc.tree), re_buf_destroy(r, &r->compcc.tree_2),
+      re_buf_destroy(r, &r->compcc.hash);
   re_buf_destroy(r, &r->prog);
   re_buf_destroy(r, (void **)&r->prog_set_idxs);
   r->alloc(sizeof(*r), 0, r);
+}
+
+size_t re_get_error(re *r, const char **out, size_t *pos)
+{
+  *out = r->error, *pos = r->error_pos;
+  return r->error ? strlen(r->error) : 0;
 }
 
 /* Make a byte range inline; more convenient than initializing a struct. */
@@ -1863,9 +1875,9 @@ static int re_compcc(re *r, re_u32 root, re_compframe *frame, int reversed)
       inverted = *re_ast_type_ref(r, frame->root_ref) == RE_AST_TYPE_ICC,
       insensitive = !!(frame->flags & RE_GROUP_FLAG_INSENSITIVE);
   re_u32 start_pc = 0;
-  re_buf_clear(&r->compcc_ranges), re_buf_clear(&r->compcc_ranges_2),
-      re_buf_clear(&r->compcc_tree), re_buf_clear(&r->compcc_tree_2),
-      re_buf_clear(&r->compcc_hash);
+  re_buf_clear(&r->compcc.ranges), re_buf_clear(&r->compcc.ranges_2),
+      re_buf_clear(&r->compcc.tree), re_buf_clear(&r->compcc.tree_2),
+      re_buf_clear(&r->compcc.hash);
   /* push ranges */
   while (root) {
     re_u32 args[3], min, max;
@@ -1873,20 +1885,20 @@ static int re_compcc(re *r, re_u32 root, re_compframe *frame, int reversed)
     root = args[0], min = args[1], max = args[2];
     /* handle out-of-order ranges (min > max) */
     if ((err = re_buf_push(
-             r, &r->compcc_ranges,
+             r, &r->compcc.ranges,
              re_rune_range_make(min > max ? max : min, min > max ? min : max))))
       return err;
   }
-  assert(re_buf_size(r->compcc_ranges));
+  assert(re_buf_size(r->compcc.ranges));
   do {
     /* sort ranges */
-    re_compcc_hsort(r->compcc_ranges);
+    re_compcc_hsort(r->compcc.ranges);
     /* normalize ranges */
     {
       size_t i;
       re_rune_range cur, next;
-      for (i = 0; i < re_buf_size(r->compcc_ranges); i++) {
-        cur = r->compcc_ranges[i];
+      for (i = 0; i < re_buf_size(r->compcc.ranges); i++) {
+        cur = r->compcc.ranges[i];
         assert(cur.l <= cur.h);
         if (!i)
           next = re_rune_range_make(cur.l, cur.h); /* first range */
@@ -1894,47 +1906,47 @@ static int re_compcc(re *r, re_u32 root, re_compframe *frame, int reversed)
           next.h = cur.h > next.h ? cur.h : next.h; /* intersection */
         } else {
           /* disjoint */
-          if ((err = re_buf_push(r, &r->compcc_ranges_2, next)))
+          if ((err = re_buf_push(r, &r->compcc.ranges_2, next)))
             return err;
           next.l = cur.l, next.h = cur.h;
         }
       }
       assert(i); /* the charclass is never empty here */
-      if ((err = re_buf_push(r, &r->compcc_ranges_2, next)))
+      if ((err = re_buf_push(r, &r->compcc.ranges_2, next)))
         return err;
       if (insensitive) {
         /* casefold normalized ranges */
-        re_buf_clear(&r->compcc_ranges);
-        for (i = 0; i < re_buf_size(r->compcc_ranges_2); i++) {
-          cur = r->compcc_ranges_2[i];
-          if ((err = re_buf_push(r, &r->compcc_ranges, cur)))
+        re_buf_clear(&r->compcc.ranges);
+        for (i = 0; i < re_buf_size(r->compcc.ranges_2); i++) {
+          cur = r->compcc.ranges_2[i];
+          if ((err = re_buf_push(r, &r->compcc.ranges, cur)))
             return err;
-          if ((err = re_compcc_fold_range(r, cur.l, cur.h, &r->compcc_ranges)))
+          if ((err = re_compcc_fold_range(r, cur.l, cur.h, &r->compcc.ranges)))
             return err;
         }
-        re_buf_clear(&r->compcc_ranges_2);
+        re_buf_clear(&r->compcc.ranges_2);
       }
     }
   } while (insensitive && insensitive-- /* re-normalize by looping again */);
   /* invert ranges */
   if (inverted) {
-    re_u32 max = 0, i, write = 0, old_size = re_buf_size(r->compcc_ranges_2);
+    re_u32 max = 0, i, write = 0, old_size = re_buf_size(r->compcc.ranges_2);
     re_rune_range cur = re_rune_range_make(0, 0);
     for (i = 0; i < old_size; i++) {
-      cur = r->compcc_ranges_2[i];
+      cur = r->compcc.ranges_2[i];
       assert(write <= i);
       if (cur.l > max) {
-        r->compcc_ranges_2[write++] = re_rune_range_make(max, cur.l - 1);
+        r->compcc.ranges_2[write++] = re_rune_range_make(max, cur.l - 1);
         max = cur.h + 1;
       }
     }
     if ((err = re_buf_reserve(
-             r, &r->compcc_ranges_2, write += (cur.h < RE_UTF_MAX))))
+             r, &r->compcc.ranges_2, write += (cur.h < RE_UTF_MAX))))
       return err;
     if (cur.h < RE_UTF_MAX)
-      r->compcc_ranges_2[write - 1] = re_rune_range_make(cur.h + 1, RE_UTF_MAX);
+      r->compcc.ranges_2[write - 1] = re_rune_range_make(cur.h + 1, RE_UTF_MAX);
   }
-  if (!re_buf_size(r->compcc_ranges_2)) {
+  if (!re_buf_size(r->compcc.ranges_2)) {
     /* empty charclass */
     if ((err = re_inst_emit(
              r,
@@ -1946,35 +1958,35 @@ static int re_compcc(re *r, re_u32 root, re_compframe *frame, int reversed)
     return err;
   }
   /* build tree */
-  if ((err = re_compcc_tree_build(r, r->compcc_ranges_2, &r->compcc_tree)))
+  if ((err = re_compcc_tree_build(r, r->compcc.ranges_2, &r->compcc.tree)))
     return err;
   /* hash tree */
-  if ((err = re_compcc_hash_init(r, r->compcc_tree, &r->compcc_hash)))
+  if ((err = re_compcc_hash_init(r, r->compcc.tree, &r->compcc.hash)))
     return err;
-  re_compcc_tree_hash(r, r->compcc_tree, 1);
+  re_compcc_tree_hash(r, r->compcc.tree, 1);
   /* reduce tree */
-  re_compcc_tree_reduce(r, r->compcc_tree, r->compcc_hash, 2, &start_pc);
+  re_compcc_tree_reduce(r, r->compcc.tree, r->compcc.hash, 2, &start_pc);
   if (reversed) {
     re_u32 i;
     re_buf(re_compcc_tree) tmp;
-    re_buf_clear(&r->compcc_tree_2);
-    for (i = 1 /* skip sentinel */; i < re_buf_size(r->compcc_tree); i++) {
+    re_buf_clear(&r->compcc.tree_2);
+    for (i = 1 /* skip sentinel */; i < re_buf_size(r->compcc.tree); i++) {
       if ((err = re_compcc_tree_new(
-               r, &r->compcc_tree_2, r->compcc_tree[i], NULL)) == RE_ERR_MEM)
+               r, &r->compcc.tree_2, r->compcc.tree[i], NULL)) == RE_ERR_MEM)
         return err;
       assert(!err);
     }
     /* detach new root */
-    r->compcc_tree_2[1].child_ref = RE_REF_NONE;
-    re_compcc_tree_xpose(r->compcc_tree, r->compcc_tree_2, 2, 1);
+    r->compcc.tree_2[1].child_ref = RE_REF_NONE;
+    re_compcc_tree_xpose(r->compcc.tree, r->compcc.tree_2, 2, 1);
     /* potench reverse the tree if needed */
 
-    tmp = r->compcc_tree;
-    r->compcc_tree = r->compcc_tree_2;
-    r->compcc_tree_2 = tmp;
+    tmp = r->compcc.tree;
+    r->compcc.tree = r->compcc.tree_2;
+    r->compcc.tree_2 = tmp;
   }
   if ((err = re_compcc_tree_render(
-           r, r->compcc_tree, start_pc, &start_pc, frame)))
+           r, r->compcc.tree, start_pc, &start_pc, frame)))
     return err;
   return err;
 }

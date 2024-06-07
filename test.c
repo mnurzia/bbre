@@ -353,13 +353,20 @@ int check_match_s2_g2_a(
 
 #define ASSERT_MATCH_ONLY(regex, str) ASSERT_MATCH(regex, str)
 
-int check_noparse_n(const char *regex, size_t n)
+int check_noparse_n(
+    const char *regex, size_t n, const char *err_msg, size_t err_msg_pos)
 {
   re *r;
   int err;
+  const char *actual_err_msg;
+  size_t actual_err_msg_pos, actual_err_msg_size;
   if ((err = re_init_full(&r, regex, n, NULL)) == RE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, RE_ERR_PARSE);
+  actual_err_msg_size = re_get_error(r, &actual_err_msg, &actual_err_msg_pos);
+  ASSERT(!strcmp(err_msg, actual_err_msg));
+  ASSERT_EQ(err_msg_pos, actual_err_msg_pos);
+  ASSERT_EQ(actual_err_msg_size, strlen(actual_err_msg));
   re_destroy(r);
   PASS();
 oom:
@@ -367,13 +374,14 @@ oom:
   OOM();
 }
 
-int check_noparse(const char *regex)
+int check_noparse(const char *regex, const char *err_msg, size_t err_msg_pos)
 {
-  PROPAGATE(check_noparse_n(regex, strlen(regex)));
+  PROPAGATE(check_noparse_n(regex, strlen(regex), err_msg, err_msg_pos));
   PASS();
 }
 
-#define ASSERT_NOPARSE(regex) PROPAGATE(check_noparse(regex))
+#define ASSERT_NOPARSE(regex, err_msg, pos)                                    \
+  PROPAGATE(check_noparse(regex, err_msg, pos))
 
 int check_compiles_n(const char *regex, size_t n)
 {
@@ -567,7 +575,7 @@ TEST(chr_4)
 
 TEST(chr_malformed)
 {
-  ASSERT_NOPARSE("\xff");
+  ASSERT_NOPARSE("\xff", "invalid utf-8 sequence", 0);
   PASS();
 }
 
@@ -717,13 +725,13 @@ SUITE(plus)
 
 TEST(quant_of_nothing)
 {
-  ASSERT_NOPARSE("*");
+  ASSERT_NOPARSE("*", "cannot apply quantifier to empty regex", 1);
   PASS();
 }
 
 TEST(quant_ungreedy_malformed)
 {
-  ASSERT_NOPARSE("b*\xff");
+  ASSERT_NOPARSE("b*\xff", "invalid utf-8 sequence", 2);
   PASS();
 }
 
@@ -885,7 +893,7 @@ SUITE(any_byte)
 
 TEST(cls_escape_any_byte)
 {
-  ASSERT_NOPARSE("[\\C]");
+  ASSERT_NOPARSE("[\\C]", "cannot use \\C here", 3);
   PASS();
 }
 
@@ -915,13 +923,13 @@ TEST(cls_escape_range_both)
 
 TEST(cls_escape_quote)
 {
-  ASSERT_NOPARSE("[\\Qabc\\E]");
+  ASSERT_NOPARSE("[\\Qabc\\E]", "cannot use \\Q...\\E here", 3);
   PASS();
 }
 
 TEST(cls_escape_quote_range_end)
 {
-  ASSERT_NOPARSE("[a-\\Qabc\\E]");
+  ASSERT_NOPARSE("[a-\\Qabc\\E]", "cannot use \\Q...\\E here", 5);
   PASS();
 }
 
@@ -938,7 +946,7 @@ SUITE(cls_escape)
 
 TEST(cls_empty)
 {
-  ASSERT_NOPARSE("[]");
+  ASSERT_NOPARSE("[]", "unclosed character class", 2);
   PASS();
 }
 
@@ -956,13 +964,13 @@ TEST(cls_ending_right_bracket_inverted)
 
 TEST(cls_left_bracket_unfinished)
 {
-  ASSERT_NOPARSE("[[");
+  ASSERT_NOPARSE("[[", "unclosed character class", 2);
   PASS();
 }
 
 TEST(cls_left_bracket_malformed)
 {
-  ASSERT_NOPARSE("[[\xff");
+  ASSERT_NOPARSE("[[\xff", "invalid utf-8 sequence", 2);
   PASS();
 }
 
@@ -980,13 +988,13 @@ TEST(cls_single)
 
 TEST(cls_single_malformed)
 {
-  ASSERT_NOPARSE("[a\xff]");
+  ASSERT_NOPARSE("[a\xff]", "invalid utf-8 sequence", 2);
   PASS();
 }
 
 TEST(cls_single_unfinished)
 {
-  ASSERT_NOPARSE("[a");
+  ASSERT_NOPARSE("[a", "unclosed character class", 2);
   PASS();
 }
 
@@ -1004,13 +1012,13 @@ TEST(cls_range_one_inverted)
 
 TEST(cls_range_one_unfinished)
 {
-  ASSERT_NOPARSE("[a-]");
+  ASSERT_NOPARSE("[a-]", "unclosed character class", 4);
   PASS();
 }
 
 TEST(cls_range_one_malformed)
 {
-  ASSERT_NOPARSE("[a-\xff]");
+  ASSERT_NOPARSE("[a-\xff]", "invalid utf-8 sequence", 3);
   PASS();
 }
 
@@ -1022,37 +1030,39 @@ TEST(cls_ending_dash)
 
 TEST(cls_named_unfinished)
 {
-  ASSERT_NOPARSE("[[:");
+  ASSERT_NOPARSE("[[:", "expected character class name", 3);
   PASS();
 }
 
 TEST(cls_named_malformed)
 {
-  ASSERT_NOPARSE("[[:\xff");
+  ASSERT_NOPARSE("[[:\xff", "invalid utf-8 sequence", 3);
   PASS();
 }
 
 TEST(cls_named_unfinished_aftername)
 {
-  ASSERT_NOPARSE("[[:alnum");
+  ASSERT_NOPARSE("[[:alnum", "expected character class name", 8);
   PASS();
 }
 
 TEST(cls_named_unfinished_aftercolon)
 {
-  ASSERT_NOPARSE("[[:alnum:");
+  ASSERT_NOPARSE(
+      "[[:alnum:", "expected closing bracket for named character class", 9);
   PASS();
 }
 
 TEST(cls_named_invalid_norightbracket)
 {
-  ASSERT_NOPARSE("[[:alnum:p");
+  ASSERT_NOPARSE(
+      "[[:alnum:p", "expected closing bracket for named character class", 10);
   PASS();
 }
 
 TEST(cls_named_unknown)
 {
-  ASSERT_NOPARSE("[[:unknown:]]");
+  ASSERT_NOPARSE("[[:unknown:]]", "invalid Unicode property name", 12);
   PASS();
 }
 
@@ -1070,7 +1080,7 @@ TEST(cls_subclass)
 
 TEST(cls_subclass_range_end)
 {
-  ASSERT_NOPARSE("[a-\\w]");
+  ASSERT_NOPARSE("[a-\\w]", "cannot use a character class here", 5);
   PASS();
 }
 
@@ -1094,7 +1104,7 @@ TEST(cls_reversed_nonmatch)
 
 TEST(cls_assert)
 {
-  ASSERT_NOPARSE("[\\A]");
+  ASSERT_NOPARSE("[\\A]", "cannot use an epsilon assertion here", 3);
   PASS();
 }
 
@@ -1419,7 +1429,7 @@ TEST(escape_octal_nonascii)
 
 TEST(escape_octal_malformed)
 {
-  ASSERT_NOPARSE("\\1\xff");
+  ASSERT_NOPARSE("\\1\xff", "invalid utf-8 sequence", 2);
   PASS();
 }
 
@@ -1458,43 +1468,44 @@ TEST(escape_hex)
 
 TEST(escape_hex_unfinished)
 {
-  ASSERT_NOPARSE("\\x");
+  ASSERT_NOPARSE(
+      "\\x", "expected two hex characters or a bracketed hex literal", 2);
   PASS();
 }
 
 TEST(escape_hex_unfinished_1)
 {
-  ASSERT_NOPARSE("\\x1");
+  ASSERT_NOPARSE("\\x1", "expected two hex characters", 3);
   PASS();
 }
 
 TEST(escape_hex_malformed)
 {
-  ASSERT_NOPARSE("\\x\xff");
+  ASSERT_NOPARSE("\\x\xff", "invalid utf-8 sequence", 2);
   PASS();
 }
 
 TEST(escape_hex_malformed_1)
 {
-  ASSERT_NOPARSE("\\x1\xff");
+  ASSERT_NOPARSE("\\x1\xff", "invalid utf-8 sequence", 3);
   PASS();
 }
 
 TEST(escape_hex_invalid)
 {
-  ASSERT_NOPARSE("\\xx");
+  ASSERT_NOPARSE("\\xx", "invalid hex digit", 3);
   PASS();
 }
 
 TEST(escape_hex_invalid_1)
 {
-  ASSERT_NOPARSE("\\x1x");
+  ASSERT_NOPARSE("\\x1x", "invalid hex digit", 4);
   PASS();
 }
 
 TEST(escape_hex_invalid_2)
 {
-  ASSERT_NOPARSE("\\x/");
+  ASSERT_NOPARSE("\\x/", "invalid hex digit", 3);
   PASS();
 }
 
@@ -1555,39 +1566,39 @@ TEST(escape_hex_long_6)
 
 TEST(escape_hex_long_unfinished)
 {
-  ASSERT_NOPARSE("\\x{");
+  ASSERT_NOPARSE("\\x{", "expected up to six hex characters", 3);
   PASS();
 }
 
 TEST(escape_hex_long_unfinished_aftersome)
 {
-  ASSERT_NOPARSE("\\x{1");
+  ASSERT_NOPARSE("\\x{1", "expected up to six hex characters", 4);
   PASS();
 }
 
 TEST(escape_hex_long_too_long)
 {
   /* bracketed hex literals should only be up to six characters */
-  ASSERT_NOPARSE("\\x{1000000}");
+  ASSERT_NOPARSE("\\x{1000000}", "expected up to six hex characters", 10);
   PASS();
 }
 
 TEST(escape_hex_long_out_of_range)
 {
   /* bracketed hex literals should not be greater than 0x10FFFF */
-  ASSERT_NOPARSE("\\x{110000}");
+  ASSERT_NOPARSE("\\x{110000}", "ordinal value out of range [0, 0x10FFFF]", 10);
   PASS();
 }
 
 TEST(escape_hex_long_invalid)
 {
-  ASSERT_NOPARSE("\\x{&&}");
+  ASSERT_NOPARSE("\\x{&&}", "invalid hex digit", 4);
   PASS();
 }
 
 TEST(escape_hex_long_empty)
 {
-  ASSERT_NOPARSE("\\x{}");
+  ASSERT_NOPARSE("\\x{}", "expected at least one hex character", 4);
   PASS();
 }
 
@@ -1662,13 +1673,13 @@ TEST(escape_quote_single_slash_with_non_E)
 
 TEST(escape_quote_malformed)
 {
-  ASSERT_NOPARSE("\\Q\xff");
+  ASSERT_NOPARSE("\\Q\xff", "invalid utf-8 sequence", 2);
   PASS();
 }
 
 TEST(escape_quote_malformed_afterslash)
 {
-  ASSERT_NOPARSE("\\Q\\\xff");
+  ASSERT_NOPARSE("\\Q\\\xff", "invalid utf-8 sequence", 3);
   PASS();
 }
 
@@ -1708,13 +1719,13 @@ TEST(escape_unicode_property_inverted_simple)
 
 TEST(escape_unfinished)
 {
-  ASSERT_NOPARSE("\\");
+  ASSERT_NOPARSE("\\", "expected escape sequence", 1);
   PASS();
 }
 
 TEST(escape_invalid)
 {
-  ASSERT_NOPARSE("\\/");
+  ASSERT_NOPARSE("\\/", "invalid escape sequence", 2);
   PASS();
 }
 
@@ -1958,91 +1969,93 @@ TEST(repetition_zero_zero_nonmatch)
 
 TEST(repetition_malformed)
 {
-  ASSERT_NOPARSE("a{\xff}");
+  ASSERT_NOPARSE("a{\xff}", "invalid utf-8 sequence", 2);
   PASS();
 }
 
 TEST(repetition_malformed_afterdigit)
 {
-  ASSERT_NOPARSE("a{1\xff}");
+  ASSERT_NOPARSE("a{1\xff}", "invalid utf-8 sequence", 3);
   PASS();
 }
 
 TEST(repetition_unfinished)
 {
-  ASSERT_NOPARSE("a{");
+  ASSERT_NOPARSE("a{", "expected at least one decimal digit", 2);
   PASS();
 }
 
 TEST(repetition_unfinished_afterdigit)
 {
-  ASSERT_NOPARSE("a{1");
+  ASSERT_NOPARSE("a{1", "expected } to end repetition expression", 3);
   PASS();
 }
 
 TEST(repetition_nomin)
 {
-  ASSERT_NOPARSE("a{,");
+  ASSERT_NOPARSE("a{,", "", 0);
   PASS();
 }
 
 TEST(repetition_toomanydigits)
 {
-  ASSERT_NOPARSE("a{123412341234123412341234}");
+  ASSERT_NOPARSE(
+      "a{123412341234123412341234}", "too many digits for decimal number", 8);
   PASS();
 }
 
 TEST(repetition_empty)
 {
-  ASSERT_NOPARSE("a{}");
+  ASSERT_NOPARSE("a{}", "expected at least one decimal digit", 2);
   PASS();
 }
 
 TEST(repetition_upper_unfinished)
 {
-  ASSERT_NOPARSE("w{5,");
+  ASSERT_NOPARSE(
+      "w{5,", "expected upper bound or } to end repetition expression", 4);
   PASS();
 }
 
 TEST(repetition_upper_malformed)
 {
-  ASSERT_NOPARSE("l{5,\xff}");
+  ASSERT_NOPARSE("l{5,\xff}", "invalid utf-8 sequence", 4);
   PASS();
 }
 
 TEST(repetition_upper_unfinished_afternumber)
 {
-  ASSERT_NOPARSE("j{100,5");
+  ASSERT_NOPARSE("j{100,5", "expected } to end repetition expression", 7);
   PASS();
 }
 
 TEST(repetition_upper_malformed_afternumber)
 {
-  ASSERT_NOPARSE("q{100,5\xff}");
+  ASSERT_NOPARSE("q{100,5\xff}", "invalid utf-8 sequence", 7);
   PASS();
 }
 
 TEST(repetition_upper_invalid_afternumber)
 {
-  ASSERT_NOPARSE("w{97,677a}");
+  ASSERT_NOPARSE("w{97,677a}", "expected } to end repetition expression", 9);
   PASS();
 }
 
 TEST(repetition_upper_invalid)
 {
-  ASSERT_NOPARSE("9{5,5223222111}");
+  ASSERT_NOPARSE("9{5,5223222111}", "too many digits for decimal number", 10);
   PASS();
 }
 
 TEST(repetition_upper_badsep)
 {
-  ASSERT_NOPARSE("p{5a11}");
+  ASSERT_NOPARSE("p{5a11}", "expected } or , for repetition expression", 4);
   PASS();
 }
 
 TEST(repetition_empty_regex)
 {
-  ASSERT_NOPARSE("{2,3}");
+  ASSERT_NOPARSE("{2,3}", "cannot apply quantifier to empty regex", 5);
   PASS();
 }
 
@@ -2242,19 +2255,19 @@ TEST(grp_named_regular)
 
 TEST(grp_named_regular_unfinished)
 {
-  ASSERT_NOPARSE("(?<name");
+  ASSERT_NOPARSE("(?<name", "expected name followed by '>' for named group", 7);
   PASS();
 }
 
 TEST(grp_named_regular_malformed_before_name)
 {
-  ASSERT_NOPARSE("(?\xff");
+  ASSERT_NOPARSE("(?\xff", "invalid utf-8 sequence", 2);
   PASS();
 }
 
 TEST(grp_named_regular_malformed)
 {
-  ASSERT_NOPARSE("(?<name\xff");
+  ASSERT_NOPARSE("(?<name\xff", "invalid utf-8 sequence", 7);
   PASS();
 }
 
@@ -2266,25 +2279,26 @@ TEST(grp_named_perl)
 
 TEST(grp_named_perl_unfinished_before_name)
 {
-  ASSERT_NOPARSE("(?P");
+  ASSERT_NOPARSE("(?P", "expected '<' after named group opener \"(?P\"", 3);
   PASS();
 }
 
 TEST(grp_named_perl_malformed_before_name)
 {
-  ASSERT_NOPARSE("(?P\xff");
+  ASSERT_NOPARSE("(?P\xff", "invalid utf-8 sequence", 3);
   PASS();
 }
 
 TEST(grp_named_perl_unfinished)
 {
-  ASSERT_NOPARSE("(?P<name");
+  ASSERT_NOPARSE(
+      "(?P<name", "expected name followed by '>' for named group", 8);
   PASS();
 }
 
 TEST(grp_named_perl_malformed)
 {
-  ASSERT_NOPARSE("(?P<name\xff");
+  ASSERT_NOPARSE("(?P<name\xff", "", 0);
   PASS();
 }
 
@@ -2296,7 +2310,7 @@ TEST(grp_named_perl_invalid)
 
 TEST(grp_named_perl_invalid_before_name)
 {
-  ASSERT_NOPARSE("(?Pl");
+  ASSERT_NOPARSE("(?Pl", "expected '<' after named group opener \"(?P\"", 4);
   PASS();
 }
 
@@ -2315,25 +2329,28 @@ SUITE(grp_named)
 
 TEST(grp_unfinished)
 {
-  ASSERT_NOPARSE("(");
+  ASSERT_NOPARSE("(", "expected ')' to close group", 1);
   PASS();
 }
 
 TEST(grp_unfinished_afterspecial)
 {
-  ASSERT_NOPARSE("(?");
+  ASSERT_NOPARSE(
+      "(?",
+      "expected 'P', '<', or group flags after special group opener \"(?\"", 2);
   PASS();
 }
 
 TEST(grp_unfinished_afterflag)
 {
-  ASSERT_NOPARSE("(?i");
+  ASSERT_NOPARSE(
+      "(?i", "expected ':', ')', or group flags for special group", 3);
   PASS();
 }
 
 TEST(grp_malformed)
 {
-  ASSERT_NOPARSE("(\xff");
+  ASSERT_NOPARSE("(\xff", "invalid utf-8 sequence", 1);
   PASS();
 }
 
@@ -2345,13 +2362,15 @@ TEST(grp_empty)
 
 TEST(grp_nonmatching_unfinished)
 {
-  ASSERT_NOPARSE("(?");
+  ASSERT_NOPARSE(
+      "(?",
+      "expected 'P', '<', or group flags after special group opener \"(?\"", 2);
   PASS();
 }
 
 TEST(grp_nonmatching_malformed)
 {
-  ASSERT_NOPARSE("(?\xff");
+  ASSERT_NOPARSE("(?\xff", "invalid utf-8 sequence", 2);
   PASS();
 }
 
@@ -2363,7 +2382,7 @@ TEST(grp_nonmatching_in_zero_quant)
 
 TEST(grp_negate_twice)
 {
-  ASSERT_NOPARSE("(?--:)");
+  ASSERT_NOPARSE("(?--:)", "cannot apply flag negation '-' twice", 4);
   PASS();
 }
 
@@ -2414,7 +2433,8 @@ TEST(grp_flag_set_then_reset)
 
 TEST(grp_flag_invalid)
 {
-  ASSERT_NOPARSE("(?x)");
+  ASSERT_NOPARSE(
+      "(?x)", "expected ':', ')', or group flags for special group", 3);
   PASS();
 }
 
@@ -2438,13 +2458,13 @@ TEST(grp_nested_inlines)
 
 TEST(grp_invalid_unmatched_rparen)
 {
-  ASSERT_NOPARSE(")");
+  ASSERT_NOPARSE(")", "extra close parenthesis", 1);
   PASS();
 }
 
 TEST(grp_invalid_unmatched_lparen)
 {
-  ASSERT_NOPARSE("(abc");
+  ASSERT_NOPARSE("(abc", "unmatched open parenthesis", 4);
   PASS();
 }
 
