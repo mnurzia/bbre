@@ -25,11 +25,12 @@ CFLAGS=\
 SRCS=re.c test.c test-gen.c
 GDB=lldb --
 FORMAT=clang-format -i
-UDATA=python tools/unicode_data.py --debug --db tools/.ucd.zip
+PYTHON=/usr/bin/env python3
+UDATA=$(PYTHON) tools/unicode_data.py --debug --db tools/.ucd.zip
 
 FUZZINGTON=build/fuzzington/release/fuzzington
 FUZZINGTON_ITERS=10000000
-OPEN_URL=python -m webbrowser
+OPEN_URL=$(PYTHON) -m webbrowser
 
 OUT_DIR=build/$(PROFILE)
 
@@ -45,7 +46,7 @@ build:
 
 test-gen.c: build fuzz_db.json tools/fuzz_tool.py tools/unicode_data.py
 	$(UDATA) gen_ccs test test-gen.c
-	python tools/fuzz_tool.py fuzz_db.json gen_tests test-gen.c
+	$(PYTHON) tools/fuzz_tool.py fuzz_db.json gen_tests test-gen.c
 	$(FORMAT) $@
 
 $(OUT_DIR): build
@@ -156,19 +157,19 @@ build/fuzzington/release/fuzzington: tools/fuzzington/src/main.rs tools/fuzzingt
 
 ## run fuzzington, the semantic regex fuzz tester
 fuzzington_run: build build/fuzzington/release/fuzzington
-	python tools/fuzz_tool.py --debug fuzz_db.json run_fuzzington --num-iterations $(FUZZINGTON_ITERS)
+	$(PYTHON) tools/fuzz_tool.py --debug fuzz_db.json run_fuzzington --num-iterations $(FUZZINGTON_ITERS)
 
 ## generate data tables for re.c
 tables:
 	$(UDATA) gen_casefold re.c
-	python3 tools/charclass_tree.py dfa re.c
+	$(PYTHON)3 tools/charclass_tree.py dfa re.c
 	$(UDATA) gen_ccs impl re.c
 	$(FORMAT) re.c
 
 ## run clang-format/black on all .c/.py sources
 format:
 	$(FORMAT) re.c re.h test-gen.c test.c test-config.h viz.c parser_fuzz.c
-	python -m black -q tools/*.py
+	$(PYTHON) -m black -q tools/*.py
 
 build/viz: build viz.c re.c
 	$(CC) $(CFLAGS) viz.c re.c -o $@
@@ -192,8 +193,8 @@ help_profiles:
 
 ## build documentation
 docs: build build/viz
-	python tools/make_docs.py --folder docs --debug re.c internals/AST.md
-	python tools/make_docs.py --folder docs --debug re.c internals/Charclass_Compiler.md
+	$(PYTHON) tools/make_docs.py --folder docs --debug re.c internals/AST.md
+	$(PYTHON) tools/make_docs.py --folder docs --debug re.c internals/Charclass_Compiler.md
 
 ## build a folder with re + tests for testing on other platforms
 port: build re.c test.c test-gen.c mptest.c mptest.h test-config.h re.h
