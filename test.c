@@ -2960,7 +2960,7 @@ SUITE(fuzz_regression); /* provided by test-gen.c */
 
 TEST(limit_program_size)
 {
-  re *r = re_init("a++++++++++++++++++++");
+  re *r = re_init("a{99999}{2}");
   int err;
   if (!r)
     goto oom;

@@ -2919,6 +2919,7 @@ MPTEST_INTERNAL mptest__result mptest__state_before_test(
   fflush(stdout);
 #if MPTEST_USE_APARSE
   if (!mptest__aparse_match_test_name(state, test_name)) {
+    state->fuzz_state.fuzz_active = 0;
     return MPTEST__RESULT_SKIPPED;
   }
 #endif
