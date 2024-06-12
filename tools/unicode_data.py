@@ -166,12 +166,13 @@ def _cmd_gen_casefold(args) -> int:
     out("static re_s32 re_compcc_fold_next(re_u32 rune) { return ")
 
     def shift_mask_expr(name: str, i: int) -> str:
-        return f"({f"({name} >> {shifts[i]})" if shifts[i] != 0 else name} & 0x{masks[i]:02X})"
+        shift_expr = f"({name} >> {shifts[i]})" if shifts[i] != 0 else name
+        return f"({shift_expr} & 0x{masks[i]:02X})"
 
     for i in range(len(arrays)):
         out(f"re_compcc_fold_array_{i}[")
     for i in reversed(range(len(arrays))):
-        out(f"{'+' if i != len(arrays) - 1 else ''}{shift_mask_expr("rune", i)}]")
+        out(f"{'+' if i != len(arrays) - 1 else ''}{shift_mask_expr('rune', i)}]")
     out(";}")
 
     out(
@@ -196,14 +197,13 @@ def _cmd_gen_casefold(args) -> int:
     for i, array in reversed(list(enumerate(arrays))):
         limit = len(arrays[-1]) if i == len(array_sizes) else array_sizes[i]
         out("for (")
-        out(f"  x{i} = {shift_mask_expr("begin", i)};")
+        out(f"  x{i} = {shift_mask_expr('begin', i)};")
         out(f"  x{i} <= 0x{limit - 1:X} && begin <= end;")
         out(f"  x{i}++")
         out(") {")
         out("if (")
-        out(
-            f"  (a{i} = re_compcc_fold_array_{i}[{f"a{i+1} +" if i != len(arrays) - 1 else ""}x{i}])"
-        )
+        decl_name = f"a{i+1} +" if i != len(arrays) - 1 else ""
+        out(f"  (a{i} = re_compcc_fold_array_{i}[{decl_name}x{i}])")
         out(f"    == {fmt_hex(arrays[i].zero_location, data_types[i])}")
         out(") {")
         out(f"  begin = ((begin >> {shifts[i]}) + 1) << {shifts[i]};")
@@ -432,7 +432,7 @@ def _cmd_gen_ccs_test(args) -> int:
     def make_suite(suite_name: str, tests: dict[str, str]) -> str:
         return f"""
             SUITE({suite_name}) {{
-                {'\n'.join([f"RUN_TEST({test_name});" for test_name in tests])}
+                {chr(0x0A).join([f"RUN_TEST({test_name});" for test_name in tests])}
             }}
             """
 
@@ -458,7 +458,7 @@ def _cmd_gen_ccs_test(args) -> int:
         out(make_suite(f"cls_builtin_{cctype}", tests))
     out(
         f"""SUITE(cls_builtin) {{
-                {'\n'.join([f"RUN_SUITE(cls_builtin_{cctype});" for cctype in _BuiltinCCType])}
+                {chr(0x0A).join([f"RUN_SUITE(cls_builtin_{cctype});" for cctype in _BuiltinCCType])}
             }}
             """
     )

@@ -57,8 +57,8 @@ class TreeFront(CCTree):
 
     def graphviz_properties(self) -> str:
         digits = byte_length_digits(list(X_BITS.values()).index(self.x_bits) + 1)
-        return f'shape=oval,label="U+{
-            self.range[0]:0{digits}}-U+{self.range[1]:0{digits}}, {self.x_bits}/{self.y_bits}"'
+
+        return f'shape=oval,label="U+{self.range[0]:0{digits}}-U+{self.range[1]:0{digits}}, {self.x_bits}/{self.y_bits}"'
 
     def build(self, parent: Self) -> bool:
         assert isinstance(parent, TreeNode)

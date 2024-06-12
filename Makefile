@@ -162,7 +162,7 @@ fuzzington_run: build build/fuzzington/release/fuzzington
 ## generate data tables for re.c
 tables:
 	$(UDATA) gen_casefold re.c
-	$(PYTHON)3 tools/charclass_tree.py dfa re.c
+	$(PYTHON) tools/charclass_tree.py dfa re.c
 	$(UDATA) gen_ccs impl re.c
 	$(FORMAT) re.c
 
