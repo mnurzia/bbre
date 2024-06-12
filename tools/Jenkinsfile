@@ -6,5 +6,15 @@ pipeline {
         sh 'make port'
       }
     }
+    stage('Run Simple Tests') {
+      steps {
+        sh 'make -C build/port'
+      }
+    }
+    stage('Run OOM Tests') {
+      steps {
+        sh 'make -C build/port testoom'
+      }
+    }
   }
 }
