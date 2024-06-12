@@ -2065,6 +2065,12 @@ TEST(repetition_many)
   PASS();
 }
 
+TEST(repetition_epsilon_zero_one)
+{
+  ASSERT_MATCH("(?:a{0,0}a{0,0}|a){0,1}", "");
+  PASS();
+}
+
 SUITE(repetition)
 {
   RUN_TEST(repetition_zero_empty);
@@ -2116,6 +2122,7 @@ SUITE(repetition)
   RUN_TEST(repetition_upper_invalid_afternumber);
   RUN_TEST(repetition_empty_regex);
   RUN_TEST(repetition_many);
+  RUN_TEST(repetition_epsilon_zero_one);
 }
 
 TEST(grp_flag_i_match)

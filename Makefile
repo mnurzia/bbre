@@ -23,7 +23,7 @@ CFLAGS=\
 			 $(CFLAGS_$(PROFILE))
 
 SRCS=re.c test.c test-gen.c
-GDB=lldb --
+GDB=ASAN_OPTIONS=halt_on_error=0 lldb --
 FORMAT=clang-format -i
 PYTHON=/usr/bin/env python3
 UDATA=$(PYTHON) tools/unicode_data.py --debug --db tools/.ucd.zip
@@ -152,7 +152,7 @@ bench: $(OUT_DIR)/bench
 prof: $(OUT_DIR)/bench
 	samply record ./$(OUT_DIR)/bench
 
-build/fuzzington/release/fuzzington: tools/fuzzington/src/main.rs tools/fuzzington/build.rs
+build/fuzzington/release/fuzzington: tools/fuzzington/src/main.rs tools/fuzzington/build.rs re.c re.h
 	cd tools/fuzzington;RUSTFLAGS="-C link-dead-code" cargo build --release --target-dir ../../build/fuzzington
 
 ## run fuzzington, the semantic regex fuzz tester

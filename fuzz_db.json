@@ -238,15 +238,36 @@
   },
   {
     "identifier": "0014",
-    "commit_hash": "928baee22da12093d715435180e5a7929ff20420",
-    "created": "2024-06-06T22:16:31.181899",
+    "commit_hash": "b0fe8d7ebbeb1be311b4b1965f6d200c2cf709b0",
+    "created": "2024-06-12T13:27:03.877121",
     "type": "match",
+    "extra": {
+      "fuzzington_seed": 12753786770217967292
+    },
     "regexes": [
-      "\\5r\\z@\u0000+\u0001\u0000\u0000\u0001+.+++]\u02c0\u007f\u007f.\u0000\u0000+][^]\u0004?w\\?\\w?w\\?\\wwwwww?\\w\u0000\u0000\u0000\u0000\u0004?w\\?\\w?w\\?\\wwwwww?\\w=?\\w?w\\?\\w\u000ewww?\\w\u0000ww+\\?\\?\\ww?wwww?w\\?\\w?w\\?\\ww=?\\w?w\\?\\ww\\?\\ww?\u0001\u0000\u0000\u0000\u0000\u0000\u0000\u0004?w\\?\\w?w\\?\\wwwwww?\\w\u0000\u0000\u0000\u0000\u0004?w\\?\\w?w\\?\\w\\?\\w\u000ewww?\\w\u0000ww+\\?\\?\\ww?wwww?w\\?\\w?w\\?\\ww=?\\w?w\\?\\w\u000ew\u000ewwwwww?\\w=?\\w?w\\?\\w\u000eZ\u0000\u0000\u0000www?\\w\u0000ww+\\?\\?\\ww?wwww?w\\?\\w?w\\?\\ww=?\\w?w\\?\\w\u000ew\u000ewww?\\www+\\?+*++++++++??++++++\\ww+.?++*++++++++++D\\D]++*++*++??++++++*+++++M\u0000+\"+]++*+++"
+      "(?:(?:I|\u00c6){0,0}){0,9}"
     ],
     "num_spans": 0,
     "num_sets": 0,
-    "match_string": "\u00a0",
+    "match_string": "",
+    "match_spans": [],
+    "match_sets": [],
+    "match_anchor": "B"
+  },
+  {
+    "identifier": "0015",
+    "commit_hash": "b0fe8d7ebbeb1be311b4b1965f6d200c2cf709b0",
+    "created": "2024-06-12T13:41:02.631202",
+    "type": "match",
+    "extra": {
+      "fuzzington_seed": 12753786770217976377
+    },
+    "regexes": [
+      "(?:\\{{0,0}){0,4}|[\u05ef-\ud960\udd75\u0787-\u0256\u07f2-\u0491\u0724-\u3a4a`-\ua733]"
+    ],
+    "num_spans": 0,
+    "num_sets": 0,
+    "match_string": "\ud82c\udfc9",
     "match_spans": [],
     "match_sets": [],
     "match_anchor": "B"

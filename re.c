@@ -1399,6 +1399,9 @@ static void re_patch_merge(re *r, re_compframe *p, re_compframe *q)
     p->patch_tail = q->patch_tail;
     return;
   }
+  if (!q->patch_head) {
+    return;
+  }
   re_patch_set(r, p->patch_tail, q->patch_head);
   p->patch_tail = q->patch_tail;
 }
@@ -1419,39 +1422,7 @@ static void re_patch_apply(re *r, re_compframe *p, re_u32 dest_pc)
   }
   p->patch_head = p->patch_tail = RE_REF_NONE;
 }
-#if 0
-/* Duplicate patches, relocating instructions in the process. */
-/* Invariant: src only contains passthru epsilon xitions if its length == 0 */
-/* Invariant: incoming patch target == src->pc if its length != 0 */
-/* Quant Strat:
- * Compile the first one, and patch it to the following instruction
- * copy'n'paste it n times */
-/* For the infinite bound: when copy and pasting, make sure the outgoing is
- * linked back to the infinite split instruction */
-static void re_patch_dup(
-    re *r, re_compframe *src, re_u32 src_end, re_compframe *dst, re_u32 dest_pc)
-{
-  re_u32 i = src->patch_head;
-  assert(dst->patch_head == RE_REF_NONE && dst->patch_tail == RE_REF_NONE);
-  while (i) {
-    re_u32 target = i >> 1;
-    re_inst next;
-    /* Invariant: if there are are any patches that are not within src's
-     * instructions, then src describes an epsilon, so src must be empty. In
-     * other words, the only valid representation for an epsilon is zero
-     * instructions */
-    assert(RE_IMPLIES(
-        !(target >= src->pc && target < src_end), !(src_end - src->pc)));
-    if (target >= src->pc && target < src_end) {
-      next = re_patch_set(r, i, dest_pc);
-      re_patch_add(r, dst, target - src->pc + dst->pc, i & 1);
-    } else
-      re_patch_add(r, dst, target, i & 1);
-    i = i & 1 ? re_inst_param(next) : re_inst_next(next);
-  }
-  src->patch_head = src->patch_tail = RE_REF_NONE;
-}
-#endif
+
 static re_u32 re_compcc_array_key(re_buf(re_rune_range) cc, size_t idx)
 {
   return cc[idx].l;
@@ -2175,16 +2146,11 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
        *        +-----------------> */
       re_u32 child = args[0], min = args[1], max = args[2],
              is_greedy = !(frame.flags & RE_GROUP_FLAG_UNGREEDY) ^
-                         (type == RE_AST_TYPE_UQUANT),
-             child_end = re_prog_size(r);
+                         (type == RE_AST_TYPE_UQUANT);
       assert(min <= max);
       assert(RE_IMPLIES((min == RE_INFTY || max == RE_INFTY), min != max));
       assert(RE_IMPLIES(max == RE_INFTY, frame.idx <= min + 1));
-      /* a quantifier compiles to:
-       * - zero or more of child, then
-       * - zero or more quests of child, then
-       * - zero or one star of child */
-    again:
+    again: /* label is used to avoid recompiling child multiple times */
       if (frame.idx < min) { /* compile repetitions */
         re_patch_xfer(&child_frame, frame.idx ? &returned_frame : &frame);
         frame.child_ref = child;
@@ -2214,28 +2180,22 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
       }
       frame.idx++;
       if (frame.child_ref == child) {
-        if (returned_frame.root_ref == child) {
-          /* we've compiled the child already */
-          if (child_end - returned_frame.pc == 0) {
-            /* child was an epsilon */
-            returned_frame.pc = re_prog_size(r);
-          } else {
-            re_compframe next = {0};
-            next.pc = re_prog_size(r);
-            re_patch_apply(r, &child_frame, next.pc);
-            if ((err = re_compile_dup(
-                     r, &returned_frame, child_end, &next, child_end)))
-              return err;
-            next.root_ref = child;
-            returned_frame = next;
-            child_end = re_prog_size(r);
-          }
+        if (returned_frame.root_ref != child) {
+          /* we haven't yet compiled the child -- fall through */
+        } else {
+          /* we've compiled the child already -- we can duplicate its compiled
+           * instructions without actually compiling the child again */
+          re_compframe next_returned_frame = {0};
+          next_returned_frame.pc = re_prog_size(r);
+          re_patch_apply(r, &child_frame, next_returned_frame.pc);
+          if ((err = re_compile_dup(
+                   r, &returned_frame, my_pc, &next_returned_frame, my_pc)))
+            return err;
+          next_returned_frame.root_ref = child;
+          returned_frame = next_returned_frame;
           frame.child_ref = frame.root_ref;
           my_pc = re_prog_size(r);
           goto again;
-        } else {
-          /* we need to compile the child initially */
-          re_prog_size(r);
         }
       }
     } else if (type == RE_AST_TYPE_GROUP || type == RE_AST_TYPE_IGROUP) {
@@ -4085,7 +4045,7 @@ void d_ast_i(re *r, re_u32 root, re_u32 ilvl, int format)
     printf("}\n");
 }
 
-void d_ast(re *r, re_u32 root) { d_ast_i(r, root, 0, TERM); }
+void d_ast(re *r) { d_ast_i(r, r->ast_root, 0, TERM); }
 
 void d_ast_gv(re *r) { d_ast_i(r, r->ast_root, 0, GRAPHVIZ); }
 
