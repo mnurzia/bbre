@@ -2163,9 +2163,15 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
                  re_inst_emit(r, re_inst_make(RE_OPCODE_SPLIT, 0, 0), &frame)))
           return err;
         frame.pc = my_pc;
-        re_patch_add(r, &child_frame, my_pc, !is_greedy);
         re_patch_add(r, &frame, my_pc, is_greedy);
-        frame.child_ref = child;
+        re_patch_add(r, &child_frame, my_pc, !is_greedy);
+        if (min > 0 && max == RE_INFTY) {
+          /* optimization: for reps of the form {>0,}, jump back to previously
+           * compiled child instead of generating another */
+          re_patch_apply(r, &child_frame, returned_frame.pc);
+        } else
+          /* otherwise generate the child again */
+          frame.child_ref = child;
       } else if (max == RE_INFTY) { /* after inf. bound */
         assert(frame.idx == min + 1);
         re_patch_apply(r, &returned_frame, frame.pc);
