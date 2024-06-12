@@ -129,7 +129,7 @@ build/parser_fuzz: build parser_fuzz.c re.c re.h
 
 ## run the LLVM fuzzer on the parser
 parser_fuzz: build build/parser_fuzz
-	./build/parser_fuzz -artifact_prefix=build/fuzz/artifact/ -timeout=5 build/fuzz build/fuzz/new
+	./build/parser_fuzz -artifact_prefix=build/fuzz/artifact/ -timeout=5 build/fuzz build/fuzz/new || python tools/fuzz_tool.py fuzz_db.json import_parser build/fuzz/artifact/*
 
 ## import generated LLVM fuzzer artifacts as tests
 parser_fuzz_import: build

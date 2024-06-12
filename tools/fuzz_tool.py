@@ -349,6 +349,7 @@ def _cmd_show(args) -> int:
 def _import_tests(args, tests: list[Test]):
     doc, original_tests = _read_tests(args.tests_file)
     commit_hash = get_commit_hash()
+    import_index = 0
 
     for test in tests:
         try:
@@ -361,10 +362,11 @@ def _import_tests(args, tests: list[Test]):
             continue
         except ValueError:
             pass
-        new_identifier = f"{len(original_tests):04d}"
+        new_identifier = f"{len(original_tests) + import_index:04d}"
         test.stamp(TestStamp(new_identifier, commit_hash, datetime.now()))
         logger.debug("imported new test %s", new_identifier)
         doc.append(test.serialize())
+        import_index += 1
 
     args.tests_file.seek(0)
     args.tests_file.truncate()

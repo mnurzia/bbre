@@ -1210,7 +1210,11 @@ static int re_parse(re *r, const re_u8 *ts, size_t tsz, re_u32 *root)
           /* range expression */
           ch = re_parse_next(r);
           assert(ch == '-');
-          ch = re_parse_next(r);
+          if ((err = re_parse_next_or(
+                   r, &ch,
+                   "expected ending character after '-' for character class "
+                   "range expression")))
+            return err;
           if (ch == '\\') { /* start of escape */
             if ((err = re_parse_escape(r, (1 << RE_AST_TYPE_CHR))))
               return err;
@@ -1413,6 +1417,38 @@ static void re_patch_apply(re *r, re_compframe *p, re_u32 dest_pc)
     i = i & 1 ? re_inst_param(prev) : re_inst_next(prev);
   }
   p->patch_head = p->patch_tail = RE_REF_NONE;
+}
+
+/* Duplicate patches, relocating instructions in the process. */
+/* Invariant: src only contains passthru epsilon xitions if its length == 0 */
+/* Invariant: incoming patch target == src->pc if its length != 0 */
+/* Quant Strat:
+ * Compile the first one, and patch it to the following instruction
+ * copy'n'paste it n times */
+/* For the infinite bound: when copy and pasting, make sure the outgoing is
+ * linked back to the infinite split instruction */
+static void re_patch_dup(
+    re *r, re_compframe *src, re_u32 src_end, re_compframe *dst, re_u32 dest_pc)
+{
+  re_u32 i = src->patch_head;
+  assert(dst->patch_head == RE_REF_NONE && dst->patch_tail == RE_REF_NONE);
+  while (i) {
+    re_u32 target = i >> 1;
+    re_inst next;
+    /* Invariant: if there are are any patches that are not within src's
+     * instructions, then src describes an epsilon, so src must be empty. In
+     * other words, the only valid representation for an epsilon is zero
+     * instructions */
+    assert(RE_IMPLIES(
+        !(target >= src->pc && target < src_end), !(src_end - src->pc)));
+    if (target >= src->pc && target < src_end) {
+      next = re_patch_set(r, i, dest_pc);
+      re_patch_add(r, dst, target - src->pc + dst->pc, i & 1);
+    } else
+      re_patch_add(r, dst, target, i & 1);
+    i = i & 1 ? re_inst_param(next) : re_inst_next(next);
+  }
+  src->patch_head = src->patch_tail = RE_REF_NONE;
 }
 
 static re_u32 re_compcc_array_key(re_buf(re_rune_range) cc, size_t idx)
@@ -1991,6 +2027,37 @@ static int re_compcc(re *r, re_u32 root, re_compframe *frame, int reversed)
   return err;
 }
 
+int re_compile_dup(
+    re *r, re_compframe *src, re_u32 src_end, re_compframe *dst, re_u32 dest_pc)
+{
+  re_u32 i;
+  int err;
+  *dst = *src;
+  dst->pc = re_prog_size(r);
+  dst->patch_head = dst->patch_tail = RE_REF_NONE;
+  for (i = src->pc; i < src_end; i++) {
+    re_inst inst = re_prog_get(r, i), next_inst = inst;
+    switch (re_inst_opcode(inst)) {
+    case RE_OPCODE_SPLIT:
+      next_inst = re_inst_make(
+          re_inst_opcode(next_inst), re_inst_next(next_inst),
+          re_inst_param(next_inst) - src->pc + dst->pc);
+    case RE_OPCODE_RANGE:
+    case RE_OPCODE_MATCH:
+    case RE_OPCODE_ASSERT:
+      next_inst = re_inst_make(
+          re_inst_opcode(next_inst),
+          re_inst_next(next_inst) - src->pc + dst->pc,
+          re_inst_param(next_inst));
+    }
+    if ((err = re_inst_emit(r, next_inst, dst)))
+      return err;
+  }
+  /* now re-patch everything */
+  re_patch_dup(r, src, src_end, dst, dest_pc);
+  return 0;
+}
+
 static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
 {
   int err = 0;
@@ -2091,6 +2158,7 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
         re_patch_add(r, &child_frame, frame.pc, 1);
         frame.child_ref = args[1], frame.idx++;
       } else /* if (frame.idx == 2) */ { /* after right child */
+        assert(frame.idx == 2);
         re_patch_merge(r, &frame, &returned_frame);
       }
     } else if (type == RE_AST_TYPE_QUANT || type == RE_AST_TYPE_UQUANT) {
@@ -2105,10 +2173,17 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
       assert(min <= max);
       assert(RE_IMPLIES((min == RE_INFTY || max == RE_INFTY), min != max));
       assert(RE_IMPLIES(max == RE_INFTY, frame.idx <= min + 1));
-      if (frame.idx < min) { /* before minimum bound */
+      /* a quantifier compiles to:
+       * - zero or more repetitions, then
+       * - zero or more splits plus a repetition, then
+       * - zero or one infinite repetition */
+      if (frame.idx < min) { /* before minimum bound -- compile repetitions */
         re_patch_xfer(&child_frame, frame.idx ? &returned_frame : &frame);
         frame.child_ref = child;
-      } else if (max == RE_INFTY && frame.idx == min) { /* before inf. bound */
+      } else if (
+          frame.idx < max &&
+          RE_IMPLIES(
+              max == RE_INFTY, frame.idx < min + 1)) { /* compile one quest */
         re_patch_apply(r, frame.idx ? &returned_frame : &frame, my_pc);
         if ((err =
                  re_inst_emit(r, re_inst_make(RE_OPCODE_SPLIT, 0, 0), &frame)))
@@ -2120,21 +2195,13 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
       } else if (max == RE_INFTY) { /* after inf. bound */
         assert(frame.idx == min + 1);
         re_patch_apply(r, &returned_frame, frame.pc);
-      } else if (frame.idx < max) { /* before maximum bound */
-        re_patch_apply(r, frame.idx ? &returned_frame : &frame, my_pc);
-        if ((err =
-                 re_inst_emit(r, re_inst_make(RE_OPCODE_SPLIT, 0, 0), &frame)))
-          return err;
-        re_patch_add(r, &child_frame, my_pc, !is_greedy);
-        re_patch_add(r, &frame, my_pc, is_greedy);
-        frame.child_ref = child;
       } else if (frame.idx) { /* after maximum bound */
         assert(frame.idx == max);
         re_patch_merge(r, &frame, &returned_frame);
       } else {
+        /* epsilon */
         assert(!frame.idx);
         assert(frame.idx == max);
-        /* epsilon */
       }
       frame.idx++;
     } else if (type == RE_AST_TYPE_GROUP || type == RE_AST_TYPE_IGROUP) {

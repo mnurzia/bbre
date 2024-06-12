@@ -217,5 +217,38 @@
     "match_spans": [],
     "match_sets": [],
     "match_anchor": "B"
+  },
+  {
+    "identifier": "0013",
+    "commit_hash": "928baee22da12093d715435180e5a7929ff20420",
+    "created": "2024-06-06T21:19:11.985993",
+    "type": "parse",
+    "regexes": [
+      "-[Z\u0000`-"
+    ],
+    "should_parse": [
+      false
+    ],
+    "error_msgs": [
+      "expected ending character after '-' for character class range expression"
+    ],
+    "error_posns": [
+      6
+    ]
+  },
+  {
+    "identifier": "0014",
+    "commit_hash": "928baee22da12093d715435180e5a7929ff20420",
+    "created": "2024-06-06T22:16:31.181899",
+    "type": "match",
+    "regexes": [
+      "\\5r\\z@\u0000+\u0001\u0000\u0000\u0001+.+++]\u02c0\u007f\u007f.\u0000\u0000+][^]\u0004?w\\?\\w?w\\?\\wwwwww?\\w\u0000\u0000\u0000\u0000\u0004?w\\?\\w?w\\?\\wwwwww?\\w=?\\w?w\\?\\w\u000ewww?\\w\u0000ww+\\?\\?\\ww?wwww?w\\?\\w?w\\?\\ww=?\\w?w\\?\\ww\\?\\ww?\u0001\u0000\u0000\u0000\u0000\u0000\u0000\u0004?w\\?\\w?w\\?\\wwwwww?\\w\u0000\u0000\u0000\u0000\u0004?w\\?\\w?w\\?\\w\\?\\w\u000ewww?\\w\u0000ww+\\?\\?\\ww?wwww?w\\?\\w?w\\?\\ww=?\\w?w\\?\\w\u000ew\u000ewwwwww?\\w=?\\w?w\\?\\w\u000eZ\u0000\u0000\u0000www?\\w\u0000ww+\\?\\?\\ww?wwww?w\\?\\w?w\\?\\ww=?\\w?w\\?\\w\u000ew\u000ewww?\\www+\\?+*++++++++??++++++\\ww+.?++*++++++++++D\\D]++*++*++??++++++*+++++M\u0000+\"+]++*+++"
+    ],
+    "num_spans": 0,
+    "num_sets": 0,
+    "match_string": "\u00a0",
+    "match_spans": [],
+    "match_sets": [],
+    "match_anchor": "B"
   }
 ]
