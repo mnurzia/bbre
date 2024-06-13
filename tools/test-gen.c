@@ -1,5 +1,5 @@
+#include "../re.h"
 #include "mptest.h"
-#include "re.h"
 
 mptest__result assert_cc_match_raw(
     const char *regex, const re_u32 *ranges, re_u32 nrange, int invert);

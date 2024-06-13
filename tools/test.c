@@ -7,7 +7,7 @@
 
 #include "mptest.h"
 
-#include "re.h"
+#include "../re.h"
 
 #ifdef TEST_BULK
   #define TEST_NAMED_CLASS_RANGE_MAX 0x110000

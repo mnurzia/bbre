@@ -26,13 +26,15 @@ SRCS=re.c test.c test-gen.c
 GDB=ASAN_OPTIONS=halt_on_error=0 lldb --
 FORMAT=clang-format -i
 PYTHON=/usr/bin/env python3
-UDATA=$(PYTHON) tools/unicode_data.py --debug --db tools/.ucd.zip
+UDATA=$(PYTHON) scripts/unicode_data.py --debug --db scripts/.ucd.zip
 
 FUZZINGTON=build/fuzzington/release/fuzzington
 FUZZINGTON_ITERS=10000000
 OPEN_URL=$(PYTHON) -m webbrowser
 
 OUT_DIR=build/$(PROFILE)
+RE_C=../re.c
+RE_H=../re.h
 
 ## run target `test`
 all: test
@@ -44,9 +46,9 @@ clean:
 build:
 	mkdir -p build/{cov,fuzz/{artifact,new},fuzzington}
 
-test-gen.c: build fuzz_db.json tools/fuzz_tool.py tools/unicode_data.py
+test-gen.c: build fuzz_db.json scripts/fuzz_tool.py scripts/unicode_data.py
 	$(UDATA) gen_ccs test test-gen.c
-	$(PYTHON) tools/fuzz_tool.py fuzz_db.json gen_tests test-gen.c
+	$(PYTHON) scripts/fuzz_tool.py fuzz_db.json gen_tests test-gen.c
 	$(FORMAT) $@
 
 $(OUT_DIR): build
@@ -55,8 +57,8 @@ $(OUT_DIR): build
 $(OUT_DIR)/mptest.o: $(OUT_DIR) mptest.c
 	$(CC) $(CFLAGS) mptest.c -c -o $@
 
-$(OUT_DIR)/re.o: $(OUT_DIR) re.c
-	$(CC) $(CFLAGS) -DRE_CONFIG_HEADER_FILE=\"test-config.h\" re.c -c -o $@
+$(OUT_DIR)/re.o: $(OUT_DIR) $(RE_C)
+	$(CC) $(CFLAGS) -DRE_CONFIG_HEADER_FILE=\"$(shell realpath test-config.h)\" $(RE_C) -c -o $@
 
 $(OUT_DIR)/test.o: $(OUT_DIR) test.c
 	$(CC) $(CFLAGS) test.c -c -o $@
@@ -67,8 +69,8 @@ $(OUT_DIR)/test-gen.o: $(OUT_DIR) test-gen.c
 $(OUT_DIR)/re_test: $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test-gen.o
 	$(CC) $(CFLAGS) $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test-gen.o -o $@
 
-$(OUT_DIR)/re.S: $(OUT_DIR) re.c
-	$(CC) $(CFLAGS) re.c -S -fverbose-asm -o $@
+$(OUT_DIR)/re.S: $(OUT_DIR) $(RE_C)
+	$(CC) $(CFLAGS) $(RE_C) -S -fverbose-asm -o $@
 
 ## run tests
 test: $(OUT_DIR)/re_test
@@ -129,17 +131,17 @@ build/parser_fuzz: build parser_fuzz.c re.c re.h
 
 ## run the LLVM fuzzer on the parser
 parser_fuzz: build build/parser_fuzz
-	./build/parser_fuzz -artifact_prefix=build/fuzz/artifact/ -timeout=5 build/fuzz build/fuzz/new || python tools/fuzz_tool.py fuzz_db.json import_parser build/fuzz/artifact/*
+	./build/parser_fuzz -artifact_prefix=build/fuzz/artifact/ -timeout=5 build/fuzz build/fuzz/new || python scripts/fuzz_tool.py fuzz_db.json import_parser build/fuzz/artifact/*
 
 ## import generated LLVM fuzzer artifacts as tests
 parser_fuzz_import: build
 	$(UDATA) add_parser_fuzz_regression_tests fuzz_results.json build/fuzz/artifact/*
 
-$(OUT_DIR)/bench.o: $(OUT_DIR) bench.c re.c re.h
+$(OUT_DIR)/bench.o: $(OUT_DIR) bench.c $(RE_H)
 	$(CC) $(CFLAGS) bench.c -c -o $@
 
-$(OUT_DIR)/re-bench.o: $(OUT_DIR) re.c re.h
-	$(CC) $(CFLAGS) re.c -c -o $@
+$(OUT_DIR)/re-bench.o: $(OUT_DIR) $(RE_C) $(RE_H)
+	$(CC) $(CFLAGS) $(RE_C) -c -o $@
 
 $(OUT_DIR)/bench: $(OUT_DIR)/bench.o $(OUT_DIR)/re-bench.o
 	$(CC) $(CFLAGS) $(OUT_DIR)/bench.o $(OUT_DIR)/re-bench.o -o $@
@@ -152,27 +154,27 @@ bench: $(OUT_DIR)/bench
 prof: $(OUT_DIR)/bench
 	samply record ./$(OUT_DIR)/bench
 
-build/fuzzington/release/fuzzington: tools/fuzzington/src/main.rs tools/fuzzington/build.rs re.c re.h
-	cd tools/fuzzington;RUSTFLAGS="-C link-dead-code" cargo build --release --target-dir ../../build/fuzzington
+build/fuzzington/release/fuzzington: scripts/fuzzington/src/main.rs scripts/fuzzington/build.rs re.c re.h
+	cd scripts/fuzzington;RUSTFLAGS="-C link-dead-code" cargo build --release --target-dir ../../build/fuzzington
 
 ## run fuzzington, the semantic regex fuzz tester
 fuzzington_run: build build/fuzzington/release/fuzzington
-	$(PYTHON) tools/fuzz_tool.py --debug fuzz_db.json run_fuzzington --num-iterations $(FUZZINGTON_ITERS)
+	$(PYTHON) scripts/fuzz_tool.py --debug fuzz_db.json run_fuzzington --num-iterations $(FUZZINGTON_ITERS)
 
 ## generate data tables for re.c
 tables:
-	$(UDATA) gen_casefold re.c
-	$(PYTHON) tools/charclass_tree.py dfa re.c
-	$(UDATA) gen_ccs impl re.c
-	$(FORMAT) re.c
+	$(UDATA) gen_casefold $(RE_C)
+	$(PYTHON) scripts/charclass_tree.py dfa $(RE_C)
+	$(UDATA) gen_ccs impl $(RE_C)
+	$(FORMAT) $(RE_C)
 
 ## run clang-format/black on all .c/.py sources
 format:
-	$(FORMAT) re.c re.h test-gen.c test.c test-config.h viz.c parser_fuzz.c
-	$(PYTHON) -m black -q tools/*.py
+	$(FORMAT) $(RE_C) $(RE_H) test-gen.c test.c test-config.h viz.c parser_fuzz.c
+	$(PYTHON) -m black -q scripts/*.py
 
-build/viz: build viz.c re.c
-	$(CC) $(CFLAGS) viz.c re.c -o $@
+build/viz: build viz.c $(RE_C)
+	$(CC) $(CFLAGS) viz.c $(RE_C) -o $@
 
 viz_gv_%:
 	TVIZ=$$(mktemp); ./build/viz $(subst viz_gv_,,$@) | dot -Tsvg > "$$TVIZ"; $(OPEN_URL) file://$$(realpath $$TVIZ); sleep 0.5; rm -rf $$TVIZ
@@ -193,11 +195,11 @@ help_profiles:
 
 ## build documentation
 docs: build build/viz
-	$(PYTHON) tools/make_docs.py --folder docs --debug re.c internals/AST.md
-	$(PYTHON) tools/make_docs.py --folder docs --debug re.c internals/Charclass_Compiler.md
+	$(PYTHON) scripts/make_docs.py --folder docs --debug $(RE_C) internals/AST.md
+	$(PYTHON) scripts/make_docs.py --folder docs --debug $(RE_C) internals/Charclass_Compiler.md
 
 ## build a folder with re + tests for testing on other platforms
-port: build re.c test.c test-gen.c mptest.c mptest.h test-config.h re.h
+port: build $(RE_C) $(RE_H) test.c test-gen.c mptest.c mptest.h test-config.h
 	mkdir -p build/port
-	cp -f tools/port/* build/port
-	cp -f re.c test.c test-gen.c mptest.c mptest.h test-config.h re.h build/port
+	cp -f scripts/port/* build/port
+	cp -f $(RE_C) $(RE_H) test.c test-gen.c mptest.c mptest.h test-config.h build/port

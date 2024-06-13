@@ -5,11 +5,11 @@
 #include <stdlib.h>
 #include <time.h>
 
-#include "re.h"
+#include "../re.h"
 
-u32 xorshift32(u32 *state)
+re_u32 xorshift32(re_u32 *state)
 {
-  u32 x = *state;
+  re_u32 x = *state;
   x ^= x << 13;
   x ^= x >> 17;
   x ^= x << 5;
@@ -18,9 +18,9 @@ u32 xorshift32(u32 *state)
 
 void fill_rand(char *buf, size_t buf_size)
 {
-  u32 rng_state = 5;
+  re_u32 rng_state = 5;
   size_t i;
-  u32 *buf_4 = (u32 *)buf;
+  re_u32 *buf_4 = (re_u32 *)buf;
   assert(!(buf_size % 4));
   for (i = 0; i < buf_size / 4; i++) {
     buf_4[i] = xorshift32(&rng_state);
@@ -59,7 +59,7 @@ void bench_run(bench_func f, const char *bench_name)
 
 char run_pointer_chase(char *buf, size_t buf_size)
 {
-  u32 state = 10;
+  re_u32 state = 10;
   static char *pointers[256];
   size_t i;
   char *end = buf + buf_size;
@@ -68,8 +68,8 @@ char run_pointer_chase(char *buf, size_t buf_size)
     pointers[i] = (char *)(pointers + i);
   }
   for (i = 0; i < 65536; i++) {
-    u32 a = xorshift32(&state) & 0xFF;
-    u32 b = xorshift32(&state) & 0xFF;
+    re_u32 a = xorshift32(&state) & 0xFF;
+    re_u32 b = xorshift32(&state) & 0xFF;
     char *temp = pointers[a];
     pointers[a] = pointers[b];
     pointers[b] = temp;
@@ -85,8 +85,9 @@ char run_pointer_chase(char *buf, size_t buf_size)
 
 int use(int val)
 {
-  char s[50];
-  sprintf(s, "%i\n", val);
+  /* the compiler was REALLY trying to get me not to do this... */
+  const char fmt[] = {0, '%', 'i'};
+  fprintf(stdout, fmt, val);
   return 0;
 }
 

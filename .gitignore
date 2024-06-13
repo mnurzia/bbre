@@ -3,7 +3,7 @@ build/
 .cache/
 .DS_Store
 .vscode/
-tools/.ucd.zip
-tools/__pycache__
+tools/scripts/.ucd.zip
+tools/scripts/__pycache__
 .gitignore
 attic/
