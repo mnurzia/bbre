@@ -2468,9 +2468,7 @@ static int re_compile_internal(re *r, re_u32 ast_root, re_u32 reverse)
         re_patch_xfer(&child_frame, frame.idx ? &returned_frame : &frame);
         frame.child_ref = child;
       } else if (
-          frame.idx < max &&
-          RE_IMPLIES(
-              max == RE_INFTY, frame.idx < min + 1)) { /* compile one quest */
+          frame.idx < max && RE_IMPLIES(max == RE_INFTY, frame.idx < min + 1)) {
         /* optional repetitions (quests), generate a SPLIT and compile child */
         /*  in               out
          * ---> S -> [X...] ---->
@@ -2588,6 +2586,13 @@ static int re_compile_internal(re *r, re_u32 ast_root, re_u32 reverse)
             return err;
           if (!(flags & RE_GROUP_FLAG_SUBEXPRESSION))
             re_patch_add(r, &frame, my_pc, 0);
+          else {
+            /* for the ending match instruction that corresponds to a
+             * subexpression, don't link it anywhere: it signifies the end of a
+             * subpattern. */
+            /*  in
+             * ---> Mb -> [X] -> Me */
+          }
         } else
           /* non-capturing group: don't compile in anything */
           /*  in       out
@@ -2638,8 +2643,8 @@ static int re_compile_internal(re *r, re_u32 ast_root, re_u32 reverse)
     /*        +------+
      *  in   /        \
      * ---> S -> R ---+
-     *       \                 out
-     *        +---------> [X] ----> */
+     *       \
+     *        +---------> [X] */
     re_u32 dstar =
         r->entry
             [RE_PROG_ENTRY_DOTSTAR | (reverse ? RE_PROG_ENTRY_REVERSE : 0)] =
@@ -3895,12 +3900,12 @@ typedef struct re_builtin_cc {
   const char *name;
 } re_builtin_cc;
 
-/* re_builtin_cc_data is a bitstream representing compressed rune ranges. Raw
- * ranges are flattened into an array of integers so that even indices are range
- * minimums, and odd indices are range maximums. Then the the array is derived
- * into an array of deltas between adjacent integers. For compression
- * optimality, 1s and 2s are swapped. Then each integer (of which all are
- * positive, since the ranges always increase) becomes:
+/* builtin_cc_data is a bitstream representing compressed rune ranges.
+ * Normalized ranges are flattened into an array of integers so that even
+ * indices are range minimums, and odd indices are range maximums. Then the the
+ * array is derived into an array of deltas between adjacent integers. For
+ * compression optimality, 1s and 2s are swapped. Then each integer (of which
+ * all are positive, since the ranges always increase) becomes:
  *
  *  0         if integer == 0
  *  0         if integer == 1 && previous_integer == 0
@@ -3909,14 +3914,14 @@ typedef struct re_builtin_cc {
  *  1 1 <var> if integer  > 1 && previous_integer != 0
  *
  * where <var> is the variable-length encoding of the integer - 2, split into
- * 3-bit chunks. For example:
+ * 3-bit chunks, with a fourth bit added to signify 'done'. For example:
  *
  *  1   -> 1 0 0 0
  *  8   -> 0 0 0 1 1 0 0 0
  *  127 -> 1 1 1 1 1 1 1 1 1 1 0 0
  *
  * This was the best compression scheme I could come up with. For property data,
- * each integer uses about 5.1 bits on average (~0.63 bytes). This represents
+ * each integer uses about 5.14 bits on average (~0.63 bytes). This represents
  * about an 84% reduction in size compared to just storing each range as two
  * 32-bit integers. */
 
