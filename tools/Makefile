@@ -22,7 +22,7 @@ CFLAGS=\
 			 -std=c89\
 			 $(CFLAGS_$(PROFILE))
 
-SRCS=re.c test.c test-gen.c
+SRCS=re.c test.c test_gen.c
 GDB=ASAN_OPTIONS=halt_on_error=0 lldb --
 FORMAT=clang-format -i
 PYTHON=/usr/bin/env python3
@@ -46,9 +46,9 @@ clean:
 build:
 	mkdir -p build/{cov,fuzz/{artifact,new},fuzzington}
 
-test-gen.c: build fuzz_db.json scripts/fuzz_tool.py scripts/unicode_data.py
-	$(UDATA) gen_ccs test test-gen.c
-	$(PYTHON) scripts/fuzz_tool.py fuzz_db.json gen_tests test-gen.c
+test_gen.c: build fuzz_db.json scripts/fuzz_tool.py scripts/unicode_data.py
+	$(UDATA) gen_ccs test test_gen.c
+	$(PYTHON) scripts/fuzz_tool.py fuzz_db.json gen_tests test_gen.c
 	$(FORMAT) $@
 
 $(OUT_DIR): build
@@ -58,16 +58,16 @@ $(OUT_DIR)/mptest.o: $(OUT_DIR) mptest.c
 	$(CC) $(CFLAGS) mptest.c -c -o $@
 
 $(OUT_DIR)/re.o: $(OUT_DIR) $(RE_C)
-	$(CC) $(CFLAGS) -DRE_CONFIG_HEADER_FILE=\"$(shell realpath test-config.h)\" $(RE_C) -c -o $@
+	$(CC) $(CFLAGS) -DRE_CONFIG_HEADER_FILE=\"$(shell realpath test_config.h)\" $(RE_C) -c -o $@
 
 $(OUT_DIR)/test.o: $(OUT_DIR) test.c
 	$(CC) $(CFLAGS) test.c -c -o $@
 
-$(OUT_DIR)/test-gen.o: $(OUT_DIR) test-gen.c
-	$(CC) $(CFLAGS) test-gen.c -c -o $@
+$(OUT_DIR)/test_gen.o: $(OUT_DIR) test_gen.c
+	$(CC) $(CFLAGS) test_gen.c -c -o $@
 
-$(OUT_DIR)/re_test: $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test-gen.o
-	$(CC) $(CFLAGS) $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test-gen.o -o $@
+$(OUT_DIR)/re_test: $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test_gen.o
+	$(CC) $(CFLAGS) $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test_gen.o -o $@
 
 $(OUT_DIR)/re.S: $(OUT_DIR) $(RE_C)
 	$(CC) $(CFLAGS) $(RE_C) -S -fverbose-asm -o $@
@@ -170,7 +170,7 @@ tables:
 
 ## run clang-format/black on all .c/.py sources
 format:
-	$(FORMAT) $(RE_C) $(RE_H) test-gen.c test.c test-config.h viz.c parser_fuzz.c
+	$(FORMAT) $(RE_C) $(RE_H) test_gen.c test.c test_config.h viz.c parser_fuzz.c
 	$(PYTHON) -m black -q scripts/*.py
 
 build/viz: build viz.c $(RE_C)
@@ -199,7 +199,7 @@ docs: build build/viz
 	$(PYTHON) scripts/make_docs.py --folder docs --debug $(RE_C) internals/Charclass_Compiler.md
 
 ## build a folder with re + tests for testing on other platforms
-port: build $(RE_C) $(RE_H) test.c test-gen.c mptest.c mptest.h test-config.h
+port: build $(RE_C) $(RE_H) test.c test_gen.c mptest.c mptest.h test_config.h
 	mkdir -p build/port
 	cp -f scripts/port/* build/port
-	cp -f $(RE_C) $(RE_H) test.c test-gen.c mptest.c mptest.h test-config.h build/port
+	cp -f $(RE_C) $(RE_H) test.c test_gen.c mptest.c mptest.h test_config.h build/port

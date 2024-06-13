@@ -1,4 +1,4 @@
-#include "re.h"
+#include "../re.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
