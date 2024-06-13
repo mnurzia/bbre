@@ -1471,9 +1471,8 @@ static re_inst re_prog_get(const re *r, re_u32 pc) { return r->prog[pc]; }
 /* Get the size (number of instructions) in the program. */
 static re_u32 re_prog_size(const re *r) { return re_buf_size(r->prog); }
 
-/* The maximum instructions allowed in a program. */
+/* The maximum number ofinstructions allowed in a program. */
 #define RE_PROG_LIMIT_MAX_INSTS 100000
-#include <stdio.h>
 
 /* Append the instruction `i` to the program. Also add the relevant subpattern
  * index to the `prog_set_idxs` buf.*/
@@ -1956,18 +1955,24 @@ static void re_compcc_tree_reduce(
         /* something is in the cache, but it might not be a child */
         if (re_compcc_tree_eq(cc_tree_in, node_ref, found >> 1)) {
           if (prev_sibling_ref)
+            /* link us to our new previous sibling, if any */
             cc_tree_in[prev_sibling_ref].sibling_ref = found >> 1;
           if (!*my_out_ref)
+            /* if this was the first node processed, return it */
             *my_out_ref = found >> 1;
           return;
         }
       }
       probe += 1; /* linear probe */
     }
+    /* this could be slow because of the mod operation-- might be a good idea to
+     * use one of nullprogram's MST hash tables here */
     cc_ht[probe % re_buf_size(cc_ht)] = node_ref << 1 | 1;
     if (!*my_out_ref)
+      /* if this was the first node processed, return it */
       *my_out_ref = node_ref;
     if (node->child_ref) {
+      /* reduce our child tree */
       re_compcc_tree_reduce(r, cc_tree_in, cc_ht, node->child_ref, &child_ref);
       node->child_ref = child_ref;
     }
@@ -1978,33 +1983,46 @@ static void re_compcc_tree_reduce(
   return;
 }
 
+/* Convert our tree representation into actual NFA instructions.
+ * `node_ref` is the node to be rendered, `my_out_pc` is the PC of `node_ref`'s
+ * instructions, once they are compiled. `frame` allows us to keep track of
+ * patch exit points. */
 static int re_compcc_tree_render(
     re *r, re_buf(re_compcc_tree) cc_tree_in, re_u32 node_ref,
     re_u32 *my_out_pc, re_compframe *frame)
 {
   int err = 0;
-  re_u32 split_from = 0, my_pc = 0, range_pc = 0;
+  re_u32 split_from = 0 /* location of last compiled SPLIT instruction */,
+         my_pc = 0 /* PC of the current node being compiled */,
+         range_pc = 0 /* location of last compiled RANGE instruction */;
   while (node_ref) {
     re_compcc_tree *node = cc_tree_in + node_ref;
     if (node->aux.pc) {
+      /* we've already compiled this node */
       if (split_from) {
+        /* instead of compiling the node again, just jump to it and return */
         re_inst i = re_prog_get(r, split_from);
-        /* found our child, patch into it */
         i = re_inst_make(re_inst_opcode(i), re_inst_next(i), node->aux.pc);
         re_prog_set(r, split_from, i);
       } else
+        /* return the compiled instructions themselves if we haven't compiled
+         * anything else yet */
         assert(!*my_out_pc), *my_out_pc = node->aux.pc;
       return 0;
     }
+    /* node wasn't found in the cache: we need to compile it */
     my_pc = re_prog_size(r);
     if (split_from) {
+      /* if there was a previous SPLIT instruction: link it to the upcoming
+       * SPLIT/RANGE instruction */
       re_inst i = re_prog_get(r, split_from);
       /* patch into it */
       i = re_inst_make(re_inst_opcode(i), re_inst_next(i), my_pc);
       re_prog_set(r, split_from, i);
     }
     if (node->sibling_ref) {
-      /* need a split */
+      /* there are more siblings (alternations) left, so we need a SPLIT
+       * instruction */
       split_from = my_pc;
       if ((err = re_prog_emit(
                r, re_inst_make(RE_OPCODE_SPLIT, my_pc + 1, 0), frame)))
@@ -2012,6 +2030,7 @@ static int re_compcc_tree_render(
     }
     if (!*my_out_pc)
       *my_out_pc = my_pc;
+    /* compile this node's RANGE instruction */
     range_pc = re_prog_size(r);
     if ((err = re_prog_emit(
              r,
@@ -2023,16 +2042,19 @@ static int re_compcc_tree_render(
              frame)))
       return err;
     if (node->child_ref) {
-      /* need to down-compile */
+      /* node has children: need to down-compile */
       re_u32 their_pc = 0;
       re_inst i = re_prog_get(r, range_pc);
       if ((err = re_compcc_tree_render(
                r, cc_tree_in, node->child_ref, &their_pc, frame)))
         return err;
+      /* modify the primary branch target of the RANGE instruction to point to
+       * the child's instructions: this introduces a concatenation */
       i = re_inst_make(re_inst_opcode(i), their_pc, re_inst_param(i));
       re_prog_set(r, range_pc, i);
     } else {
-      /* terminal: patch out */
+      /* node does not have children: register its branch target as an exit
+       * point using the patch list */
       re_patch_add(r, frame, range_pc, 0);
     }
     node->aux.pc = my_pc;
@@ -2042,6 +2064,17 @@ static int re_compcc_tree_render(
   return 0;
 }
 
+/* Transpose the charclass compiler tree: reverse all concatenations. This is
+ * used for generating the reverse program.
+ * Takes the tree in `cc_tree_in`, and transposes it to `cc_tree_out`.
+ * `node_ref` is the node being reversed in `cc_tree_in`, while `root_ref` is
+ * the root node of `cc_tree_out`.
+ * `cc_tree_out` starts out as a carbon copy of `cc_tree_in`. This function
+ * reverses the concatenation edges in the graph, and ends up removing many of
+ * the alternation edges in the graph. As such, `cc_tree_out` does not contain
+ * the optimal DFA representing the reversed form of the charclass, but it
+ * contains roughly the same number of instructions as the forward program, so
+ * it is still compact. */
 static void re_compcc_tree_xpose(
     const re_buf(re_compcc_tree) cc_tree_in, re_buf(re_compcc_tree) cc_tree_out,
     re_u32 node_ref, re_u32 root_ref)
@@ -2049,6 +2082,8 @@ static void re_compcc_tree_xpose(
   const re_compcc_tree *src_node;
   re_compcc_tree *dst_node, *parent_node;
   assert(node_ref != RE_REF_NONE);
+  /* There needs to be enough space in the output tree. This space is
+   * preallocated to simplify this function's error checking. */
   assert(re_buf_size(cc_tree_out) == re_buf_size(cc_tree_in));
   while (node_ref) {
     re_u32 parent_ref = root_ref;
@@ -2056,119 +2091,169 @@ static void re_compcc_tree_xpose(
     dst_node = cc_tree_out + node_ref;
     dst_node->sibling_ref = dst_node->child_ref = RE_REF_NONE;
     if (src_node->child_ref != RE_REF_NONE)
+      /* if there is a child, reverse it first */
       re_compcc_tree_xpose(
-          cc_tree_in, cc_tree_out, (parent_ref = src_node->child_ref),
-          root_ref);
+          cc_tree_in, cc_tree_out,
+          /* if we had a child, then it becomes our parent, since node -> child
+             relationships are concatenative */
+          (parent_ref = src_node->child_ref), root_ref);
+    /* append ourselves to our new parent, which is either the root of the tree
+     * if we didn't have children, or our old child */
     parent_node = cc_tree_out + parent_ref;
     dst_node->sibling_ref = parent_node->child_ref;
     parent_node->child_ref = node_ref;
+    /* continue on to our sibling */
     node_ref = src_node->sibling_ref;
   }
 }
 
+/* This function is automatically generated and is defined later in this file.
+ */
 static int re_compcc_fold_range(
     re *r, re_u32 begin, re_u32 end, re_buf(re_rune_range) * cc_out);
 
-static int re_compcc(re *r, re_u32 root, re_compframe *frame, int reversed)
+/* Main function for the character class compiler. `ast_root` is the AST ID of
+ * the CC node, `frame` is the compiler frame allocated for that node, and
+ * `reversed` tells us whether to compile the charclass in reverse. */
+static int re_compcc(re *r, re_u32 ast_root, re_compframe *frame, int reversed)
 {
   int err = 0,
-      inverted = *re_ast_type_ref(r, frame->root_ref) == RE_AST_TYPE_ICC,
-      insensitive = !!(frame->flags & RE_GROUP_FLAG_INSENSITIVE);
-  re_u32 start_pc = 0;
+      is_inverted = *re_ast_type_ref(r, frame->root_ref) == RE_AST_TYPE_ICC,
+      is_insensitive = !!(frame->flags & RE_GROUP_FLAG_INSENSITIVE);
+  re_u32 start_pc = 0; /* start PC of the compiled charclass, this is filled in
+                          by rendertree() */
+  /* clear temporary buffers (their space is reserved) */
   re_buf_clear(&r->compcc.ranges), re_buf_clear(&r->compcc.ranges_2),
       re_buf_clear(&r->compcc.tree), re_buf_clear(&r->compcc.tree_2),
       re_buf_clear(&r->compcc.hash);
   /* push ranges */
-  while (root) {
-    re_u32 args[3], min, max;
-    re_ast_decompose(r, root, args);
-    root = args[0], min = args[1], max = args[2];
-    /* handle out-of-order ranges (min > max) */
+  while (ast_root) {
+    /* decompose the tree of [I]CC nodes into a flat array in compcc.ranges */
+    re_u32 args[3] /* ast arguments */, rune_lo /* lower bound of rune range */,
+        rune_hi /* upper bound of rune range */;
+    re_ast_decompose(r, ast_root, args);
+    ast_root = args[0], rune_lo = args[1], rune_hi = args[2];
     if ((err = re_buf_push(
              r, &r->compcc.ranges,
-             re_rune_range_make(min > max ? max : min, min > max ? min : max))))
+             re_rune_range_make(
+                 /* handle out-of-order ranges (lo > hi) */
+                 rune_lo > rune_hi ? rune_hi : rune_lo,
+                 rune_lo > rune_hi ? rune_lo : rune_hi))))
       return err;
   }
+  /* for now, we disallow empty charclasses */
   assert(re_buf_size(r->compcc.ranges));
+  /* sort and normalize ranges. This is done in a loop, because we may need to
+   * do it twice in case the charclass is marked as case-insensitive */
   do {
-    /* sort ranges */
+    /* sort ranges: we want all ranges to be ordered by their lower bound, this
+     * makes all subsequent steps O(1). Ideally, we want compilation time to be
+     * dominated by this step. */
     re_compcc_hsort(r->compcc.ranges);
-    /* normalize ranges */
+    /* normalize ranges: we want to eliminate all instances of range overlap,
+     * and we also want to merge adjacent ranges. */
     {
       size_t i;
-      re_rune_range cur, next;
+      re_rune_range next /* currently processed range */,
+          prev /* previously processed range, yet to be added to the array */;
       for (i = 0; i < re_buf_size(r->compcc.ranges); i++) {
-        cur = r->compcc.ranges[i];
-        assert(cur.l <= cur.h);
+        next = r->compcc.ranges[i];
+        assert(next.l <= next.h); /* ensure ranges are not swapped */
         if (!i)
-          next = re_rune_range_make(cur.l, cur.h); /* first range */
-        else if (cur.l <= next.h + 1) {
-          next.h = cur.h > next.h ? cur.h : next.h; /* intersection */
+          /* this is the first range */
+          prev = re_rune_range_make(next.l, next.h);
+        else if (next.l <= prev.h + 1) {
+          /* next intersects or is adjacent to prev, merge the two ranges by
+           * expanding prev so that it envelops both prev and next */
+          prev.h = next.h > prev.h ? next.h : prev.h;
         } else {
-          /* disjoint */
-          if ((err = re_buf_push(r, &r->compcc.ranges_2, next)))
+          /* next and prev are disjoint */
+          /* since ranges strictly increase, we know that prev does not
+           * intersect with any other range in the input array, so we can push
+           * it and move on. */
+          if ((err = re_buf_push(r, &r->compcc.ranges_2, prev)))
             return err;
-          next.l = cur.l, next.h = cur.h;
+          prev = next;
         }
       }
       assert(i); /* the charclass is never empty here */
-      if ((err = re_buf_push(r, &r->compcc.ranges_2, next)))
+      if ((err = re_buf_push(r, &r->compcc.ranges_2, prev)))
         return err;
-      if (insensitive) {
+      if (is_insensitive) {
         /* casefold normalized ranges */
         re_buf_clear(&r->compcc.ranges);
         for (i = 0; i < re_buf_size(r->compcc.ranges_2); i++) {
-          cur = r->compcc.ranges_2[i];
-          if ((err = re_buf_push(r, &r->compcc.ranges, cur)))
+          next = r->compcc.ranges_2[i];
+          if ((err = re_buf_push(r, &r->compcc.ranges, next)))
             return err;
-          if ((err = re_compcc_fold_range(r, cur.l, cur.h, &r->compcc.ranges)))
+          if ((err =
+                   re_compcc_fold_range(r, next.l, next.h, &r->compcc.ranges)))
             return err;
         }
         re_buf_clear(&r->compcc.ranges_2);
       }
     }
-  } while (insensitive && insensitive-- /* re-normalize by looping again */);
-  /* invert ranges */
-  if (inverted) {
-    re_u32 max = 0, i, write = 0, old_size = re_buf_size(r->compcc.ranges_2);
+  } while (is_insensitive &&
+           is_insensitive-- /* re-normalize by looping again */);
+  if (is_inverted) {
+    /* invert ranges in place, if appropriate */
+    re_u32 hi = 0 /* largest rune encountered plus one */,
+           read /* read index into `compcc_ranges_2` */,
+           write = 0 /* write index into `compcc_ranges_2` */,
+           old_size = re_buf_size(r->compcc.ranges_2);
     re_rune_range cur = re_rune_range_make(0, 0);
-    for (i = 0; i < old_size; i++) {
-      cur = r->compcc.ranges_2[i];
-      assert(write <= i);
-      if (cur.l > max) {
-        r->compcc.ranges_2[write++] = re_rune_range_make(max, cur.l - 1);
-        max = cur.h + 1;
+    for (read = 0; read < old_size; read++) {
+      cur = r->compcc.ranges_2[read];
+      /* for inverting in place to work, the write index must always lag the
+       * read index */
+      assert(write <= read);
+      if (cur.l > hi) {
+        /* create a range that 'fills in the gap' between the previous range and
+         * the next one */
+        r->compcc.ranges_2[write++] = re_rune_range_make(hi, cur.l - 1);
+        hi = cur.h + 1;
       }
     }
+    /* it is possible for the amount of inverted ranges to be greater than the
+     * amound of ranges (specifically, it may be exactly one greater if the
+     * input range does not extend to the maximum codepoint) */
     if ((err = re_buf_reserve(
              r, &r->compcc.ranges_2, write += (cur.h < RE_UTF_MAX))))
       return err;
+    /* make the final inverted range */
     if (cur.h < RE_UTF_MAX)
       r->compcc.ranges_2[write - 1] = re_rune_range_make(cur.h + 1, RE_UTF_MAX);
   }
   if (!re_buf_size(r->compcc.ranges_2)) {
-    /* empty charclass */
+    /* here, it's actually possible to have a charclass that matches no chars,
+     * consider the inversion of [\x00-\x{10FFFF}]. Since this case is so rare,
+     * we just stub it out by creating an assert that never matches. */
     if ((err = re_prog_emit(
              r,
              re_inst_make(
                  RE_OPCODE_ASSERT, 0, RE_ASSERT_WORD | RE_ASSERT_NOT_WORD),
              frame))) /* never matches */
       return err;
+    /* just return immediately, the code below assumes that there are actually
+     * ranges to compile */
     re_patch_add(r, frame, re_prog_size(r) - 1, 0);
     return err;
   }
-  /* build tree */
+  /* build the concat/alt tree */
   if ((err = re_compcc_tree_build(r, r->compcc.ranges_2, &r->compcc.tree)))
     return err;
-  /* hash tree */
+  /* hash the tree */
   if ((err = re_compcc_hash_init(r, r->compcc.tree, &r->compcc.hash)))
     return err;
   re_compcc_tree_hash(r, r->compcc.tree, 1);
-  /* reduce tree */
+  /* reduce the tree */
   re_compcc_tree_reduce(r, r->compcc.tree, r->compcc.hash, 2, &start_pc);
   if (reversed) {
+    /* optionally reverse the tree, if we're compiling in reverse mode */
     re_u32 i;
     re_buf(re_compcc_tree) tmp;
+    /* copy all nodes from compcc.tree to compcc.tree_2, this has the side
+     * effect of reserving exactly enough space to store the reversed tree */
     re_buf_clear(&r->compcc.tree_2);
     for (i = 1 /* skip sentinel */; i < re_buf_size(r->compcc.tree); i++) {
       if ((err = re_compcc_tree_new(
@@ -2178,19 +2263,22 @@ static int re_compcc(re *r, re_u32 root, re_compframe *frame, int reversed)
     }
     /* detach new root */
     r->compcc.tree_2[1].child_ref = RE_REF_NONE;
+    /* reverse all concatenation edges in the tree */
     re_compcc_tree_xpose(r->compcc.tree, r->compcc.tree_2, 2, 1);
-    /* potench reverse the tree if needed */
-
     tmp = r->compcc.tree;
     r->compcc.tree = r->compcc.tree_2;
     r->compcc.tree_2 = tmp;
   }
+  /* finally, generate the charclass' instructions */
   if ((err = re_compcc_tree_render(
            r, r->compcc.tree, start_pc, &start_pc, frame)))
     return err;
   return err;
 }
 
+/* Given a compiled program described by `src` and `src_end`, duplicate its
+ * instructions, and return the duplicate in `dst` as if it was just compiled by
+ * an iteration of the compiler loop. */
 int re_compile_dup(
     re *r, re_compframe *src, re_u32 src_end, re_compframe *dst, re_u32 dest_pc)
 {
@@ -2205,7 +2293,10 @@ int re_compile_dup(
     int should_patch[2] = {0, 0}, j;
     switch (re_inst_opcode(inst)) {
     case RE_OPCODE_SPLIT:
+      /* Any previous patches in `src` should have been linked to `dest_pc`. We
+       * can track them thusly. */
       should_patch[1] = re_inst_param(inst) == dest_pc;
+      /* Duplicate the instruction, relocating relative jumps. */
       next_inst = re_inst_make(
           re_inst_opcode(next_inst), re_inst_next(next_inst),
           should_patch[1] ? 0 : re_inst_param(next_inst) - src->pc + dst->pc);
@@ -2220,6 +2311,7 @@ int re_compile_dup(
     }
     if ((err = re_prog_emit(r, next_inst, dst)))
       return err;
+    /* if the above step found patch points, add them to `dst`'s patch list. */
     for (j = 0; j < 2; j++)
       if (should_patch[j])
         re_patch_add(r, dst, i - src->pc + dst->pc, j);
@@ -2227,39 +2319,63 @@ int re_compile_dup(
   return 0;
 }
 
-static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
+/* Main compiler function. Given an AST node through `ast_root`, convert it to
+ * compiled instructions. Optionally generate the reversed program if `reverse`
+ * is specified. */
+static int re_compile_internal(re *r, re_u32 ast_root, re_u32 reverse)
 {
   int err = 0;
-  re_compframe initial_frame = {0}, returned_frame = {0}, child_frame = {0};
-  re_u32 set_idx = 0, grp_idx = 1, tmp_cc_ast = RE_REF_NONE;
+  re_compframe
+      initial_frame = {0} /* compiler frame for `ast_root` */,
+      returned_frame =
+          {0} /* after a child node is compiled, its frame is returned here */,
+      child_frame = {
+          0}; /* filled when we want to request a child to be compiled */
+  re_u32 sub_idx = 0 /* current subpattern index */,
+         grp_idx = 1 /* current capture group index */,
+         tmp_cc_ast = RE_REF_NONE; /* temporary AST node for converting CHR
+                                      nodes into CC nodes */
+  /* add sentinel 0th instruction, this compiles to all zeroes */
   if (!re_prog_size(r) &&
       ((err = re_buf_push(r, &r->prog, re_inst_make(RE_OPCODE_RANGE, 0, 0))) ||
        (err = re_buf_push(r, &r->prog_set_idxs, 0))))
     return err;
   assert(re_prog_size(r) > 0);
-  initial_frame.root_ref = root;
+  /* create the frame for the root node */
+  initial_frame.root_ref = ast_root;
   initial_frame.child_ref = initial_frame.patch_head =
       initial_frame.patch_tail = RE_REF_NONE;
   initial_frame.idx = 0;
   initial_frame.pc = re_prog_size(r);
+  /* set the entry point for the forward or reverse program */
   r->entry[reverse ? RE_PROG_ENTRY_REVERSE : 0] = initial_frame.pc;
   if ((err = re_buf_push(r, &r->comp_stk, initial_frame)))
     return err;
   while (re_buf_size(r->comp_stk)) {
+    /* walk the AST tree recursively until we are done visiting nodes */
     re_compframe frame = *re_buf_peek(&r->comp_stk, 0);
-    re_ast_type type;
-    re_u32 args[4], my_pc = re_prog_size(r);
+    re_ast_type type; /* AST node type */
+    re_u32 args[4] /* AST node args */,
+        my_pc = re_prog_size(r); /* PC of this node's instructions */
+    /* we tell the compiler to visit a child by setting `frame.child_ref` to
+     * some value other than `frame.root_ref`. By default, we set it to
+     * `frame.root_ref` to disable visiting a child. */
     frame.child_ref = frame.root_ref;
+
     child_frame.child_ref = child_frame.root_ref = child_frame.patch_head =
         child_frame.patch_tail = RE_REF_NONE;
     child_frame.idx = child_frame.pc = 0;
-    type = *re_ast_type_ref(r, frame.root_ref);
+    type = *re_ast_type_ref(r, frame.root_ref); /* may return 0 if epsilon */
     if (frame.root_ref)
       re_ast_decompose(r, frame.root_ref, args);
     if (type == RE_AST_TYPE_CHR) {
+      /* single characters / codepoints, this corresponds to one or more RANGE
+       * instructions */
       re_patch_apply(r, &frame, my_pc);
-      if (args[0] < 128 &&
-          !(frame.flags & RE_GROUP_FLAG_INSENSITIVE)) { /* ascii */
+      if (args[0] < 128 && !(frame.flags & RE_GROUP_FLAG_INSENSITIVE)) {
+        /* ascii characters -- these are common enough that it's worth
+         * bypassing
+         * the charclass compiler and just emitting a single RANGE */
         /*  in     out
          * ---> R ----> */
         if ((err = re_prog_emit(
@@ -2277,15 +2393,19 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
             (err = re_ast_make(
                  r, RE_AST_TYPE_CC, RE_REF_NONE, 0, 0, &tmp_cc_ast)))
           return err;
+        /* create a CC node with a range comprising the single codepoint */
         *re_ast_param_ref(r, tmp_cc_ast, 1) =
             *re_ast_param_ref(r, tmp_cc_ast, 2) = args[0];
+        /* call the character class compiler on the single CC node */
         if ((err = re_compcc(r, tmp_cc_ast, &frame, reverse)))
           return err;
       }
     } else if (type == RE_AST_TYPE_ANYBYTE) {
+      /* \C */
       /*  in     out
        * ---> R ----> */
       re_patch_apply(r, &frame, my_pc);
+      /* emit a single range instruction that covers 0x00 - 0xFF */
       if ((err = re_prog_emit(
                r,
                re_inst_make(
@@ -2295,8 +2415,9 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
         return err;
       re_patch_add(r, &frame, my_pc, 0);
     } else if (type == RE_AST_TYPE_CAT) {
+      /* concatenation: compile child X, then compile and link it to child Y */
       /*  in              out
-       * ---> [A] -> [B] ----> */
+       * ---> [X] -> [Y] ----> */
       assert(/* frame.idx >= 0 && */ frame.idx <= 2);
       if (frame.idx == 0) {              /* before left child */
         frame.child_ref = args[reverse]; /* push left child */
@@ -2310,10 +2431,12 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
         re_patch_xfer(&frame, &returned_frame);
       }
     } else if (type == RE_AST_TYPE_ALT) {
+      /* alternation: generate a split instruction, then link its outputs to the
+       * compiled forms of X and Y */
       /*  in             out
-       * ---> S --> [A] ---->
+       * ---> S --> [X] ---->
        *       \         out
-       *        --> [B] ----> */
+       *        --> [Y] ----> */
       assert(/* frame.idx >= 0 && */ frame.idx <= 2);
       if (frame.idx == 0) { /* before left child */
         re_patch_apply(r, &frame, frame.pc);
@@ -2331,11 +2454,6 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
         re_patch_merge(r, &frame, &returned_frame);
       }
     } else if (type == RE_AST_TYPE_QUANT || type == RE_AST_TYPE_UQUANT) {
-      /*        +-------+
-       *  in   /         \
-       * ---> S -> [A] ---+
-       *       \             out
-       *        +-----------------> */
       re_u32 child = args[0], min = args[1], max = args[2],
              is_greedy = !(frame.flags & RE_GROUP_FLAG_UNGREEDY) ^
                          (type == RE_AST_TYPE_UQUANT);
@@ -2343,13 +2461,21 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
       assert(RE_IMPLIES((min == RE_INFTY || max == RE_INFTY), min != max));
       assert(RE_IMPLIES(max == RE_INFTY, frame.idx <= min + 1));
     again: /* label is used to avoid recompiling child multiple times */
-      if (frame.idx < min) { /* compile repetitions */
+      if (frame.idx < min) {
+        /* required repetitions, compile and concatenate child */
+        /*  in                 out
+         * ---> [X] -> [X...] ----> */
         re_patch_xfer(&child_frame, frame.idx ? &returned_frame : &frame);
         frame.child_ref = child;
       } else if (
           frame.idx < max &&
           RE_IMPLIES(
               max == RE_INFTY, frame.idx < min + 1)) { /* compile one quest */
+        /* optional repetitions (quests), generate a SPLIT and compile child */
+        /*  in               out
+         * ---> S -> [X...] ---->
+         *       \           out
+         *        +-------------> */
         re_patch_apply(r, frame.idx ? &returned_frame : &frame, my_pc);
         if ((err =
                  re_prog_emit(r, re_inst_make(RE_OPCODE_SPLIT, 0, 0), &frame)))
@@ -2360,18 +2486,37 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
         if (min > 0 && max == RE_INFTY) {
           /* optimization: for reps of the form {>0,}, jump back to previously
            * compiled child instead of generating another */
+          /*        +------+
+           *       /        \
+           * --> [X] -> S ---+
+           *             \      out
+           *              +----------> */
           re_patch_apply(r, &child_frame, returned_frame.pc);
         } else
           /* otherwise generate the child again */
           frame.child_ref = child;
-      } else if (max == RE_INFTY) { /* after inf. bound */
+      } else if (max == RE_INFTY) {
+        /* after inf. bound */
+        /* star, link child back to the split instruction generated above */
+        /*        +-------+
+         *  in   /         \
+         * ---> S -> [X] ---+
+         *       \             out
+         *        +-----------------> */
         assert(frame.idx == min + 1);
         re_patch_apply(r, &returned_frame, frame.pc);
-      } else if (frame.idx) { /* after maximum bound */
+      } else if (frame.idx) {
+        /* after maximum bound, finalize patches */
+        /*  in            out
+         * ---> S -> [X] ---->
+         *       \        out
+         *        +----------> */
         assert(frame.idx == max);
         re_patch_merge(r, &frame, &returned_frame);
       } else {
         /* epsilon */
+        /*  in  out  */
+        /* --------> */
         assert(!frame.idx);
         assert(frame.idx == max);
         assert(min == 0 && max == 0);
@@ -2397,17 +2542,21 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
         }
       }
     } else if (type == RE_AST_TYPE_GROUP || type == RE_AST_TYPE_IGROUP) {
-      /*  in                 out
-       * ---> M -> [A] -> M ----> */
+      /* groups: insert opening and closing match instructions, or nothing if
+       * the group is a noncapturing group and simply modifies flag state */
       re_u32 child = args[0], flags = args[1];
       frame.flags =
           flags &
           ~RE_GROUP_FLAG_SUBEXPRESSION; /* we shouldn't propagate this */
       if (!frame.idx) {                 /* before child */
+        /* before child */
         if (!(flags & RE_GROUP_FLAG_NONCAPTURING)) {
+          /* compile in the beginning match instruction */
+          /*  in      out
+           * ---> Mb ----> */
           re_patch_apply(r, &frame, my_pc);
           if (flags & RE_GROUP_FLAG_SUBEXPRESSION)
-            grp_idx = 0, frame.set_idx = ++set_idx;
+            grp_idx = 0, frame.set_idx = ++sub_idx;
           if ((err = re_prog_emit(
                    r,
                    re_inst_make(
@@ -2417,9 +2566,15 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
             return err;
           re_patch_add(r, &child_frame, my_pc, 0);
         } else
+          /* non-capturing group: don't compile in anything */
+          /*  in  out
+           * --------> */
           re_patch_xfer(&child_frame, &frame);
         frame.child_ref = child, frame.idx++;
       } else { /* after child */
+        /* compile in the ending match instruction */
+        /*  in                   out
+         * ---> Mb -> [X] -> Me ----> */
         if (!(flags & RE_GROUP_FLAG_NONCAPTURING)) {
           re_patch_apply(r, &returned_frame, my_pc);
           if ((err = re_prog_emit(
@@ -2434,13 +2589,20 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
           if (!(flags & RE_GROUP_FLAG_SUBEXPRESSION))
             re_patch_add(r, &frame, my_pc, 0);
         } else
+          /* non-capturing group: don't compile in anything */
+          /*  in       out
+           * ---> [X] ----> */
           re_patch_merge(r, &frame, &returned_frame);
       }
     } else if (type == RE_AST_TYPE_CC || type == RE_AST_TYPE_ICC) {
+      /* charclasses: pass off compilation to the character class compiler */
       re_patch_apply(r, &frame, my_pc);
       if ((err = re_compcc(r, frame.root_ref, &frame, reverse)))
         return err;
     } else if (type == RE_AST_TYPE_ASSERT) {
+      /* assertions: add a single ASSERT instruction */
+      /*  in     out
+       * ---> A ----> */
       re_u32 assert_flag = args[0];
       re_patch_apply(r, &frame, my_pc);
       if ((err = re_prog_emit(
@@ -2472,6 +2634,12 @@ static int re_compile_internal(re *r, re_u32 root, re_u32 reverse)
   assert(!re_buf_size(r->comp_stk));
   assert(!returned_frame.patch_head && !returned_frame.patch_tail);
   {
+    /* compile in a dotstar for unanchored matches */
+    /*        +------+
+     *  in   /        \
+     * ---> S -> R ---+
+     *       \                 out
+     *        +---------> [X] ----> */
     re_u32 dstar =
         r->entry
             [RE_PROG_ENTRY_DOTSTAR | (reverse ? RE_PROG_ENTRY_REVERSE : 0)] =
