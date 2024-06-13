@@ -4,69 +4,69 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "re.h"
+#include "bbre.h"
 
-#ifdef RE_CONFIG_HEADER_FILE
-  #include RE_CONFIG_HEADER_FILE
+#ifdef BBRE_CONFIG_HEADER_FILE
+  #include BBRE_CONFIG_HEADER_FILE
 #endif
 
-#define RE_REF_NONE 0
-#define RE_UTF_MAX  0x10FFFF
+#define BBRE_REF_NONE 0
+#define BBRE_UTF_MAX  0x10FFFF
 
 /* Macro for declaring a buffer. Serves mostly for readability. */
-#define re_buf(x) x *
+#define bbre_buf(x) x *
 
 /* Enumeration of AST types. */
-typedef enum re_ast_type {
+typedef enum bbre_ast_type {
   /* A single character: /a/ */
-  RE_AST_TYPE_CHR = 1,
+  BBRE_AST_TYPE_CHR = 1,
   /* The concatenation of two regular expressions: /lr/
    *   Argument 0: left child tree (AST)
    *   Argument 1: right child tree (AST) */
-  RE_AST_TYPE_CAT,
+  BBRE_AST_TYPE_CAT,
   /* The alternation of two regular expressions: /l|r/
    *   Argument 0: primary alternation tree (AST)
    *   Argument 1: secondary alternation tree (AST) */
-  RE_AST_TYPE_ALT,
+  BBRE_AST_TYPE_ALT,
   /* A repeated regular expression: /a+/
    *   Argument 0: child tree (AST)
    *   Argument 1: lower bound, always <= upper bound (number)
-   *   Argument 2: upper bound, might be the constant `RE_INFTY` (number) */
-  RE_AST_TYPE_QUANT,
+   *   Argument 2: upper bound, might be the constant `BBRE_INFTY` (number) */
+  BBRE_AST_TYPE_QUANT,
   /* Like `QUANT`, but not greedy: /(a*?)/
    *   Argument 0: child tree (AST)
    *   Argument 1: lower bound, always <= upper bound (number)
-   *   Argument 2: upper bound, might be the constant `RE_INFTY` (number) */
-  RE_AST_TYPE_UQUANT,
+   *   Argument 2: upper bound, might be the constant `BBRE_INFTY` (number) */
+  BBRE_AST_TYPE_UQUANT,
   /* A matching group: /(a)/
    *   Argument 0: child tree (AST)
    *   Argument 1: group flags, bitset of `enum group_flag` (number)
    *   Argument 2: scratch used by the parser to store old flags (number) */
-  RE_AST_TYPE_GROUP,
+  BBRE_AST_TYPE_GROUP,
   /* An inline group: /(?i)a/
    *   Argument 0: child tree (AST)
    *   Argument 1: group flags, bitset of `enum group_flag` (number)
    *   Argument 2: scratch used by the parser to store old flags (number) */
-  RE_AST_TYPE_IGROUP,
+  BBRE_AST_TYPE_IGROUP,
   /* A character class: /[a-zA-Z]/
-   *   Argument 0: RE_REF_NONE or another CLS node in the charclass (AST)
+   *   Argument 0: BBRE_REF_NONE or another CLS node in the charclass (AST)
    *   Argument 1: character range begin (number)
    *   Argument 2: character range end (number) */
-  RE_AST_TYPE_CC,
+  BBRE_AST_TYPE_CC,
   /* An inverted character class: /[^a-zA-Z]/
-   *   Argument 0: RE_REF_NONE or another CLS node in the charclass (AST)
+   *   Argument 0: BBRE_REF_NONE or another CLS node in the charclass (AST)
    *   Argument 1: character range begin (number)
    *   Argument 2: character range end (number) */
-  RE_AST_TYPE_ICC,
+  BBRE_AST_TYPE_ICC,
   /* Matches any byte: /\C/ */
-  RE_AST_TYPE_ANYBYTE,
+  BBRE_AST_TYPE_ANYBYTE,
   /* Empty assertion: /\b/
    *   Argument 0: assertion flags, bitset of `enum assert_flag` (number) */
-  RE_AST_TYPE_ASSERT
-} re_ast_type;
+  BBRE_AST_TYPE_ASSERT
+} bbre_ast_type;
 
 /* Length (number of arguments) for each AST type. */
-static const unsigned int re_ast_type_lens[] = {
+static const unsigned int bbre_ast_type_lens[] = {
     0, /* eps */
     1, /* CHR */
     2, /* CAT */
@@ -81,14 +81,14 @@ static const unsigned int re_ast_type_lens[] = {
     1, /* AASSERT */
 };
 
-typedef enum re_group_flag {
-  RE_GROUP_FLAG_INSENSITIVE = 1,   /* case-insensitive matching */
-  RE_GROUP_FLAG_MULTILINE = 2,     /* ^$ match beginning/end of each line */
-  RE_GROUP_FLAG_DOTNEWLINE = 4,    /* . matches \n */
-  RE_GROUP_FLAG_UNGREEDY = 8,      /* ungreedy quantifiers */
-  RE_GROUP_FLAG_NONCAPTURING = 16, /* non-capturing group (?:...) */
-  RE_GROUP_FLAG_SUBEXPRESSION = 32 /* set-match component */
-} re_group_flag;
+typedef enum bbre_group_flag {
+  BBRE_GROUP_FLAG_INSENSITIVE = 1,   /* case-insensitive matching */
+  BBRE_GROUP_FLAG_MULTILINE = 2,     /* ^$ match beginning/end of each line */
+  BBRE_GROUP_FLAG_DOTNEWLINE = 4,    /* . matches \n */
+  BBRE_GROUP_FLAG_UNGREEDY = 8,      /* ungreedy quantifiers */
+  BBRE_GROUP_FLAG_NONCAPTURING = 16, /* non-capturing group (?:...) */
+  BBRE_GROUP_FLAG_SUBEXPRESSION = 32 /* set-match component */
+} bbre_group_flag;
 
 /* Stack frame for the compiler, used to track a single AST node being
  * compiled. */
@@ -128,135 +128,138 @@ typedef enum re_group_flag {
  * in Russ Cox's series on regexps. A linked list, backed by the actual words
  * inside of the instructions, stores the exit points. This list is tracked
  * `patch_head` and `patch_tail`. */
-typedef struct re_compframe {
-  re_u32 root_ref, /* reference to the AST node being compiled */
-      child_ref,   /* reference to the child AST node to be compiled next */
-      idx,         /* used keep track of repetition index */
-      patch_head,  /* head of the outgoing patch linked list */
-      patch_tail,  /* tail of the outgoing patch linked list */
-      pc,          /* location of first instruction compiled for this node */
-      flags,       /* group flags in effect (INSENSITIVE, etc.) */
-      set_idx;     /* index of the current pattern being compiled */
-} re_compframe;
+typedef struct bbre_compframe {
+  bbre_u32 root_ref, /* reference to the AST node being compiled */
+      child_ref,     /* reference to the child AST node to be compiled next */
+      idx,           /* used keep track of repetition index */
+      patch_head,    /* head of the outgoing patch linked list */
+      patch_tail,    /* tail of the outgoing patch linked list */
+      pc,            /* location of first instruction compiled for this node */
+      flags,         /* group flags in effect (INSENSITIVE, etc.) */
+      set_idx;       /* index of the current pattern being compiled */
+} bbre_compframe;
 
 /* Bitset of empty assertions. */
-typedef enum re_assert_flag {
-  RE_ASSERT_LINE_BEGIN = 1, /* ^ */
-  RE_ASSERT_LINE_END = 2,   /* $ */
-  RE_ASSERT_TEXT_BEGIN = 4, /* \A */
-  RE_ASSERT_TEXT_END = 8,   /* \z */
-  RE_ASSERT_WORD = 16,      /* \w */
-  RE_ASSERT_NOT_WORD = 32   /* \W */
-} re_assert_flag;
+typedef enum bbre_assert_flag {
+  BBRE_ASSERT_LINE_BEGIN = 1, /* ^ */
+  BBRE_ASSERT_LINE_END = 2,   /* $ */
+  BBRE_ASSERT_TEXT_BEGIN = 4, /* \A */
+  BBRE_ASSERT_TEXT_END = 8,   /* \z */
+  BBRE_ASSERT_WORD = 16,      /* \w */
+  BBRE_ASSERT_NOT_WORD = 32   /* \W */
+} bbre_assert_flag;
 
 /* How many bits inside of the `opcode_next` field we allocate to the opcode
  * itself: currently this is just 2 as we only have exactly 4 distinct opcodes,
  * but it could be increased later if we wish to add more */
-#define RE_INST_OPCODE_BITS 2
+#define BBRE_INST_OPCODE_BITS 2
 
-typedef enum re_opcode {
-  RE_OPCODE_RANGE, /* matches a range of bytes */
-  RE_OPCODE_SPLIT, /* forks execution into two paths */
-  RE_OPCODE_MATCH, /* writes the current string position into a submatch */
-  RE_OPCODE_ASSERT /* continue execution if zero-width assertion */
-} re_opcode;
+typedef enum bbre_opcode {
+  BBRE_OPCODE_RANGE, /* matches a range of bytes */
+  BBRE_OPCODE_SPLIT, /* forks execution into two paths */
+  BBRE_OPCODE_MATCH, /* writes the current string position into a submatch */
+  BBRE_OPCODE_ASSERT /* continue execution if zero-width assertion */
+} bbre_opcode;
 
 /* Compiled program instruction. */
-typedef struct re_inst {
+typedef struct bbre_inst {
   /* opcode_next is the opcode and the next program counter (primary branch
    * target), and param is opcode-specific data */
   /*                     3   2   2   2   1   1   0   0   0  */
   /*                      2   8   4   0   6   2   8   4   0 */
-  re_u32 opcode_next; /* / nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnoo */
-                      /* \          n = next PC, o = opcode */
-  re_u32 param;       /* / 0000000000000000hhhhhhhhllllllll (RANGE) */
-                      /* \      h = high byte, l = low byte (RANGE) */
-                      /* / NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN (SPLIT) */
-                      /* \            N = secondary next PC (SPLIT) */
-                      /* / iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiie (MATCH) */
-                      /* \     i = group idx, e = start/end (MATCH) */
-                      /* / 00000000000000000000000000aaaaaa (ASSERT) */
-                      /* \                  a = assert_flag (ASSERT) */
-} re_inst;
+  bbre_u32 opcode_next; /* / nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnoo */
+                        /* \          n = next PC, o = opcode */
+  bbre_u32 param;       /* / 0000000000000000hhhhhhhhllllllll (RANGE) */
+                        /* \      h = high byte, l = low byte (RANGE) */
+                        /* / NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN (SPLIT) */
+                        /* \            N = secondary next PC (SPLIT) */
+                        /* / iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiie (MATCH) */
+                        /* \     i = group idx, e = start/end (MATCH) */
+                        /* / 00000000000000000000000000aaaaaa (ASSERT) */
+                        /* \                  a = assert_flag (ASSERT) */
+} bbre_inst;
 
 /* Represents an inclusive range of bytes. */
-typedef struct re_byte_range {
-  re_u8 l, /* min ordinal */
-      h;   /* max ordinal */
-} re_byte_range;
+typedef struct bbre_byte_range {
+  bbre_u8 l, /* min ordinal */
+      h;     /* max ordinal */
+} bbre_byte_range;
 
 /* Represents an inclusive range of runes. */
-typedef struct re_rune_range {
-  re_u32 l, /* min ordinal */
-      h;    /* max ordinal */
-} re_rune_range;
+typedef struct bbre_rune_range {
+  bbre_u32 l, /* min ordinal */
+      h;      /* max ordinal */
+} bbre_rune_range;
 
 /* Auxiliary data for tree nodes used for accelerating compilation. */
-typedef union re_compcc_tree_aux {
-  re_u32 hash, /* node hash, used for tree reduction */
+typedef union bbre_compcc_tree_aux {
+  bbre_u32 hash, /* node hash, used for tree reduction */
       pc; /* compiled location, nonzero if this node was compiled already */
-} re_compcc_tree_aux;
+} bbre_compcc_tree_aux;
 
 /* Tree node for the character class compiler. */
-typedef struct re_compcc_tree {
-  re_u32 range,           /* range of bytes this node matches */
-      child_ref,          /* concatenation */
-      sibling_ref;        /* alternation */
-  re_compcc_tree_aux aux; /* node hash OR cached PC TODO: replace with union */
-} re_compcc_tree;
+typedef struct bbre_compcc_tree {
+  bbre_u32 range,  /* range of bytes this node matches */
+      child_ref,   /* concatenation */
+      sibling_ref; /* alternation */
+  bbre_compcc_tree_aux
+      aux; /* node hash OR cached PC TODO: replace with union */
+} bbre_compcc_tree;
 
 /* Internal storage used for the character class compiler. It uses enough state
  * that it definitely warrants its own struct. */
-typedef struct re_compcc_data {
-  re_buf(re_rune_range) ranges;
-  re_buf(re_rune_range) ranges_2;
-  re_buf(re_compcc_tree) tree;
-  re_buf(re_compcc_tree) tree_2;
-  re_buf(re_u32) hash;
-} re_compcc_data;
+typedef struct bbre_compcc_data {
+  bbre_buf(bbre_rune_range) ranges;
+  bbre_buf(bbre_rune_range) ranges_2;
+  bbre_buf(bbre_compcc_tree) tree;
+  bbre_buf(bbre_compcc_tree) tree_2;
+  bbre_buf(bbre_u32) hash;
+} bbre_compcc_data;
 
 /* Bit flags to identify program entry points in the `entry` field of `re`. */
-typedef enum re_prog_entry {
-  RE_PROG_ENTRY_REVERSE = 1, /* reverse execution */
-  RE_PROG_ENTRY_DOTSTAR = 2, /* .* before execution (unanchored match) */
-  RE_PROG_ENTRY_MAX = 4
-} re_prog_entry;
+typedef enum bbre_prog_entry {
+  BBRE_PROG_ENTRY_REVERSE = 1, /* reverse execution */
+  BBRE_PROG_ENTRY_DOTSTAR = 2, /* .* before execution (unanchored match) */
+  BBRE_PROG_ENTRY_MAX = 4
+} bbre_prog_entry;
 
 /* A set of regular expressions. */
 struct re {
-  re_alloc alloc;                  /* allocator function */
-  re_buf(re_u32) ast;              /* AST arena */
-  re_u32 ast_root,                 /* AST root node reference */
-      ast_sets;                    /* number of subpatterns */
-  re_buf(re_u32) arg_stk;          /* parser argument stack */
-  re_buf(re_u32) op_stk;           /* parser operator stack */
-  re_buf(re_compframe) comp_stk;   /* compiler frame stack (see re_compframe) */
-  re_buf(re_inst) prog;            /* compiled program */
-  re_buf(re_u32) prog_set_idxs;    /* pattern index for each instruction */
-  re_compcc_data compcc;           /* data used for the charclass compiler */
-  re_u32 entry[RE_PROG_ENTRY_MAX]; /* program entrypoints (see RE_PROG_ENTRY) */
-  const re_u8 *expr;               /* input parser expression */
-  size_t expr_pos,                 /* current position in expr */
-      expr_size;                   /* number of bytes in expr */
-  const char *error;               /* error message, if any */
+  bbre_alloc alloc;           /* allocator function */
+  bbre_buf(bbre_u32) ast;     /* AST arena */
+  bbre_u32 ast_root,          /* AST root node reference */
+      ast_sets;               /* number of subpatterns */
+  bbre_buf(bbre_u32) arg_stk; /* parser argument stack */
+  bbre_buf(bbre_u32) op_stk;  /* parser operator stack */
+  bbre_buf(
+      bbre_compframe) comp_stk; /* compiler frame stack (see bbre_compframe) */
+  bbre_buf(bbre_inst) prog;     /* compiled program */
+  bbre_buf(bbre_u32) prog_set_idxs; /* pattern index for each instruction */
+  bbre_compcc_data compcc;          /* data used for the charclass compiler */
+  bbre_u32 entry[BBRE_PROG_ENTRY_MAX]; /* program entrypoints (see
+                                          BBRE_PROG_ENTRY) */
+  const bbre_u8 *expr;                 /* input parser expression */
+  size_t expr_pos,                     /* current position in expr */
+      expr_size;                       /* number of bytes in expr */
+  const char *error;                   /* error message, if any */
   size_t error_pos; /* position the error was encountered in expr */
 };
 
 /* Helper macro for assertions. */
-#define RE_IMPLIES(subject, predicate) (!(subject) || (predicate))
+#define BBRE_IMPLIES(subject, predicate) (!(subject) || (predicate))
 
 /* Allocate memory for an instance of `re`. */
-static void *re_ialloc(const re *r, size_t prev, size_t next, void *ptr)
+static void *bbre_ialloc(const bbre *r, size_t prev, size_t next, void *ptr)
 {
   return r->alloc(prev, next, ptr);
 }
 
-#ifndef RE_DEFAULT_ALLOC
+#ifndef BBRE_DEFAULT_ALLOC
 /* Default allocation function. Hooks stdlib malloc. */
-static void *re_default_alloc(size_t prev, size_t next, void *ptr)
+static void *bbre_default_alloc(size_t prev, size_t next, void *ptr)
 {
   if (next) {
-    (void)prev, assert(RE_IMPLIES(!prev, !ptr));
+    (void)prev, assert(BBRE_IMPLIES(!prev, !ptr));
     return realloc(ptr, next);
   } else if (ptr) {
     free(ptr);
@@ -264,7 +267,7 @@ static void *re_default_alloc(size_t prev, size_t next, void *ptr)
   return NULL;
 }
 
-  #define RE_DEFAULT_ALLOC re_default_alloc
+  #define BBRE_DEFAULT_ALLOC bbre_default_alloc
 #endif
 
 /* For a library like this, you really need a convenient way to represent
@@ -325,34 +328,37 @@ static void *re_default_alloc(size_t prev, size_t next, void *ptr)
  * for this library. */
 
 /* Dynamic array header, stored before the data pointer in memory. */
-typedef struct re_buf_hdr {
+typedef struct bbre_buf_hdr {
   size_t size, alloc;
-} re_buf_hdr;
+} bbre_buf_hdr;
 
 /* Since we store the dynamic array as a raw T*, a natural implementaion might
  * represent an empty array as NULL. However, this complicates things-- size
  * checks must always have a branch to check for NULL, the grow routine has more
  * scary codepaths, etc. To make code simpler, there exists a special sentinel
  * value that contains the empty array. */
-static re_buf_hdr re_buf_sentinel = {0};
+static bbre_buf_hdr bbre_buf_sentinel = {0};
 
 /* Given a dynamic array, get its header. */
-static re_buf_hdr *re_buf_get_hdr(void *buf) { return ((re_buf_hdr *)buf) - 1; }
+static bbre_buf_hdr *bbre_buf_get_hdr(void *buf)
+{
+  return ((bbre_buf_hdr *)buf) - 1;
+}
 
 /* Given a dynamic array, get its size. */
-static size_t re_buf_size_t(void *buf) { return re_buf_get_hdr(buf)->size; }
+static size_t bbre_buf_size_t(void *buf) { return bbre_buf_get_hdr(buf)->size; }
 
 /* Reserve enough memory to set the array's size to `size`. Note that this is
  * different from C++'s std::vector::reserve() in that it actually sets the used
  * size of the dynamic array. The caller must initialize the newly available
  * elements. */
-static int re_buf_reserve_t(const re *r, void **buf, size_t size)
+static int bbre_buf_reserve_t(const bbre *r, void **buf, size_t size)
 {
-  re_buf_hdr *hdr = NULL;
+  bbre_buf_hdr *hdr = NULL;
   size_t next_alloc;
   void *next_ptr;
   assert(buf && *buf);
-  hdr = re_buf_get_hdr(*buf);
+  hdr = bbre_buf_get_hdr(*buf);
   next_alloc = hdr->alloc ? hdr->alloc : /* sentinel */ 1;
   if (size <= hdr->alloc) {
     hdr->size = size;
@@ -360,11 +366,12 @@ static int re_buf_reserve_t(const re *r, void **buf, size_t size)
   }
   while (next_alloc < size)
     next_alloc *= 2;
-  next_ptr = re_ialloc(
-      r, hdr->alloc ? sizeof(re_buf_hdr) + hdr->alloc : /* sentinel */ 0,
-      sizeof(re_buf_hdr) + next_alloc, hdr->alloc ? hdr : /* sentinel */ NULL);
+  next_ptr = bbre_ialloc(
+      r, hdr->alloc ? sizeof(bbre_buf_hdr) + hdr->alloc : /* sentinel */ 0,
+      sizeof(bbre_buf_hdr) + next_alloc,
+      hdr->alloc ? hdr : /* sentinel */ NULL);
   if (!next_ptr)
-    return RE_ERR_MEM;
+    return BBRE_ERR_MEM;
   hdr = next_ptr;
   hdr->alloc = next_alloc;
   hdr->size = size;
@@ -373,125 +380,128 @@ static int re_buf_reserve_t(const re *r, void **buf, size_t size)
 }
 
 /* Initialize an empty dynamic array. */
-static void re_buf_init_t(void **b)
+static void bbre_buf_init_t(void **b)
 {
-  *b = &re_buf_sentinel + 1;
-  assert(re_buf_get_hdr(*b)->size == 0 && re_buf_get_hdr(*b)->alloc == 0);
+  *b = &bbre_buf_sentinel + 1;
+  assert(bbre_buf_get_hdr(*b)->size == 0 && bbre_buf_get_hdr(*b)->alloc == 0);
 }
 
 /* Destroy a dynamic array. */
-static void re_buf_destroy_t(const re *r, void **buf)
+static void bbre_buf_destroy_t(const bbre *r, void **buf)
 {
-  re_buf_hdr *hdr;
+  bbre_buf_hdr *hdr;
   assert(buf && *buf);
-  hdr = re_buf_get_hdr(*buf);
+  hdr = bbre_buf_get_hdr(*buf);
   if (hdr->alloc)
-    re_ialloc(r, sizeof(*hdr) + hdr->alloc, 0, hdr);
+    bbre_ialloc(r, sizeof(*hdr) + hdr->alloc, 0, hdr);
 }
 
 /* Increase size by `incr`. */
-static int re_buf_grow_t(const re *r, void **buf, size_t incr)
+static int bbre_buf_grow_t(const bbre *r, void **buf, size_t incr)
 {
   assert(buf);
-  return re_buf_reserve_t(r, buf, re_buf_size_t(*buf) + incr);
+  return bbre_buf_reserve_t(r, buf, bbre_buf_size_t(*buf) + incr);
 }
 
 /* Get the last element index of the dynamic array. */
-static size_t re_buf_tail_t(void *buf, size_t decr)
+static size_t bbre_buf_tail_t(void *buf, size_t decr)
 {
-  return re_buf_get_hdr(buf)->size - decr;
+  return bbre_buf_get_hdr(buf)->size - decr;
 }
 
 /* Pop the last element of the array, returning its index in storage units. */
-size_t re_buf_pop_t(void *buf, size_t decr)
+size_t bbre_buf_pop_t(void *buf, size_t decr)
 {
   size_t out;
-  re_buf_hdr *hdr;
+  bbre_buf_hdr *hdr;
   assert(buf);
-  out = re_buf_tail_t(buf, decr);
-  hdr = re_buf_get_hdr(buf);
+  out = bbre_buf_tail_t(buf, decr);
+  hdr = bbre_buf_get_hdr(buf);
   assert(hdr->size >= decr);
   hdr->size -= decr;
   return out;
 }
 
 /* Clear the buffer, without freeing its backing memory */
-void re_buf_clear(void *buf)
+void bbre_buf_clear(void *buf)
 {
   void *sbuf;
   assert(buf);
   sbuf = *(void **)buf;
   if (!sbuf)
     return;
-  re_buf_get_hdr(sbuf)->size = 0;
+  bbre_buf_get_hdr(sbuf)->size = 0;
 }
 
 /* Initialize a dynamic array. */
-#define re_buf_init(b) re_buf_init_t((void **)b)
+#define bbre_buf_init(b) bbre_buf_init_t((void **)b)
 
 /* Get the element size of a dynamic array. */
-#define re_buf_esz(b) sizeof(**(b))
+#define bbre_buf_esz(b) sizeof(**(b))
 
 /* Push an element. */
-#define re_buf_push(r, b, e)                                                   \
-  (re_buf_grow_t((r), (void **)(b), re_buf_esz(b))                             \
-       ? RE_ERR_MEM                                                            \
-       : (((*b)[re_buf_tail_t((void *)(*b), re_buf_esz(b)) / re_buf_esz(b)]) = \
-              (e),                                                             \
+#define bbre_buf_push(r, b, e)                                                 \
+  (bbre_buf_grow_t((r), (void **)(b), bbre_buf_esz(b))                         \
+       ? BBRE_ERR_MEM                                                          \
+       : (((*b)                                                                \
+               [bbre_buf_tail_t((void *)(*b), bbre_buf_esz(b)) /               \
+                bbre_buf_esz(b)]) = (e),                                       \
           0))
 
 /* Set the size to `n`. */
-#define re_buf_reserve(r, b, n)                                                \
-  (re_buf_reserve_t(r, (void **)(b), re_buf_esz(b) * (n)))
+#define bbre_buf_reserve(r, b, n)                                              \
+  (bbre_buf_reserve_t(r, (void **)(b), bbre_buf_esz(b) * (n)))
 
 /* Pop an element. */
-#define re_buf_pop(b)                                                          \
-  ((*(b))[re_buf_pop_t((void *)(*b), re_buf_esz(b)) / re_buf_esz(b)])
+#define bbre_buf_pop(b)                                                        \
+  ((*(b))[bbre_buf_pop_t((void *)(*b), bbre_buf_esz(b)) / bbre_buf_esz(b)])
 
 /* Get a pointer to `n` elements from the end. */
-#define re_buf_peek(b, n)                                                      \
-  ((*b) + re_buf_tail_t((void *)(*b), re_buf_esz(b)) / re_buf_esz(b) - (n))
+#define bbre_buf_peek(b, n)                                                    \
+  ((*b) + bbre_buf_tail_t((void *)(*b), bbre_buf_esz(b)) / bbre_buf_esz(b) -   \
+   (n))
 
 /* Get the size. */
-#define re_buf_size(b) (re_buf_size_t((void *)(b)) / sizeof(*(b)))
+#define bbre_buf_size(b) (bbre_buf_size_t((void *)(b)) / sizeof(*(b)))
 
 /* Destroy a dynamic array. */
-#define re_buf_destroy(r, b) (re_buf_destroy_t((r), (void **)(b)))
+#define bbre_buf_destroy(r, b) (bbre_buf_destroy_t((r), (void **)(b)))
 
-static int re_parse(re *r, const re_u8 *s, size_t sz, re_u32 *root);
+static int bbre_parse(bbre *r, const bbre_u8 *s, size_t sz, bbre_u32 *root);
 
-re *re_init(const char *regex)
+bbre *bbre_init(const char *regex)
 {
   int err;
-  re *r;
-  if ((err = re_init_full(&r, regex, strlen(regex), NULL))) {
-    re_destroy(r);
+  bbre *r;
+  if ((err = bbre_init_full(&r, regex, strlen(regex), NULL))) {
+    bbre_destroy(r);
     r = NULL;
   }
   return r;
 }
 
-int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
+int bbre_init_full(bbre **pr, const char *regex, size_t n, bbre_alloc alloc)
 {
   int err = 0;
-  re *r;
+  bbre *r;
   if (!alloc)
-    alloc = re_default_alloc;
-  r = alloc(0, sizeof(re), NULL);
+    alloc = bbre_default_alloc;
+  r = alloc(0, sizeof(bbre), NULL);
   *pr = r;
   if (!r)
-    return (err = RE_ERR_MEM);
+    return (err = BBRE_ERR_MEM);
   r->alloc = alloc;
-  re_buf_init(&r->ast);
+  bbre_buf_init(&r->ast);
   r->ast_root = r->ast_sets = 0;
-  re_buf_init(&r->arg_stk), re_buf_init(&r->op_stk), re_buf_init(&r->comp_stk);
-  re_buf_init(&r->compcc.ranges), re_buf_init(&r->compcc.tree),
-      re_buf_init(&r->compcc.ranges_2), re_buf_init(&r->compcc.tree_2),
-      re_buf_init(&r->compcc.hash);
-  re_buf_init(&r->prog), re_buf_init(&r->prog_set_idxs);
+  bbre_buf_init(&r->arg_stk), bbre_buf_init(&r->op_stk),
+      bbre_buf_init(&r->comp_stk);
+  bbre_buf_init(&r->compcc.ranges), bbre_buf_init(&r->compcc.tree),
+      bbre_buf_init(&r->compcc.ranges_2), bbre_buf_init(&r->compcc.tree_2),
+      bbre_buf_init(&r->compcc.hash);
+  bbre_buf_init(&r->prog), bbre_buf_init(&r->prog_set_idxs);
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
-    if ((err = re_parse(r, (const re_u8 *)regex, n, &r->ast_root))) {
+    if ((err = bbre_parse(r, (const bbre_u8 *)regex, n, &r->ast_root))) {
       return err;
     } else {
       r->ast_sets = 1;
@@ -500,108 +510,116 @@ int re_init_full(re **pr, const char *regex, size_t n, re_alloc alloc)
   return err;
 }
 
-void re_destroy(re *r)
+void bbre_destroy(bbre *r)
 {
   if (!r)
     return;
-  re_buf_destroy(r, (void **)&r->ast);
-  re_buf_destroy(r, &r->op_stk), re_buf_destroy(r, &r->arg_stk),
-      re_buf_destroy(r, &r->comp_stk);
-  re_buf_destroy(r, &r->compcc.ranges), re_buf_destroy(r, &r->compcc.ranges_2),
-      re_buf_destroy(r, &r->compcc.tree), re_buf_destroy(r, &r->compcc.tree_2),
-      re_buf_destroy(r, &r->compcc.hash);
-  re_buf_destroy(r, &r->prog);
-  re_buf_destroy(r, (void **)&r->prog_set_idxs);
+  bbre_buf_destroy(r, (void **)&r->ast);
+  bbre_buf_destroy(r, &r->op_stk), bbre_buf_destroy(r, &r->arg_stk),
+      bbre_buf_destroy(r, &r->comp_stk);
+  bbre_buf_destroy(r, &r->compcc.ranges),
+      bbre_buf_destroy(r, &r->compcc.ranges_2),
+      bbre_buf_destroy(r, &r->compcc.tree),
+      bbre_buf_destroy(r, &r->compcc.tree_2),
+      bbre_buf_destroy(r, &r->compcc.hash);
+  bbre_buf_destroy(r, &r->prog);
+  bbre_buf_destroy(r, (void **)&r->prog_set_idxs);
   r->alloc(sizeof(*r), 0, r);
 }
 
-size_t re_get_error(re *r, const char **out, size_t *pos)
+size_t bbre_get_error(bbre *r, const char **out, size_t *pos)
 {
   *out = r->error, *pos = r->error_pos;
   return r->error ? strlen(r->error) : 0;
 }
 
 /* Make a byte range inline; more convenient than initializing a struct. */
-static re_byte_range re_byte_range_make(re_u8 l, re_u8 h)
+static bbre_byte_range bbre_byte_range_make(bbre_u8 l, bbre_u8 h)
 {
-  re_byte_range out;
+  bbre_byte_range out;
   out.l = l, out.h = h;
   return out;
 }
 
 /* Pack a byte range into a u32, low byte first. */
-static re_u32 re_byte_range_to_u32(re_byte_range br)
+static bbre_u32 bbre_byte_range_to_u32(bbre_byte_range br)
 {
-  return ((re_u32)br.l) | ((re_u32)br.h) << 8;
+  return ((bbre_u32)br.l) | ((bbre_u32)br.h) << 8;
 }
 
 /* Unpack a byte range from a u32. */
-static re_byte_range re_u32_to_byte_range(re_u32 u)
+static bbre_byte_range bbre_u32_to_byte_range(bbre_u32 u)
 {
-  return re_byte_range_make(u & 0xFF, u >> 8 & 0xFF);
+  return bbre_byte_range_make(u & 0xFF, u >> 8 & 0xFF);
 }
 
 /* Check if two byte ranges are adjacent (right directly supersedes left) */
-static int re_byte_range_is_adjacent(re_byte_range left, re_byte_range right)
+static int
+bbre_byte_range_is_adjacent(bbre_byte_range left, bbre_byte_range right)
 {
-  return ((re_u32)left.h) + 1 == ((re_u32)right.l);
+  return ((bbre_u32)left.h) + 1 == ((bbre_u32)right.l);
 }
 
 /* Make a rune range inline. */
-static re_rune_range re_rune_range_make(re_u32 l, re_u32 h)
+static bbre_rune_range bbre_rune_range_make(bbre_u32 l, bbre_u32 h)
 {
-  re_rune_range out;
+  bbre_rune_range out;
   out.l = l, out.h = h;
   return out;
 }
 
 /* Make a new AST node within the regular expression. */
-static int re_ast_make(
-    re *r, re_ast_type type, re_u32 p0, re_u32 p1, re_u32 p2, re_u32 *out_node)
+static int bbre_ast_make(
+    bbre *r, bbre_ast_type type, bbre_u32 p0, bbre_u32 p1, bbre_u32 p2,
+    bbre_u32 *out_node)
 {
-  re_u32 args[4], i;
+  bbre_u32 args[4], i;
   int err;
   args[0] = type, args[1] = p0, args[2] = p1, args[3] = p2;
-  if (type && !re_buf_size(r->ast) &&
-      (err = re_ast_make(r, 0, 0, 0, 0, out_node))) /* sentinel node */
+  if (type && !bbre_buf_size(r->ast) &&
+      (err = bbre_ast_make(r, 0, 0, 0, 0, out_node))) /* sentinel node */
     return err;
-  *out_node = re_buf_size(r->ast);
-  for (i = 0; i < 1 + re_ast_type_lens[type]; i++)
-    if ((err = re_buf_push(r, &r->ast, args[i])))
+  *out_node = bbre_buf_size(r->ast);
+  for (i = 0; i < 1 + bbre_ast_type_lens[type]; i++)
+    if ((err = bbre_buf_push(r, &r->ast, args[i])))
       return err;
   return 0;
 }
 
 /* Decompose a given AST node, given its reference, into `out_args`. */
-static void re_ast_decompose(re *r, re_u32 node, re_u32 *out_args)
+static void bbre_ast_decompose(bbre *r, bbre_u32 node, bbre_u32 *out_args)
 {
-  re_u32 *in_args = r->ast + node;
-  memcpy(out_args, in_args + 1, re_ast_type_lens[*in_args] * sizeof(re_u32));
+  bbre_u32 *in_args = r->ast + node;
+  memcpy(
+      out_args, in_args + 1, bbre_ast_type_lens[*in_args] * sizeof(bbre_u32));
 }
 
 /* Get the type of the given AST node. */
-static re_u32 *re_ast_type_ref(re *r, re_u32 node) { return r->ast + node; }
+static bbre_u32 *bbre_ast_type_ref(bbre *r, bbre_u32 node)
+{
+  return r->ast + node;
+}
 
 /* Get a pointer to the `n`'th parameter of the given AST node. */
-static re_u32 *re_ast_param_ref(re *r, re_u32 node, re_u32 n)
+static bbre_u32 *bbre_ast_param_ref(bbre *r, bbre_u32 node, bbre_u32 n)
 {
-  assert(re_ast_type_lens[*re_ast_type_ref(r, node)] > n);
+  assert(bbre_ast_type_lens[*bbre_ast_type_ref(r, node)] > n);
   return r->ast + node + 1 + n;
 }
 
 /* Add another regular expression to the set of regular expressions matched by
  * this `re` instance. */
-int re_union(re *r, const char *regex, size_t n)
+int bbre_union(bbre *r, const char *regex, size_t n)
 {
   int err = 0;
-  re_u32 next_reg, next_root;
+  bbre_u32 next_reg, next_root;
   if (!r->ast_sets) {
     r->ast_sets++;
-    return re_parse(r, (const re_u8 *)regex, n, &r->ast_root);
+    return bbre_parse(r, (const bbre_u8 *)regex, n, &r->ast_root);
   }
-  if ((err = re_parse(r, (const re_u8 *)regex, n, &next_reg)) ||
-      (err = re_ast_make(
-           r, RE_AST_TYPE_ALT, r->ast_root, next_reg, 0, &next_root)))
+  if ((err = bbre_parse(r, (const bbre_u8 *)regex, n, &next_reg)) ||
+      (err = bbre_ast_make(
+           r, BBRE_AST_TYPE_ALT, r->ast_root, next_reg, 0, &next_root)))
     return err;
   r->ast_root = next_root;
   r->ast_sets++;
@@ -618,12 +636,12 @@ int re_union(re *r, const char *regex, size_t n)
  * tens. The second table, utf8_dfa_trans[], encodes, for each state, the next
  * state for each equivalence class. This encoding allows the DFA to be
  * reasonably compact while still fairly fast. The third table,
- * re_utf8_dfa_shift[], encodes the amount of significant bits to ignore for
+ * bbre_utf8_dfa_shift[], encodes the amount of significant bits to ignore for
  * each input byte when accumulating the 32-bit rune. */
 /*{ Generated by `charclass_tree.py dfa` */
-#define RE_UTF8_DFA_NUM_CLASS 13
-#define RE_UTF8_DFA_NUM_STATE 9
-static const re_u8 re_utf8_dfa_class[256] = {
+#define BBRE_UTF8_DFA_NUM_CLASS 13
+#define BBRE_UTF8_DFA_NUM_STATE 9
+static const bbre_u8 bbre_utf8_dfa_class[256] = {
     0,  0,  0,  0,  0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0,  0,  0,  0,  0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0,  0,  0,  0,  0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -635,8 +653,8 @@ static const re_u8 re_utf8_dfa_class[256] = {
     4,  4,  5,  5,  5,  5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
     5,  5,  5,  5,  5,  5, 5, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 9, 9,
     10, 11, 11, 11, 12, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4};
-static const re_u8
-    re_utf8_dfa_trans[RE_UTF8_DFA_NUM_STATE][RE_UTF8_DFA_NUM_CLASS] = {
+static const bbre_u8
+    bbre_utf8_dfa_trans[BBRE_UTF8_DFA_NUM_STATE][BBRE_UTF8_DFA_NUM_CLASS] = {
         {0, 8, 8, 8, 8, 3, 7, 2, 6, 2, 5, 4, 1},
         {8, 2, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8},
         {8, 3, 3, 3, 8, 8, 8, 8, 8, 8, 8, 8, 8},
@@ -646,15 +664,16 @@ static const re_u8
         {8, 3, 3, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8},
         {8, 8, 8, 3, 8, 8, 8, 8, 8, 8, 8, 8, 8}
 };
-static const re_u8 re_utf8_dfa_shift[RE_UTF8_DFA_NUM_CLASS] = {
+static const bbre_u8 bbre_utf8_dfa_shift[BBRE_UTF8_DFA_NUM_CLASS] = {
     0, 0, 0, 0, 2, 2, 3, 3, 3, 3, 4, 4, 4};
 
 /*} Generated by `charclass_tree.py dfa` */
 
-static re_u32 re_utf8_decode(re_u32 *state, re_u32 *codep, re_u32 byte)
+static bbre_u32
+bbre_utf8_decode(bbre_u32 *state, bbre_u32 *codep, bbre_u32 byte)
 {
   /* Lookup the equivalence class for the input byte. */
-  re_u32 cls = re_utf8_dfa_class[byte];
+  bbre_u32 cls = bbre_utf8_dfa_class[byte];
   *codep =
       *state
           /* If we're getting a continuation byte, accumulate the 6 MSB encoded
@@ -662,31 +681,31 @@ static re_u32 re_utf8_decode(re_u32 *state, re_u32 *codep, re_u32 byte)
           ? (byte & 0x3F) | (*codep << 6)
           /* Otherwise, we got a start byte (or just an ASCII byte); reset codep
              and accumulate the relevant MSB according to the shift table. */
-          : (0xFF >> re_utf8_dfa_shift[cls]) & byte;
+          : (0xFF >> bbre_utf8_dfa_shift[cls]) & byte;
   /* Then execute the transition encoded in the transition table. */
-  *state = re_utf8_dfa_trans[*state][cls];
+  *state = bbre_utf8_dfa_trans[*state][cls];
   return *state;
 }
 
 /* Create and propagate a parsing error.
- * Returns `RE_ERR_PARSE` unconditionally. */
-static int re_parse_err(re *r, const char *msg)
+ * Returns `BBRE_ERR_PARSE` unconditionally. */
+static int bbre_parse_err(bbre *r, const char *msg)
 {
   r->error = msg, r->error_pos = r->expr_pos;
-  return RE_ERR_PARSE;
+  return BBRE_ERR_PARSE;
 }
 
 /* Check if we are at the end of the regex string. */
-static int re_parse_has_more(re *r) { return r->expr_pos != r->expr_size; }
+static int bbre_parse_has_more(bbre *r) { return r->expr_pos != r->expr_size; }
 
 /* Get the next input codepoint. This function assumes that there is a valid
  * codepoint left in the input string, so it will abort the program if there is
  * none. */
-static re_u32 re_parse_next(re *r)
+static bbre_u32 bbre_parse_next(bbre *r)
 {
-  re_u32 state = 0, codep;
-  assert(re_parse_has_more(r));
-  while (re_utf8_decode(&state, &codep, r->expr[r->expr_pos++]) != 0)
+  bbre_u32 state = 0, codep;
+  assert(bbre_parse_has_more(r));
+  while (bbre_utf8_decode(&state, &codep, r->expr[r->expr_pos++]) != 0)
     assert(r->expr_pos < r->expr_size);
   assert(state == 0);
   return codep;
@@ -694,63 +713,63 @@ static re_u32 re_parse_next(re *r)
 
 /* Get the next input codepoint, or raise a parse error with the given error
  * message if there is no more input. */
-static int re_parse_next_or(re *r, re_u32 *codep, const char *else_msg)
+static int bbre_parse_next_or(bbre *r, bbre_u32 *codep, const char *else_msg)
 {
   assert(else_msg);
-  if (!re_parse_has_more(r))
-    return re_parse_err(r, else_msg);
-  *codep = re_parse_next(r);
+  if (!bbre_parse_has_more(r))
+    return bbre_parse_err(r, else_msg);
+  *codep = bbre_parse_next(r);
   return 0;
 }
 
 /* Check that the input string is well-formed UTF-8. */
-static int re_parse_checkutf8(re *r)
+static int bbre_parse_checkutf8(bbre *r)
 {
-  re_u32 state = 0, codep;
+  bbre_u32 state = 0, codep;
   while (r->expr_pos < r->expr_size &&
-         re_utf8_decode(&state, &codep, r->expr[r->expr_pos]) !=
-             RE_UTF8_DFA_NUM_STATE - 1)
+         bbre_utf8_decode(&state, &codep, r->expr[r->expr_pos]) !=
+             BBRE_UTF8_DFA_NUM_STATE - 1)
     r->expr_pos++;
   if (state != 0)
-    return re_parse_err(r, "invalid utf-8 sequence");
+    return bbre_parse_err(r, "invalid utf-8 sequence");
   r->expr_pos = 0;
   return 0;
 }
 
 /* Without advancing the parser, check the next character. */
-static re_u32 re_peek_next(re *r)
+static bbre_u32 bbre_peek_next(bbre *r)
 {
   size_t prev_pos = r->expr_pos;
-  re_u32 out = re_parse_next(r);
+  bbre_u32 out = bbre_parse_next(r);
   r->expr_pos = prev_pos;
   return out;
 }
 
 /* Maximum repetition count for quantifiers. */
-#define RE_LIMIT_REPETITION_COUNT 100000
+#define BBRE_LIMIT_REPETITION_COUNT 100000
 
 /* Sentinel value to represent an infinite repetition. */
-#define RE_INFTY (RE_LIMIT_REPETITION_COUNT + 1)
+#define BBRE_INFTY (BBRE_LIMIT_REPETITION_COUNT + 1)
 
 /* Given nodes R_1..R_N on the argument stack, fold them into a single CAT
  * node. If there are no nodes on the stack, create an epsilon node.
- * Returns `RE_ERR_MEM` if out of memory. */
-static int re_fold(re *r)
+ * Returns `BBRE_ERR_MEM` if out of memory. */
+static int bbre_fold(bbre *r)
 {
   int err = 0;
-  if (!re_buf_size(r->arg_stk)) {
+  if (!bbre_buf_size(r->arg_stk)) {
     /* arg_stk: | */
-    return re_buf_push(r, &r->arg_stk, /* epsilon */ RE_REF_NONE);
+    return bbre_buf_push(r, &r->arg_stk, /* epsilon */ BBRE_REF_NONE);
     /* arg_stk: | eps |*/
   }
-  while (re_buf_size(r->arg_stk) > 1) {
+  while (bbre_buf_size(r->arg_stk) > 1) {
     /* arg_stk: | ... | R_N-1 | R_N | */
-    re_u32 right, left, rest;
-    right = re_buf_pop(&r->arg_stk);
-    left = *re_buf_peek(&r->arg_stk, 0);
-    if ((err = re_ast_make(r, RE_AST_TYPE_CAT, left, right, 0, &rest)))
+    bbre_u32 right, left, rest;
+    right = bbre_buf_pop(&r->arg_stk);
+    left = *bbre_buf_peek(&r->arg_stk, 0);
+    if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CAT, left, right, 0, &rest)))
       return err;
-    *re_buf_peek(&r->arg_stk, 0) = rest;
+    *bbre_buf_peek(&r->arg_stk, 0) = rest;
     /* arg_stk: | ... | R_N-1R_N | */
   }
   /* arg_stk: | R1R2...Rn | */
@@ -760,85 +779,89 @@ static int re_fold(re *r)
 /* Given a node R on the argument stack and an arbitrary number of ALT nodes at
  * the end of the operator stack, fold and finish each ALT node into a single
  * resulting ALT node on the argument stack.
- * Returns `RE_ERR_MEM` if out of memory. */
-static void re_fold_alts(re *r, re_u32 *flags)
+ * Returns `BBRE_ERR_MEM` if out of memory. */
+static void bbre_fold_alts(bbre *r, bbre_u32 *flags)
 {
-  assert(re_buf_size(r->arg_stk) == 1);
+  assert(bbre_buf_size(r->arg_stk) == 1);
   /* First pop all inline groups. */
-  while (re_buf_size(r->op_stk) &&
-         *re_ast_type_ref(r, *re_buf_peek(&r->op_stk, 0)) ==
-             RE_AST_TYPE_IGROUP) {
+  while (bbre_buf_size(r->op_stk) &&
+         *bbre_ast_type_ref(r, *bbre_buf_peek(&r->op_stk, 0)) ==
+             BBRE_AST_TYPE_IGROUP) {
     /* arg_stk: |  R  | */
     /* op_stk:  | ... | (S) | */
-    re_u32 igrp = re_buf_pop(&r->op_stk), cat = *re_ast_param_ref(r, igrp, 0),
-           old_flags = *re_ast_param_ref(r, igrp, 2);
-    *re_ast_param_ref(r, igrp, 0) = *re_buf_peek(&r->arg_stk, 0);
+    bbre_u32 igrp = bbre_buf_pop(&r->op_stk),
+             cat = *bbre_ast_param_ref(r, igrp, 0),
+             old_flags = *bbre_ast_param_ref(r, igrp, 2);
+    *bbre_ast_param_ref(r, igrp, 0) = *bbre_buf_peek(&r->arg_stk, 0);
     *flags = old_flags;
-    *re_ast_param_ref(r, cat, 1) = igrp;
-    *re_buf_peek(&r->arg_stk, 0) = cat;
+    *bbre_ast_param_ref(r, cat, 1) = igrp;
+    *bbre_buf_peek(&r->arg_stk, 0) = cat;
     /* arg_stk: | S(R)| */
     /* op_stk:  | ... | */
   }
-  assert(re_buf_size(r->arg_stk) == 1);
+  assert(bbre_buf_size(r->arg_stk) == 1);
   /* arg_stk: |  R  | */
   /* op_stk:  | ... | */
-  if (re_buf_size(r->op_stk) &&
-      *re_ast_type_ref(r, *re_buf_peek(&r->op_stk, 0)) == RE_AST_TYPE_ALT) {
+  if (bbre_buf_size(r->op_stk) &&
+      *bbre_ast_type_ref(r, *bbre_buf_peek(&r->op_stk, 0)) ==
+          BBRE_AST_TYPE_ALT) {
     /* op_stk:  | ... |  A  | */
     /* finish the last alt */
-    *re_ast_param_ref(r, *re_buf_peek(&r->op_stk, 0), 1) =
-        *re_buf_peek(&r->arg_stk, 0);
+    *bbre_ast_param_ref(r, *bbre_buf_peek(&r->op_stk, 0), 1) =
+        *bbre_buf_peek(&r->arg_stk, 0);
     /* arg_stk: | */
     /* op_stk:  | ... | */
-    while (re_buf_size(r->op_stk) > 1 &&
-           *re_ast_type_ref(r, *re_buf_peek(&r->op_stk, 1)) ==
-               RE_AST_TYPE_ALT) {
+    while (bbre_buf_size(r->op_stk) > 1 &&
+           *bbre_ast_type_ref(r, *bbre_buf_peek(&r->op_stk, 1)) ==
+               BBRE_AST_TYPE_ALT) {
       /* op_stk:  | ... | A_1 | A_2 | */
-      re_u32 right = re_buf_pop(&r->op_stk), left = *re_buf_peek(&r->op_stk, 0);
-      *re_ast_param_ref(r, left, 1) = right;
-      *re_buf_peek(&r->op_stk, 0) = left;
+      bbre_u32 right = bbre_buf_pop(&r->op_stk),
+               left = *bbre_buf_peek(&r->op_stk, 0);
+      *bbre_ast_param_ref(r, left, 1) = right;
+      *bbre_buf_peek(&r->op_stk, 0) = left;
       /* op_stk:  | ... | A_1(|A_2) | */
     }
     /* op_stk:  | ... |  A  | */
-    assert(re_buf_size(r->arg_stk) == 1);
-    *re_buf_peek(&r->arg_stk, 0) = re_buf_pop(&r->op_stk);
+    assert(bbre_buf_size(r->arg_stk) == 1);
+    *bbre_buf_peek(&r->arg_stk, 0) = bbre_buf_pop(&r->op_stk);
     /* arg_stk: |  A  | */
     /* op_stk:  | ... | */
   }
-  assert(re_buf_size(r->arg_stk) == 1);
+  assert(bbre_buf_size(r->arg_stk) == 1);
 }
 
 /* Add the CC node `rest` to the CC node `first`. */
-static re_u32 re_ast_cls_union(re *r, re_u32 rest, re_u32 first)
+static bbre_u32 bbre_ast_cls_union(bbre *r, bbre_u32 rest, bbre_u32 first)
 {
-  re_u32 cur = first, *next;
+  bbre_u32 cur = first, *next;
   assert(first);
   assert(
-      *re_ast_type_ref(r, first) == RE_AST_TYPE_CC ||
-      *re_ast_type_ref(r, first) == RE_AST_TYPE_ICC);
-  assert(RE_IMPLIES(rest, *re_ast_type_ref(r, rest) == RE_AST_TYPE_CC));
-  while (*(next = re_ast_param_ref(r, cur, 0)))
+      *bbre_ast_type_ref(r, first) == BBRE_AST_TYPE_CC ||
+      *bbre_ast_type_ref(r, first) == BBRE_AST_TYPE_ICC);
+  assert(BBRE_IMPLIES(rest, *bbre_ast_type_ref(r, rest) == BBRE_AST_TYPE_CC));
+  while (*(next = bbre_ast_param_ref(r, cur, 0)))
     cur = *next;
   *next = rest;
   return first;
 }
 
 /* Helper function to add a character to the argument stack.
- * Returns `RE_ERR_MEM` if out of memory. */
-static int re_parse_escape_addchr(re *r, re_u32 ch, re_u32 allowed_outputs)
+ * Returns `BBRE_ERR_MEM` if out of memory. */
+static int
+bbre_parse_escape_addchr(bbre *r, bbre_u32 ch, bbre_u32 allowed_outputs)
 {
   int err = 0;
-  re_u32 res;
-  (void)allowed_outputs, assert(allowed_outputs & (1 << RE_AST_TYPE_CHR));
-  if ((err = re_ast_make(r, RE_AST_TYPE_CHR, ch, 0, 0, &res)) ||
-      (err = re_buf_push(r, &r->arg_stk, res)))
+  bbre_u32 res;
+  (void)allowed_outputs, assert(allowed_outputs & (1 << BBRE_AST_TYPE_CHR));
+  if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CHR, ch, 0, 0, &res)) ||
+      (err = bbre_buf_push(r, &r->arg_stk, res)))
     return err;
   return 0;
 }
 
 /* Convert a hexadecimal digit to a number.
  * Returns ERR_PARSE on invalid hex digit. */
-static int re_parse_hexdig(re *r, re_u32 ch, re_u32 *hex_digit)
+static int bbre_parse_hexdig(bbre *r, bbre_u32 ch, bbre_u32 *hex_digit)
 {
   if (ch >= '0' && ch <= '9')
     *hex_digit = ch - '0';
@@ -847,13 +870,13 @@ static int re_parse_hexdig(re *r, re_u32 ch, re_u32 *hex_digit)
   else if (ch >= 'A' && ch <= 'F')
     *hex_digit = ch - 'A' + 10;
   else
-    return re_parse_err(r, "invalid hex digit");
+    return bbre_parse_err(r, "invalid hex digit");
   return 0;
 }
 
 /* Attempt to parse an octal digit, returning -1 if the digit is not an octal
  * digit, and the value of the digit in [0, 7] otherwise. */
-static int re_parse_is_octdig(re_u32 ch)
+static int bbre_parse_is_octdig(bbre_u32 ch)
 {
   if (ch >= '0' && ch <= '7')
     return ch - '0';
@@ -864,23 +887,23 @@ static int re_parse_is_octdig(re_u32 ch)
  * file. For each type of builtin charclass, there is a function that allows us
  * to look up a charclass by name and create an AST node representing that
  * charclass.*/
+static int bbre_builtin_cc_ascii(
+    bbre *r, const bbre_u8 *name, size_t name_len, int invert);
+static int bbre_builtin_cc_unicode_property(
+    bbre *r, const bbre_u8 *name, size_t name_len, int invert);
 static int
-re_builtin_cc_ascii(re *r, const re_u8 *name, size_t name_len, int invert);
-static int re_builtin_cc_unicode_property(
-    re *r, const re_u8 *name, size_t name_len, int invert);
-static int
-re_builtin_cc_perl(re *r, const re_u8 *name, size_t name_len, int invert);
+bbre_builtin_cc_perl(bbre *r, const bbre_u8 *name, size_t name_len, int invert);
 
 /* This function is called after receiving a \ character when parsing an
  * expression or character class. Since some escape sequences are forbidden
  * within different contexts (for example: charclasses), a bitmap
  * `allowed_outputs` encodes, at each bit position, the respective ast_type that
  * is allowed to be created in this context. */
-static int re_parse_escape(re *r, re_u32 allowed_outputs)
+static int bbre_parse_escape(bbre *r, bbre_u32 allowed_outputs)
 {
-  re_u32 ch;
+  bbre_u32 ch;
   int err = 0;
-  if ((err = re_parse_next_or(r, &ch, "expected escape sequence")))
+  if ((err = bbre_parse_next_or(r, &ch, "expected escape sequence")))
     return err;
   if (                              /* single character escapes */
       (ch == 'a' && (ch = '\a')) || /* bell */
@@ -903,82 +926,82 @@ static int re_parse_escape(re *r, re_u32 allowed_outputs)
       (ch == '$') ||                /* dolla */
       (ch == '-') ||                /* dash */
       (ch == '\\') /* escaped slash */) {
-    return re_parse_escape_addchr(r, ch, allowed_outputs);
-  } else if (re_parse_is_octdig(ch) >= 0) { /* octal escape */
-    int digs = 1;                           /* number of read octal digits */
-    re_u32 ord = ch - '0';                  /* accumulates ordinal value */
-    while (digs++ < 3 && re_parse_has_more(r) &&
-           re_parse_is_octdig(ch = re_peek_next(r)) >= 0) {
+    return bbre_parse_escape_addchr(r, ch, allowed_outputs);
+  } else if (bbre_parse_is_octdig(ch) >= 0) { /* octal escape */
+    int digs = 1;                             /* number of read octal digits */
+    bbre_u32 ord = ch - '0';                  /* accumulates ordinal value */
+    while (digs++ < 3 && bbre_parse_has_more(r) &&
+           bbre_parse_is_octdig(ch = bbre_peek_next(r)) >= 0) {
       /* read up to two more octal digits -- for now, we allow octal encodings
        * of codepoints larger than 0xFF. This may change if we allow byte-wise
        * regexps */
-      ch = re_parse_next(r);
-      assert(!err && re_parse_is_octdig(ch) >= 0);
-      ord = ord * 8 + re_parse_is_octdig(ch);
+      ch = bbre_parse_next(r);
+      assert(!err && bbre_parse_is_octdig(ch) >= 0);
+      ord = ord * 8 + bbre_parse_is_octdig(ch);
     }
-    return re_parse_escape_addchr(r, ord, allowed_outputs);
+    return bbre_parse_escape_addchr(r, ord, allowed_outputs);
   } else if (ch == 'x') { /* hex escape */
-    re_u32 ord = 0 /* accumulates ordinal value */,
-           hex_dig = 0 /* the digit being read */;
-    if ((err = re_parse_next_or(
+    bbre_u32 ord = 0 /* accumulates ordinal value */,
+             hex_dig = 0 /* the digit being read */;
+    if ((err = bbre_parse_next_or(
              r, &ch, "expected two hex characters or a bracketed hex literal")))
       return err;
-    if (ch == '{') {   /* bracketed hex lit */
-      re_u32 digs = 0; /* number of read hex digits */
+    if (ch == '{') {     /* bracketed hex lit */
+      bbre_u32 digs = 0; /* number of read hex digits */
       while (1) {
-        if ((digs == 7) || (err = re_parse_next_or(
+        if ((digs == 7) || (err = bbre_parse_next_or(
                                 r, &ch, "expected up to six hex characters")))
-          return re_parse_err(r, "expected up to six hex characters");
+          return bbre_parse_err(r, "expected up to six hex characters");
         if (ch == '}')
           break;
-        if ((err = re_parse_hexdig(r, ch, &hex_dig)))
+        if ((err = bbre_parse_hexdig(r, ch, &hex_dig)))
           return err;
         ord = ord * 16 + hex_dig;
         digs++;
       }
       if (!digs)
-        return re_parse_err(r, "expected at least one hex character");
+        return bbre_parse_err(r, "expected at least one hex character");
     } else {
       /* two digit hex lit */
-      if ((err = re_parse_hexdig(r, ch, &hex_dig)))
+      if ((err = bbre_parse_hexdig(r, ch, &hex_dig)))
         return err;
       ord = hex_dig;
-      if ((err = re_parse_next_or(r, &ch, "expected two hex characters")))
+      if ((err = bbre_parse_next_or(r, &ch, "expected two hex characters")))
         return err;
-      else if ((err = re_parse_hexdig(r, ch, &hex_dig)))
+      else if ((err = bbre_parse_hexdig(r, ch, &hex_dig)))
         return err;
       ord = ord * 16 + hex_dig;
     }
-    if (ord > RE_UTF_MAX)
-      return re_parse_err(r, "ordinal value out of range [0, 0x10FFFF]");
-    return re_parse_escape_addchr(r, ord, allowed_outputs);
+    if (ord > BBRE_UTF_MAX)
+      return bbre_parse_err(r, "ordinal value out of range [0, 0x10FFFF]");
+    return bbre_parse_escape_addchr(r, ord, allowed_outputs);
   } else if (ch == 'C') { /* any byte: \C */
-    re_u32 res;           /* resulting AST node */
-    if (!(allowed_outputs & (1 << RE_AST_TYPE_ANYBYTE)))
-      return re_parse_err(r, "cannot use \\C here");
-    if ((err = re_ast_make(r, RE_AST_TYPE_ANYBYTE, 0, 0, 0, &res)) ||
-        (err = re_buf_push(r, &r->arg_stk, res)))
+    bbre_u32 res;         /* resulting AST node */
+    if (!(allowed_outputs & (1 << BBRE_AST_TYPE_ANYBYTE)))
+      return bbre_parse_err(r, "cannot use \\C here");
+    if ((err = bbre_ast_make(r, BBRE_AST_TYPE_ANYBYTE, 0, 0, 0, &res)) ||
+        (err = bbre_buf_push(r, &r->arg_stk, res)))
       return err;
   } else if (ch == 'Q') { /* quote string */
-    re_u32 cat = RE_REF_NONE /* accumulator for concatenations */,
-           chr = RE_REF_NONE /* generated chr node for each character in the
-                                quoted string */
+    bbre_u32 cat = BBRE_REF_NONE /* accumulator for concatenations */,
+             chr = BBRE_REF_NONE /* generated chr node for each character in the
+                                  quoted string */
         ;
-    if (!(allowed_outputs & (1 << RE_AST_TYPE_CAT)))
-      return re_parse_err(r, "cannot use \\Q...\\E here");
-    while (re_parse_has_more(r)) {
-      ch = re_parse_next(r);
-      if (ch == '\\' && re_parse_has_more(r)) {
+    if (!(allowed_outputs & (1 << BBRE_AST_TYPE_CAT)))
+      return bbre_parse_err(r, "cannot use \\Q...\\E here");
+    while (bbre_parse_has_more(r)) {
+      ch = bbre_parse_next(r);
+      if (ch == '\\' && bbre_parse_has_more(r)) {
         /* mini-escape dsl for \Q..\E */
-        ch = re_peek_next(r);
+        ch = bbre_peek_next(r);
         if (ch == 'E') {
           /* \E : actually end the quote */
-          ch = re_parse_next(r);
+          ch = bbre_parse_next(r);
           assert(ch == 'E');
-          return re_buf_push(r, &r->arg_stk, cat);
+          return bbre_buf_push(r, &r->arg_stk, cat);
         } else if (ch == '\\') {
           /* \\ : insert a literal backslash */
-          ch = re_parse_next(r);
+          ch = bbre_parse_next(r);
           assert(ch == '\\');
         } else {
           /* \<c> : all other characters, insert a literal backslash, and
@@ -986,27 +1009,27 @@ static int re_parse_escape(re *r, re_u32 allowed_outputs)
           ch = '\\';
         }
       }
-      if ((err = re_ast_make(r, RE_AST_TYPE_CHR, ch, 0, 0, &chr)))
+      if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CHR, ch, 0, 0, &chr)))
         return err;
       /* create a cat node with the character and an epsilon node, replace the
        * old cat node (cat) with the new one (cat') through the &cat ref */
-      if ((err = re_ast_make(r, RE_AST_TYPE_CAT, cat, chr, 0, &cat)))
+      if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CAT, cat, chr, 0, &cat)))
         return err;
     }
     /* we got to the end of the string: push the partial quote */
-    if ((err = re_buf_push(r, &r->arg_stk, cat)))
+    if ((err = bbre_buf_push(r, &r->arg_stk, cat)))
       return err;
   } else if (
       ch == 'D' || ch == 'd' || ch == 'S' || ch == 's' || ch == 'W' ||
       ch == 'w') {
     /* Perl builtin character classes */
     int inverted =
-        ch == 'D' || ch == 'S' || ch == 'W';      /* uppercase are inverted */
-    re_u8 lower = inverted ? ch - 'A' + 'a' : ch; /* convert to lowercase */
-    if (!(allowed_outputs & (1 << RE_AST_TYPE_CC)))
-      return re_parse_err(r, "cannot use a character class here");
+        ch == 'D' || ch == 'S' || ch == 'W';        /* uppercase are inverted */
+    bbre_u8 lower = inverted ? ch - 'A' + 'a' : ch; /* convert to lowercase */
+    if (!(allowed_outputs & (1 << BBRE_AST_TYPE_CC)))
+      return bbre_parse_err(r, "cannot use a character class here");
     /* lookup the charclass, optionally invert it */
-    if ((err = re_builtin_cc_perl(r, &lower, 1, inverted)))
+    if ((err = bbre_builtin_cc_perl(r, &lower, 1, inverted)))
       return err;
   } else if (ch == 'P' || ch == 'p') { /* Unicode properties */
     size_t name_start_pos = r->expr_pos, name_end_pos;
@@ -1014,114 +1037,114 @@ static int re_parse_escape(re *r, re_u32 allowed_outputs)
     const char *err_msg =
         "expected one-character property name or bracketed property name "
         "for Unicode property escape";
-    if ((err = re_parse_next_or(r, &ch, err_msg)))
+    if ((err = bbre_parse_next_or(r, &ch, err_msg)))
       return err;
     if (ch == '{') { /* bracketed property */
       name_start_pos = r->expr_pos;
       while (ch != '}')
         /* read characters until we get to the end of the brack prop */
-        if ((err = re_parse_next_or(
+        if ((err = bbre_parse_next_or(
                  r, &ch, "expected '}' to close bracketed property name")))
           return err;
       name_end_pos = r->expr_pos - 1;
     } else
       /* single-character property */
       name_end_pos = r->expr_pos;
-    if (!(allowed_outputs & (1 << RE_AST_TYPE_CC)))
-      return re_parse_err(r, "cannot use a character class here");
+    if (!(allowed_outputs & (1 << BBRE_AST_TYPE_CC)))
+      return bbre_parse_err(r, "cannot use a character class here");
     assert(name_end_pos >= name_start_pos);
-    if ((err = re_builtin_cc_unicode_property(
+    if ((err = bbre_builtin_cc_unicode_property(
              r, r->expr + name_start_pos, name_end_pos - name_start_pos,
              inverted)))
       return err;
   } else if (ch == 'A' || ch == 'z' || ch == 'B' || ch == 'b') {
     /* empty asserts */
-    re_u32 res; /* resulting AST node */
-    if (!(allowed_outputs & (1 << RE_AST_TYPE_ASSERT)))
-      return re_parse_err(r, "cannot use an epsilon assertion here");
-    if ((err = re_ast_make(
-             r, RE_AST_TYPE_ASSERT,
-             ch == 'A'   ? RE_ASSERT_TEXT_BEGIN
-             : ch == 'z' ? RE_ASSERT_TEXT_END
-             : ch == 'B' ? RE_ASSERT_NOT_WORD
-                         : RE_ASSERT_WORD,
+    bbre_u32 res; /* resulting AST node */
+    if (!(allowed_outputs & (1 << BBRE_AST_TYPE_ASSERT)))
+      return bbre_parse_err(r, "cannot use an epsilon assertion here");
+    if ((err = bbre_ast_make(
+             r, BBRE_AST_TYPE_ASSERT,
+             ch == 'A'   ? BBRE_ASSERT_TEXT_BEGIN
+             : ch == 'z' ? BBRE_ASSERT_TEXT_END
+             : ch == 'B' ? BBRE_ASSERT_NOT_WORD
+                         : BBRE_ASSERT_WORD,
              0, 0, &res)) ||
-        (err = re_buf_push(r, &r->arg_stk, res)))
+        (err = bbre_buf_push(r, &r->arg_stk, res)))
       return err;
   } else {
-    return re_parse_err(r, "invalid escape sequence");
+    return bbre_parse_err(r, "invalid escape sequence");
   }
   return 0;
 }
 
 /* Parse a decimal number, up to `max_digits`, into *out. */
-static int re_parse_number(re *r, re_u32 *out, re_u32 max_digits)
+static int bbre_parse_number(bbre *r, bbre_u32 *out, bbre_u32 max_digits)
 {
   int err = 0;
-  re_u32 ch, acc = 0, ndigs = 0;
-  if (!re_parse_has_more(r))
-    return re_parse_err(r, "expected at least one decimal digit");
-  while (ndigs < max_digits && re_parse_has_more(r) &&
-         (ch = re_peek_next(r)) >= '0' && ch <= '9')
-    acc = acc * 10 + (re_parse_next(r) - '0'), ndigs++;
+  bbre_u32 ch, acc = 0, ndigs = 0;
+  if (!bbre_parse_has_more(r))
+    return bbre_parse_err(r, "expected at least one decimal digit");
+  while (ndigs < max_digits && bbre_parse_has_more(r) &&
+         (ch = bbre_peek_next(r)) >= '0' && ch <= '9')
+    acc = acc * 10 + (bbre_parse_next(r) - '0'), ndigs++;
   if (!ndigs)
-    return re_parse_err(r, "expected at least one decimal digit");
+    return bbre_parse_err(r, "expected at least one decimal digit");
   if (ndigs == max_digits)
-    return re_parse_err(r, "too many digits for decimal number");
+    return bbre_parse_err(r, "too many digits for decimal number");
   *out = acc;
   return err;
 }
 
 /* Parse a regular expression, storing its resulting AST node into *root. */
-static int re_parse(re *r, const re_u8 *ts, size_t tsz, re_u32 *root)
+static int bbre_parse(bbre *r, const bbre_u8 *ts, size_t tsz, bbre_u32 *root)
 {
   int err;
-  re_u32 flags = 0;
+  bbre_u32 flags = 0;
   r->expr = ts;
   r->expr_size = tsz, r->expr_pos = 0;
-  if ((err = re_parse_checkutf8(r)))
+  if ((err = bbre_parse_checkutf8(r)))
     return err;
-  while (re_parse_has_more(r)) {
-    re_u32 ch = re_parse_next(r), res = RE_REF_NONE;
+  while (bbre_parse_has_more(r)) {
+    bbre_u32 ch = bbre_parse_next(r), res = BBRE_REF_NONE;
     if (ch == '*' || ch == '+' || ch == '?') {
-      re_u32 q = ch, greedy = 1;
+      bbre_u32 q = ch, greedy = 1;
       /* arg_stk: | ... |  R  | */
       /* pop one from arg stk, create quant, push to arg stk */
-      if (!re_buf_size(r->arg_stk))
-        return re_parse_err(r, "cannot apply quantifier to empty regex");
-      if (re_parse_has_more(r) && re_peek_next(r) == '?')
-        re_parse_next(r), greedy = 0;
-      if ((err = re_ast_make(
-               r, greedy ? RE_AST_TYPE_QUANT : RE_AST_TYPE_UQUANT,
-               *re_buf_peek(&r->arg_stk, 0) /* child */, q == '+' /* min */,
-               q == '?' ? 1 : RE_INFTY /* max */, &res)))
+      if (!bbre_buf_size(r->arg_stk))
+        return bbre_parse_err(r, "cannot apply quantifier to empty regex");
+      if (bbre_parse_has_more(r) && bbre_peek_next(r) == '?')
+        bbre_parse_next(r), greedy = 0;
+      if ((err = bbre_ast_make(
+               r, greedy ? BBRE_AST_TYPE_QUANT : BBRE_AST_TYPE_UQUANT,
+               *bbre_buf_peek(&r->arg_stk, 0) /* child */, q == '+' /* min */,
+               q == '?' ? 1 : BBRE_INFTY /* max */, &res)))
         return err;
-      *re_buf_peek(&r->arg_stk, 0) = res;
+      *bbre_buf_peek(&r->arg_stk, 0) = res;
       /* arg_stk: | ... | *(R) | */
     } else if (ch == '|') {
       /* fold the arg stk into a concat, create alt, push it to the arg stk */
       /* op_stk:  | ... | */
       /* arg_stk: | R_1 | R_2 | ... | R_N | */
-      if ((err = re_fold(r)))
+      if ((err = bbre_fold(r)))
         return err;
       /* arg_stk: |  R  | */
-      if ((err = re_ast_make(
-               r, RE_AST_TYPE_ALT, re_buf_pop(&r->arg_stk) /* left */,
-               RE_REF_NONE /* right */, 0, &res)) ||
-          (err = re_buf_push(r, &r->op_stk, res)))
+      if ((err = bbre_ast_make(
+               r, BBRE_AST_TYPE_ALT, bbre_buf_pop(&r->arg_stk) /* left */,
+               BBRE_REF_NONE /* right */, 0, &res)) ||
+          (err = bbre_buf_push(r, &r->op_stk, res)))
         return err;
       /* arg_stk: | */
       /* op_stk:  | ... | R(|) | */
     } else if (ch == '(') {
       /* capture group */
-      re_u32 old_flags = flags, inline_group = 0, child;
-      if (!re_parse_has_more(r))
-        return re_parse_err(r, "expected ')' to close group");
-      ch = re_peek_next(r);
+      bbre_u32 old_flags = flags, inline_group = 0, child;
+      if (!bbre_parse_has_more(r))
+        return bbre_parse_err(r, "expected ')' to close group");
+      ch = bbre_peek_next(r);
       if (ch == '?') { /* start of group flags */
-        ch = re_parse_next(r);
+        ch = bbre_parse_next(r);
         assert(ch == '?'); /* this assert is probably too paranoid */
-        if ((err = re_parse_next_or(
+        if ((err = bbre_parse_next_or(
                  r, &ch,
                  "expected 'P', '<', or group flags after special "
                  "group opener \"(?\"")))
@@ -1129,16 +1152,16 @@ static int re_parse(re *r, const re_u8 *ts, size_t tsz, re_u32 *root)
         if (ch == 'P' || ch == '<') {
           /* group name */
           if (ch == 'P' &&
-              (err = re_parse_next_or(
+              (err = bbre_parse_next_or(
                    r, &ch, "expected '<' after named group opener \"(?P\"")))
             return err;
           if (ch != '<')
-            return re_parse_err(
+            return bbre_parse_err(
                 r, "expected '<' after named group opener \"(?P\"");
           /* parse group name */
           while (1) {
             /* read characters until > */
-            if ((err = re_parse_next_or(
+            if ((err = bbre_parse_next_or(
                      r, &ch, "expected name followed by '>' for named group")))
               return err;
             if (ch == '>')
@@ -1147,9 +1170,9 @@ static int re_parse(re *r, const re_u8 *ts, size_t tsz, re_u32 *root)
           /* currently we don't do anything with the group name. Later revisions
            * might introduce an API for retrieving the group names. */
         } else {
-          re_u32 neg = 0 /* should we negate flags? */,
-                 flag = RE_GROUP_FLAG_UNGREEDY /* default flag (this makes
-                                                  coverage testing simpler) */
+          bbre_u32 neg = 0 /* should we negate flags? */,
+                   flag = BBRE_GROUP_FLAG_UNGREEDY /* default flag (this makes
+                                                    coverage testing simpler) */
               ;
           while (1) {
             if (ch == ':' /* noncapturing */ || ch == ')' /* inline */)
@@ -1157,25 +1180,26 @@ static int re_parse(re *r, const re_u8 *ts, size_t tsz, re_u32 *root)
             else if (ch == '-') {
               /* negate subsequent flags */
               if (neg)
-                return re_parse_err(r, "cannot apply flag negation '-' twice");
+                return bbre_parse_err(
+                    r, "cannot apply flag negation '-' twice");
               neg = 1;
             } else if (
-                (ch == 'i' && (flag = RE_GROUP_FLAG_INSENSITIVE)) ||
-                (ch == 'm' && (flag = RE_GROUP_FLAG_MULTILINE)) ||
-                (ch == 's' && (flag = RE_GROUP_FLAG_DOTNEWLINE)) ||
+                (ch == 'i' && (flag = BBRE_GROUP_FLAG_INSENSITIVE)) ||
+                (ch == 'm' && (flag = BBRE_GROUP_FLAG_MULTILINE)) ||
+                (ch == 's' && (flag = BBRE_GROUP_FLAG_DOTNEWLINE)) ||
                 (ch == 'u')) {
               /* unset bit if negated, set bit if not */
               flags = neg ? flags & ~flag : flags | flag;
             } else {
-              return re_parse_err(
+              return bbre_parse_err(
                   r, "expected ':', ')', or group flags for special group");
             }
-            if ((err = re_parse_next_or(
+            if ((err = bbre_parse_next_or(
                      r, &ch,
                      "expected ':', ')', or group flags for special group")))
               return err;
           }
-          flags |= RE_GROUP_FLAG_NONCAPTURING;
+          flags |= BBRE_GROUP_FLAG_NONCAPTURING;
           if (ch == ')')
             /* flags only with no : to denote actual pattern */
             inline_group = 1;
@@ -1183,69 +1207,69 @@ static int re_parse(re *r, const re_u8 *ts, size_t tsz, re_u32 *root)
       }
       /* op_stk:  | ... | */
       /* arg_stk: | R_1 | R_2 | ... | R_N | */
-      if ((err = re_fold(r)))
+      if ((err = bbre_fold(r)))
         return err;
-      child = re_buf_pop(&r->arg_stk);
+      child = bbre_buf_pop(&r->arg_stk);
       if (inline_group &&
-          (err = re_ast_make(r, RE_AST_TYPE_CAT, child, 0, 0, &child)))
+          (err = bbre_ast_make(r, BBRE_AST_TYPE_CAT, child, 0, 0, &child)))
         return err;
       /* arg_stk: |  R  | */
-      if ((err = re_ast_make(
-               r, inline_group ? RE_AST_TYPE_IGROUP : RE_AST_TYPE_GROUP, child,
-               flags, old_flags, &res)) ||
-          (err = re_buf_push(r, &r->op_stk, res)))
+      if ((err = bbre_ast_make(
+               r, inline_group ? BBRE_AST_TYPE_IGROUP : BBRE_AST_TYPE_GROUP,
+               child, flags, old_flags, &res)) ||
+          (err = bbre_buf_push(r, &r->op_stk, res)))
         return err;
       /* op_stk:  | ... | (R) | */
     } else if (ch == ')') {
-      re_u32 grp, prev;
+      bbre_u32 grp, prev;
       /* arg_stk: | S_1 | S_2 | ... | S_N | */
       /* op_stk:  | ... | (R) | ... | */
       /* fold the arg stk into a concat, fold remaining alts, create group,
        * push it to the arg stk */
-      if ((err = re_fold(r)))
+      if ((err = bbre_fold(r)))
         return err;
-      re_fold_alts(r, &flags);
+      bbre_fold_alts(r, &flags);
       /* arg_stk has one value */
-      assert(re_buf_size(r->arg_stk) == 1);
-      if (!re_buf_size(r->op_stk))
-        return re_parse_err(r, "extra close parenthesis");
+      assert(bbre_buf_size(r->arg_stk) == 1);
+      if (!bbre_buf_size(r->op_stk))
+        return bbre_parse_err(r, "extra close parenthesis");
       /* arg_stk: |  S  | */
       /* op_stk:  | ... | (R) | */
-      grp = *re_buf_peek(&r->op_stk, 0);
+      grp = *bbre_buf_peek(&r->op_stk, 0);
       /* retrieve the previous contents of arg_stk */
-      prev = *re_ast_param_ref(r, grp, 0);
+      prev = *bbre_ast_param_ref(r, grp, 0);
       /* add it to the group */
-      *(re_ast_param_ref(r, grp, 0)) = *re_buf_peek(&r->arg_stk, 0);
+      *(bbre_ast_param_ref(r, grp, 0)) = *bbre_buf_peek(&r->arg_stk, 0);
       /* restore group flags */
-      flags = *(re_ast_param_ref(r, grp, 2));
+      flags = *(bbre_ast_param_ref(r, grp, 2));
       /* push the saved contents of arg_stk */
-      *re_buf_peek(&r->arg_stk, 0) = prev;
+      *bbre_buf_peek(&r->arg_stk, 0) = prev;
       /* pop the group frame into arg_stk */
-      if ((err = re_buf_push(r, &r->arg_stk, re_buf_pop(&r->op_stk))))
+      if ((err = bbre_buf_push(r, &r->arg_stk, bbre_buf_pop(&r->op_stk))))
         return err;
       /* arg_stk: |  R  | (S) | */
       /* op_stk:  | ... | */
     } else if (ch == '.') { /* any char */
       /* arg_stk: | ... | */
-      if (((flags & RE_GROUP_FLAG_DOTNEWLINE) &&
-           (err = re_ast_make(
-                r, RE_AST_TYPE_CC, RE_REF_NONE, 0, RE_UTF_MAX, &res))) ||
-          (!(flags & RE_GROUP_FLAG_DOTNEWLINE) &&
-           ((err = re_ast_make(
-                 r, RE_AST_TYPE_CC, RE_REF_NONE, 0, '\n' - 1, &res)) ||
-            (err = re_ast_make(
-                 r, RE_AST_TYPE_CC, res, '\n' + 1, RE_UTF_MAX, &res)))) ||
-          (err = re_buf_push(r, &r->arg_stk, res)))
+      if (((flags & BBRE_GROUP_FLAG_DOTNEWLINE) &&
+           (err = bbre_ast_make(
+                r, BBRE_AST_TYPE_CC, BBRE_REF_NONE, 0, BBRE_UTF_MAX, &res))) ||
+          (!(flags & BBRE_GROUP_FLAG_DOTNEWLINE) &&
+           ((err = bbre_ast_make(
+                 r, BBRE_AST_TYPE_CC, BBRE_REF_NONE, 0, '\n' - 1, &res)) ||
+            (err = bbre_ast_make(
+                 r, BBRE_AST_TYPE_CC, res, '\n' + 1, BBRE_UTF_MAX, &res)))) ||
+          (err = bbre_buf_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... |  .  | */
     } else if (ch == '[') {              /* charclass */
       size_t cc_start_pos = r->expr_pos; /* starting position of charclass */
-      re_u32 inverted = 0 /* is the charclass inverted? */,
-             min /* min value of range */, max /* max value of range */;
-      res = RE_REF_NONE; /* resulting CC node */
+      bbre_u32 inverted = 0 /* is the charclass inverted? */,
+               min /* min value of range */, max /* max value of range */;
+      res = BBRE_REF_NONE; /* resulting CC node */
       while (1) {
-        re_u32 next; /* temp var to store child classes */
-        if ((err = re_parse_next_or(r, &ch, "unclosed character class")))
+        bbre_u32 next; /* temp var to store child classes */
+        if ((err = bbre_parse_next_or(r, &ch, "unclosed character class")))
           return err;
         if ((r->expr_pos - cc_start_pos == 1) && ch == '^') {
           inverted = 1; /* caret at start of CC */
@@ -1259,102 +1283,102 @@ static int re_parse(re *r, const re_u8 *ts, size_t tsz, re_u32 *root)
           } else
             break;               /* charclass done */
         } else if (ch == '\\') { /* escape */
-          if ((err = re_parse_escape(
-                   r, (1 << RE_AST_TYPE_CHR) | (1 << RE_AST_TYPE_CC))))
+          if ((err = bbre_parse_escape(
+                   r, (1 << BBRE_AST_TYPE_CHR) | (1 << BBRE_AST_TYPE_CC))))
             /* parse_escape() could return ERR_PARSE if for example \A */
             return err;
-          next = re_buf_pop(&r->arg_stk);
+          next = bbre_buf_pop(&r->arg_stk);
           assert(
-              *re_ast_type_ref(r, next) == RE_AST_TYPE_CHR ||
-              *re_ast_type_ref(r, next) == RE_AST_TYPE_CC);
-          if (*re_ast_type_ref(r, next) == RE_AST_TYPE_CHR)
-            min = *re_ast_param_ref(r, next, 0); /* single-character escape */
+              *bbre_ast_type_ref(r, next) == BBRE_AST_TYPE_CHR ||
+              *bbre_ast_type_ref(r, next) == BBRE_AST_TYPE_CC);
+          if (*bbre_ast_type_ref(r, next) == BBRE_AST_TYPE_CHR)
+            min = *bbre_ast_param_ref(r, next, 0); /* single-character escape */
           else {
-            assert(*re_ast_type_ref(r, next) == RE_AST_TYPE_CC);
-            res = re_ast_cls_union(r, res, next);
+            assert(*bbre_ast_type_ref(r, next) == BBRE_AST_TYPE_CC);
+            res = bbre_ast_cls_union(r, res, next);
             /* we parsed an entire class, so there's no ending character */
             continue;
           }
         } else if (
-            ch == '[' && re_parse_has_more(r) &&
-            re_peek_next(r) == ':') { /* named class */
+            ch == '[' && bbre_parse_has_more(r) &&
+            bbre_peek_next(r) == ':') { /* named class */
           int named_inverted = 0;
           size_t name_start_pos, name_end_pos;
-          ch = re_parse_next(r); /* : */
+          ch = bbre_parse_next(r); /* : */
           assert(!err && ch == ':');
-          if (re_parse_has_more(r) &&
-              (ch = re_peek_next(r)) == '^') { /* inverted named class */
-            ch = re_parse_next(r);
+          if (bbre_parse_has_more(r) &&
+              (ch = bbre_peek_next(r)) == '^') { /* inverted named class */
+            ch = bbre_parse_next(r);
             assert(ch == '^');
             named_inverted = 1;
           }
           name_start_pos = name_end_pos = r->expr_pos;
           while (1) {
             /* parse character class name */
-            if ((err =
-                     re_parse_next_or(r, &ch, "expected character class name")))
+            if ((err = bbre_parse_next_or(
+                     r, &ch, "expected character class name")))
               return err;
             if (ch == ':')
               break;
             name_end_pos = r->expr_pos;
           }
-          if ((err = re_parse_next_or(
+          if ((err = bbre_parse_next_or(
                    r, &ch,
                    "expected closing bracket for named character class")))
             return err;
           if (ch != ']')
-            return re_parse_err(
+            return bbre_parse_err(
                 r, "expected closing bracket for named character class");
           /* lookup the charclass name in the labyrinth of tables */
-          if ((err = re_builtin_cc_ascii(
+          if ((err = bbre_builtin_cc_ascii(
                    r, r->expr + name_start_pos, (name_end_pos - name_start_pos),
                    named_inverted)))
             return err;
-          next = re_buf_pop(&r->arg_stk);
+          next = bbre_buf_pop(&r->arg_stk);
           /* ensure that builtin_cc_ascii returned a value */
-          assert(next && *re_ast_type_ref(r, next) == RE_AST_TYPE_CC);
-          res = re_ast_cls_union(r, res, next);
+          assert(next && *bbre_ast_type_ref(r, next) == BBRE_AST_TYPE_CC);
+          res = bbre_ast_cls_union(r, res, next);
           continue;
         }
         max = min;
-        if (re_parse_has_more(r) && re_peek_next(r) == '-') {
+        if (bbre_parse_has_more(r) && bbre_peek_next(r) == '-') {
           /* optional range expression */
-          ch = re_parse_next(r);
+          ch = bbre_parse_next(r);
           assert(ch == '-');
-          if ((err = re_parse_next_or(
+          if ((err = bbre_parse_next_or(
                    r, &ch,
                    "expected ending character after '-' for character class "
                    "range expression")))
             return err;
           if (ch == '\\') { /* start of escape */
-            if ((err = re_parse_escape(r, (1 << RE_AST_TYPE_CHR))))
+            if ((err = bbre_parse_escape(r, (1 << BBRE_AST_TYPE_CHR))))
               return err;
-            next = re_buf_pop(&r->arg_stk);
-            assert(*re_ast_type_ref(r, next) == RE_AST_TYPE_CHR);
-            max = *re_ast_param_ref(r, next, 0);
+            next = bbre_buf_pop(&r->arg_stk);
+            assert(*bbre_ast_type_ref(r, next) == BBRE_AST_TYPE_CHR);
+            max = *bbre_ast_param_ref(r, next, 0);
           } else {
             max = ch; /* non-escaped character */
           }
         }
-        if ((err = re_ast_make(r, RE_AST_TYPE_CC, res, min, max, &res)))
+        if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CC, res, min, max, &res)))
           return err;
       }
       assert(res);  /* charclass cannot be empty */
       if (inverted) /* inverted character class */
-        *re_ast_type_ref(r, res) = RE_AST_TYPE_ICC;
-      if ((err = re_buf_push(r, &r->arg_stk, res)))
+        *bbre_ast_type_ref(r, res) = BBRE_AST_TYPE_ICC;
+      if ((err = bbre_buf_push(r, &r->arg_stk, res)))
         return err;
     } else if (ch == '\\') { /* escape */
-      if ((err = re_parse_escape(
-               r, 1 << RE_AST_TYPE_CHR | 1 << RE_AST_TYPE_CC |
-                      1 << RE_AST_TYPE_ANYBYTE | 1 << RE_AST_TYPE_CAT |
-                      1 << RE_AST_TYPE_ASSERT)))
+      if ((err = bbre_parse_escape(
+               r, 1 << BBRE_AST_TYPE_CHR | 1 << BBRE_AST_TYPE_CC |
+                      1 << BBRE_AST_TYPE_ANYBYTE | 1 << BBRE_AST_TYPE_CAT |
+                      1 << BBRE_AST_TYPE_ASSERT)))
         return err;
     } else if (ch == '{') { /* repetition */
-      re_u32 min_rep = 0 /* minimum bound */, max_rep = 0 /* maximum bound */;
-      if ((err = re_parse_number(r, &min_rep, 6)))
+      bbre_u32 min_rep = 0 /* minimum bound */, max_rep = 0 /* maximum bound */;
+      if ((err = bbre_parse_number(r, &min_rep, 6)))
         return err;
-      if ((err = re_parse_next_or(
+      if ((err = bbre_parse_next_or(
                r, &ch, "expected } to end repetition expression")))
         return err;
       if (ch == '}')
@@ -1362,127 +1386,134 @@ static int re_parse(re *r, const re_u8 *ts, size_t tsz, re_u32 *root)
         max_rep = min_rep;
       else if (ch == ',') {
         /* comma: either `min_rep` or more, or `min_rep` to `max_rep` */
-        if (!re_parse_has_more(r))
-          return re_parse_err(
+        if (!bbre_parse_has_more(r))
+          return bbre_parse_err(
               r, "expected upper bound or } to end repetition expression");
-        ch = re_peek_next(r);
+        ch = bbre_peek_next(r);
         if (ch == '}')
           /* `min_rep` or more (`min_rep` - `INFTY`) */
-          ch = re_parse_next(r), assert(ch == '}'), max_rep = RE_INFTY;
+          ch = bbre_parse_next(r), assert(ch == '}'), max_rep = BBRE_INFTY;
         else {
           /* `min_rep` to `max_rep` */
-          if ((err = re_parse_number(r, &max_rep, 6)))
+          if ((err = bbre_parse_number(r, &max_rep, 6)))
             return err;
-          if ((err = re_parse_next_or(
+          if ((err = bbre_parse_next_or(
                    r, &ch, "expected } to end repetition expression")))
             return err;
           if (ch != '}')
-            return re_parse_err(r, "expected } to end repetition expression");
+            return bbre_parse_err(r, "expected } to end repetition expression");
         }
       } else
-        return re_parse_err(r, "expected } or , for repetition expression");
-      if (!re_buf_size(r->arg_stk))
-        return re_parse_err(r, "cannot apply quantifier to empty regex");
-      if ((err = re_ast_make(
-               r, RE_AST_TYPE_QUANT, *re_buf_peek(&r->arg_stk, 0), min_rep,
+        return bbre_parse_err(r, "expected } or , for repetition expression");
+      if (!bbre_buf_size(r->arg_stk))
+        return bbre_parse_err(r, "cannot apply quantifier to empty regex");
+      if ((err = bbre_ast_make(
+               r, BBRE_AST_TYPE_QUANT, *bbre_buf_peek(&r->arg_stk, 0), min_rep,
                max_rep, &res)))
         return err;
-      *re_buf_peek(&r->arg_stk, 0) = res;
+      *bbre_buf_peek(&r->arg_stk, 0) = res;
     } else if (ch == '^' || ch == '$') { /* beginning/end of text/line */
       /* these are similar enough that I put them into one condition */
-      if ((err = re_ast_make(
-               r, RE_AST_TYPE_ASSERT,
+      if ((err = bbre_ast_make(
+               r, BBRE_AST_TYPE_ASSERT,
                ch == '^'
-                   ? (flags & RE_GROUP_FLAG_MULTILINE ? RE_ASSERT_LINE_BEGIN
-                                                      : RE_ASSERT_TEXT_BEGIN)
-                   : (flags & RE_GROUP_FLAG_MULTILINE ? RE_ASSERT_LINE_END
-                                                      : RE_ASSERT_TEXT_END),
+                   ? (flags & BBRE_GROUP_FLAG_MULTILINE
+                          ? BBRE_ASSERT_LINE_BEGIN
+                          : BBRE_ASSERT_TEXT_BEGIN)
+                   : (flags & BBRE_GROUP_FLAG_MULTILINE ? BBRE_ASSERT_LINE_END
+                                                        : BBRE_ASSERT_TEXT_END),
                0, 0, &res)) ||
-          (err = re_buf_push(r, &r->arg_stk, res)))
+          (err = bbre_buf_push(r, &r->arg_stk, res)))
         return err;
     } else { /* char: push to the arg stk */
       /* arg_stk: | ... | */
-      if ((err = re_ast_make(r, RE_AST_TYPE_CHR, ch, 0, 0, &res)) ||
-          (err = re_buf_push(r, &r->arg_stk, res)))
+      if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CHR, ch, 0, 0, &res)) ||
+          (err = bbre_buf_push(r, &r->arg_stk, res)))
         return err;
       /* arg_stk: | ... | chr | */
     }
   }
   /* fold everything on the stacks into a single node */
-  if ((err = re_fold(r)))
+  if ((err = bbre_fold(r)))
     return err;
-  re_fold_alts(r, &flags);
-  if (re_buf_size(r->op_stk))
-    return re_parse_err(r, "unmatched open parenthesis");
+  bbre_fold_alts(r, &flags);
+  if (bbre_buf_size(r->op_stk))
+    return bbre_parse_err(r, "unmatched open parenthesis");
   /* then wrap that node into a nonmatching subexpression group to denote a
    * subpattern */
-  if ((err = re_ast_make(
-           r, RE_AST_TYPE_GROUP, re_buf_pop(&r->arg_stk),
-           RE_GROUP_FLAG_SUBEXPRESSION, 0, root)))
+  if ((err = bbre_ast_make(
+           r, BBRE_AST_TYPE_GROUP, bbre_buf_pop(&r->arg_stk),
+           BBRE_GROUP_FLAG_SUBEXPRESSION, 0, root)))
     return err;
   return 0;
 }
 
 /* Get the opcode of an instruction. */
-static re_opcode re_inst_opcode(re_inst i)
+static bbre_opcode bbre_inst_opcode(bbre_inst i)
 {
-  return i.opcode_next & ((1 << RE_INST_OPCODE_BITS) - 1);
+  return i.opcode_next & ((1 << BBRE_INST_OPCODE_BITS) - 1);
 }
 
 /* Get the primary branch target of the instruction. All instructions have this
  * field. */
-static re_u32 re_inst_next(re_inst i)
+static bbre_u32 bbre_inst_next(bbre_inst i)
 {
-  return i.opcode_next >> RE_INST_OPCODE_BITS;
+  return i.opcode_next >> BBRE_INST_OPCODE_BITS;
 }
 
 /* Get the instruction-specific parameter of the instruction. Different
  * instructions assign different meanings to this param. */
-static re_u32 re_inst_param(re_inst i) { return i.param; }
+static bbre_u32 bbre_inst_param(bbre_inst i) { return i.param; }
 
 /* Make an instruction from the relevant fields. */
-static re_inst re_inst_make(re_opcode op, re_u32 next, re_u32 param)
+static bbre_inst bbre_inst_make(bbre_opcode op, bbre_u32 next, bbre_u32 param)
 {
-  re_inst out;
-  out.opcode_next = op | next << RE_INST_OPCODE_BITS, out.param = param;
+  bbre_inst out;
+  out.opcode_next = op | next << BBRE_INST_OPCODE_BITS, out.param = param;
   return out;
 }
 
 /* Make the parameter for a match instruction. */
-static re_u32
-re_inst_match_param_make(re_u32 begin_or_end, re_u32 slot_idx_or_set_idx)
+static bbre_u32
+bbre_inst_match_param_make(bbre_u32 begin_or_end, bbre_u32 slot_idx_or_set_idx)
 {
   assert(begin_or_end == 0 || begin_or_end == 1);
   return begin_or_end | (slot_idx_or_set_idx << 1);
 }
 
 /* Retrieve the end flag from a match instruction's parameter. */
-static re_u32 re_inst_match_param_end(re_u32 param) { return param & 1; }
+static bbre_u32 bbre_inst_match_param_end(bbre_u32 param) { return param & 1; }
 
 /* Retrieve the index number from a match instruction's parameter. */
-static re_u32 re_inst_match_param_idx(re_u32 param) { return param >> 1; }
+static bbre_u32 bbre_inst_match_param_idx(bbre_u32 param) { return param >> 1; }
 
 /* Set the program instruction at `pc` to `i`. */
-static void re_prog_set(re *r, re_u32 pc, re_inst i) { r->prog[pc] = i; }
+static void bbre_prog_set(bbre *r, bbre_u32 pc, bbre_inst i)
+{
+  r->prog[pc] = i;
+}
 
 /* Get the program instruction at `pc`. */
-static re_inst re_prog_get(const re *r, re_u32 pc) { return r->prog[pc]; }
+static bbre_inst bbre_prog_get(const bbre *r, bbre_u32 pc)
+{
+  return r->prog[pc];
+}
 
 /* Get the size (number of instructions) in the program. */
-static re_u32 re_prog_size(const re *r) { return re_buf_size(r->prog); }
+static bbre_u32 bbre_prog_size(const bbre *r) { return bbre_buf_size(r->prog); }
 
 /* The maximum number ofinstructions allowed in a program. */
-#define RE_PROG_LIMIT_MAX_INSTS 100000
+#define BBRE_PROG_LIMIT_MAX_INSTS 100000
 
 /* Append the instruction `i` to the program. Also add the relevant subpattern
  * index to the `prog_set_idxs` buf.*/
-static int re_prog_emit(re *r, re_inst i, re_compframe *frame)
+static int bbre_prog_emit(bbre *r, bbre_inst i, bbre_compframe *frame)
 {
   int err = 0;
-  if (re_prog_size(r) == RE_PROG_LIMIT_MAX_INSTS)
-    return RE_ERR_LIMIT;
-  if ((err = re_buf_push(r, &r->prog, i)) ||
-      (err = re_buf_push(r, &r->prog_set_idxs, frame->set_idx)))
+  if (bbre_prog_size(r) == BBRE_PROG_LIMIT_MAX_INSTS)
+    return BBRE_ERR_LIMIT;
+  if ((err = bbre_buf_push(r, &r->prog, i)) ||
+      (err = bbre_buf_push(r, &r->prog_set_idxs, frame->set_idx)))
     return err;
   return err;
 }
@@ -1493,38 +1524,40 @@ static int re_prog_emit(re *r, re_inst i, re_compframe *frame)
  * The LSB of `pc_secondary` encodes whether or not to use the `next` or the
  * `param` field for the target instruction. The rest of the bits in
  * `pc_secondary` encode the actual PC. */
-static re_inst re_patch_set(re *r, re_u32 pc_secondary, re_u32 val)
+static bbre_inst bbre_patch_set(bbre *r, bbre_u32 pc_secondary, bbre_u32 val)
 {
-  re_inst prev = re_prog_get(r, pc_secondary >> 1);
+  bbre_inst prev = bbre_prog_get(r, pc_secondary >> 1);
   assert(pc_secondary);
   /* Only SPLIT instructions have a secondary branch target. */
-  assert(RE_IMPLIES(pc_secondary & 1, re_inst_opcode(prev) == RE_OPCODE_SPLIT));
-  re_prog_set(
+  assert(BBRE_IMPLIES(
+      pc_secondary & 1, bbre_inst_opcode(prev) == BBRE_OPCODE_SPLIT));
+  bbre_prog_set(
       r, pc_secondary >> 1,
-      re_inst_make(
-          re_inst_opcode(prev), pc_secondary & 1 ? re_inst_next(prev) : val,
-          pc_secondary & 1 ? val : re_inst_param(prev)));
+      bbre_inst_make(
+          bbre_inst_opcode(prev), pc_secondary & 1 ? bbre_inst_next(prev) : val,
+          pc_secondary & 1 ? val : bbre_inst_param(prev)));
   return prev;
 }
 
 /* Add `dest_pc` to `f`'s linked list of patches. If `secondary` is 1, then the
  * secondary branch target of the instruction at `dest_pc` will be used. */
-static void re_patch_add(re *r, re_compframe *f, re_u32 dest_pc, int secondary)
+static void
+bbre_patch_add(bbre *r, bbre_compframe *f, bbre_u32 dest_pc, int secondary)
 {
-  re_u32 out_val = dest_pc << 1 | !!secondary;
+  bbre_u32 out_val = dest_pc << 1 | !!secondary;
   assert(dest_pc);
   if (!f->patch_head)
     /* the initial patch is just as the head and tail */
     f->patch_head = f->patch_tail = out_val;
   else {
     /* subsequent patch additions append to the tail of the list */
-    re_patch_set(r, f->patch_tail, out_val);
+    bbre_patch_set(r, f->patch_tail, out_val);
     f->patch_tail = out_val;
   }
 }
 
 /* Concatenate the patches in `p` with the patches in `q`. */
-static void re_patch_merge(re *r, re_compframe *p, re_compframe *q)
+static void bbre_patch_merge(bbre *r, bbre_compframe *p, bbre_compframe *q)
 {
   if (!p->patch_head) {
     p->patch_head = q->patch_head;
@@ -1533,61 +1566,62 @@ static void re_patch_merge(re *r, re_compframe *p, re_compframe *q)
   }
   if (!q->patch_head)
     return;
-  re_patch_set(r, p->patch_tail, q->patch_head);
+  bbre_patch_set(r, p->patch_tail, q->patch_head);
   p->patch_tail = q->patch_tail;
-  q->patch_head = q->patch_tail = RE_REF_NONE;
+  q->patch_head = q->patch_tail = BBRE_REF_NONE;
 }
 
 /* Transfer ownership of a patch list from `src` to `dst`. */
-static void re_patch_xfer(re_compframe *dst, re_compframe *src)
+static void bbre_patch_xfer(bbre_compframe *dst, bbre_compframe *src)
 {
   dst->patch_head = src->patch_head;
   dst->patch_tail = src->patch_tail;
-  src->patch_head = src->patch_tail = RE_REF_NONE;
+  src->patch_head = src->patch_tail = BBRE_REF_NONE;
 }
 
 /* Rip through the patch list in `f`, setting each branch target in the
  * instruction list to `dest_pc`. */
-static void re_patch_apply(re *r, re_compframe *f, re_u32 dest_pc)
+static void bbre_patch_apply(bbre *r, bbre_compframe *f, bbre_u32 dest_pc)
 {
-  re_u32 i = f->patch_head;
+  bbre_u32 i = f->patch_head;
   while (i) {
-    re_inst prev = re_patch_set(r, i, dest_pc);
-    i = i & 1 ? re_inst_param(prev) : re_inst_next(prev);
+    bbre_inst prev = bbre_patch_set(r, i, dest_pc);
+    i = i & 1 ? bbre_inst_param(prev) : bbre_inst_next(prev);
   }
-  f->patch_head = f->patch_tail = RE_REF_NONE;
+  f->patch_head = f->patch_tail = BBRE_REF_NONE;
 }
 
 /* We sort arrays of rune_range by their lower bound. */
-static re_u32 re_compcc_array_key(re_buf(re_rune_range) cc, size_t idx)
+static bbre_u32 bbre_compcc_array_key(bbre_buf(bbre_rune_range) cc, size_t idx)
 {
   return cc[idx].l;
 }
 
 /* Swap two values in an array of rune_range by their indices. */
-static void re_compcc_array_swap(re_buf(re_rune_range) cc, size_t a, size_t b)
+static void
+bbre_compcc_array_swap(bbre_buf(bbre_rune_range) cc, size_t a, size_t b)
 {
-  re_rune_range tmp = cc[a];
+  bbre_rune_range tmp = cc[a];
   cc[a] = cc[b];
   cc[b] = tmp;
 }
 
 /* Sort the array of rune_range by the lower bound of each range. */
-static void re_compcc_hsort(re_buf(re_rune_range) cc)
+static void bbre_compcc_hsort(bbre_buf(bbre_rune_range) cc)
 {
-  size_t end = re_buf_size(cc), start = end >> 1, root, child;
+  size_t end = bbre_buf_size(cc), start = end >> 1, root, child;
   while (end > 1) {
     if (start)
       start--;
     else
-      re_compcc_array_swap(cc, --end, 0);
+      bbre_compcc_array_swap(cc, --end, 0);
     root = start;
     while ((child = 2 * root + 1) < end) {
-      if (child + 1 < end &&
-          re_compcc_array_key(cc, child) < re_compcc_array_key(cc, child + 1))
+      if (child + 1 < end && bbre_compcc_array_key(cc, child) <
+                                 bbre_compcc_array_key(cc, child + 1))
         child++;
-      if (re_compcc_array_key(cc, root) < re_compcc_array_key(cc, child)) {
-        re_compcc_array_swap(cc, root, child);
+      if (bbre_compcc_array_key(cc, root) < bbre_compcc_array_key(cc, child)) {
+        bbre_compcc_array_swap(cc, root, child);
         root = child;
       } else
         break;
@@ -1598,41 +1632,41 @@ static void re_compcc_hsort(re_buf(re_rune_range) cc)
 /* Create a new tree node.
  * `node` is the contents of the node itself, and `out_ref` is the output node
  * ID (i.e. arena index) */
-static int re_compcc_tree_new(
-    re *r, re_buf(re_compcc_tree) * cc_out, re_compcc_tree node,
-    re_u32 *out_ref)
+static int bbre_compcc_tree_new(
+    bbre *r, bbre_buf(bbre_compcc_tree) * cc_out, bbre_compcc_tree node,
+    bbre_u32 *out_ref)
 {
   int err = 0;
-  if (!re_buf_size(*cc_out)) {
-    re_compcc_tree sentinel = {0};
+  if (!bbre_buf_size(*cc_out)) {
+    bbre_compcc_tree sentinel = {0};
     /* need to create sentinel node */
-    if ((err = re_buf_push(r, cc_out, sentinel)))
+    if ((err = bbre_buf_push(r, cc_out, sentinel)))
       return err;
   }
   if (out_ref)
-    *out_ref = re_buf_size(*cc_out);
-  if ((err = re_buf_push(r, cc_out, node)))
+    *out_ref = bbre_buf_size(*cc_out);
+  if ((err = bbre_buf_push(r, cc_out, node)))
     return err;
   return 0;
 }
 
 /* Append a byte range to an existing tree node.
  * `byte_range` is the packed range of bytes (returned from
- * re_byte_range_to_u32()), `parent_ref` is the node ID of the parent node to
+ * bbre_byte_range_to_u32()), `parent_ref` is the node ID of the parent node to
  * add to, and `out_ref` is the output node ID. */
-static int re_compcc_tree_append(
-    re *r, re_buf(re_compcc_tree) * cc, re_u32 byte_range, re_u32 parent_ref,
-    re_u32 *out_ref)
+static int bbre_compcc_tree_append(
+    bbre *r, bbre_buf(bbre_compcc_tree) * cc, bbre_u32 byte_range,
+    bbre_u32 parent_ref, bbre_u32 *out_ref)
 {
-  re_compcc_tree *parent_node, child_node = {0};
-  re_u32 child_ref;
+  bbre_compcc_tree *parent_node, child_node = {0};
+  bbre_u32 child_ref;
   int err;
   parent_node = (*cc) + parent_ref;
   /* link new child node to its next sibling */
   child_node.sibling_ref = parent_node->child_ref,
   child_node.range = byte_range;
   /* actually add the child to the tree */
-  if ((err = re_compcc_tree_new(r, cc, child_node, &child_ref)))
+  if ((err = bbre_compcc_tree_new(r, cc, child_node, &child_ref)))
     return err;
   /* parent pointer may have changed, reload it */
   parent_node = (*cc) + parent_ref;
@@ -1649,39 +1683,41 @@ static int re_compcc_tree_append(
 
 /* Given a rune range and first/rest bits, add node(s) to the tree and
  * optionally compile the rest. */
-static int re_compcc_tree_build_one(
-    re *r, re_buf(re_compcc_tree) * cc_out, re_u32 parent, re_u32 min,
-    re_u32 max, re_u32 rest_bits, re_u32 first_bits)
+static int bbre_compcc_tree_build_one(
+    bbre *r, bbre_buf(bbre_compcc_tree) * cc_out, bbre_u32 parent, bbre_u32 min,
+    bbre_u32 max, bbre_u32 rest_bits, bbre_u32 first_bits)
 {
-  re_u32 rest_mask = (1 << rest_bits) - 1 /* mask for only rest bits */,
-         first_min = min >> rest_bits /* minimum first value */,
-         first_max = max >> rest_bits /* maximum first value */,
-         u_mask = (0xFE << first_bits) &
-                  0xFF /* 0b11111110 << first_bits, used to build an actual
-                          UTF-8 starting byte */
+  bbre_u32 rest_mask = (1 << rest_bits) - 1 /* mask for only rest bits */,
+           first_min = min >> rest_bits /* minimum first value */,
+           first_max = max >> rest_bits /* maximum first value */,
+           u_mask = (0xFE << first_bits) &
+                    0xFF /* 0b11111110 << first_bits, used to build an actual
+                            UTF-8 starting byte */
       ,
-         byte_min = (first_min & 0xFF) | u_mask /* the minimum starting byte */,
-         byte_max = (first_max & 0xFF) | u_mask /* the maximum starting byte */,
-         i, next;
+           byte_min =
+               (first_min & 0xFF) | u_mask /* the minimum starting byte */,
+           byte_max =
+               (first_max & 0xFF) | u_mask /* the maximum starting byte */,
+           i, next;
   int err = 0;
   assert(first_bits <= 7);
   if (rest_bits == 0) {
     /* Final continuation byte or ASCII (terminal) */
-    if ((err = re_compcc_tree_append(
+    if ((err = bbre_compcc_tree_append(
              r, cc_out,
-             re_byte_range_to_u32(re_byte_range_make(byte_min, byte_max)),
+             bbre_byte_range_to_u32(bbre_byte_range_make(byte_min, byte_max)),
              parent, &next)))
       return err;
   } else {
     /* nonterminal */
-    re_u32 rest_min = min & rest_mask, rest_max = max & rest_mask, brs[3],
-           mins[3], maxs[3], n;
+    bbre_u32 rest_min = min & rest_mask, rest_max = max & rest_mask, brs[3],
+             mins[3], maxs[3], n;
     if (first_min == first_max || (rest_min == 0 && rest_max == rest_mask)) {
       /* Range can be split into either a single byte followed by a range,
        * _or_ one range followed by another maximal range */
       /* Output:
        * ---[FirstMin-FirstMax]---{tree for [RestMin-Xmax]} */
-      brs[0] = re_byte_range_to_u32(re_byte_range_make(byte_min, byte_max));
+      brs[0] = bbre_byte_range_to_u32(bbre_byte_range_make(byte_min, byte_max));
       mins[0] = rest_min, maxs[0] = rest_max;
       n = 1;
     } else if (!rest_min) {
@@ -1690,9 +1726,10 @@ static int re_compcc_tree_build_one(
        * ---[FirstMin-(FirstMax-1)]---{tree for [00-FF]}
        *           |
        *      [FirstMax-FirstMax]----{tree for [00-RestMax]} */
-      brs[0] = re_byte_range_to_u32(re_byte_range_make(byte_min, byte_max - 1));
+      brs[0] =
+          bbre_byte_range_to_u32(bbre_byte_range_make(byte_min, byte_max - 1));
       mins[0] = 0, maxs[0] = rest_mask;
-      brs[1] = re_byte_range_to_u32(re_byte_range_make(byte_max, byte_max));
+      brs[1] = bbre_byte_range_to_u32(bbre_byte_range_make(byte_max, byte_max));
       mins[1] = 0, maxs[1] = rest_max;
       n = 2;
     } else if (rest_max == rest_mask || first_min == first_max - 1) {
@@ -1707,9 +1744,10 @@ static int re_compcc_tree_build_one(
        * -----[FirstMin-FirstMin]----{tree for [RestMin-FF]}
        *           |
        *      [FirstMax-FirstMax]----{tree for [00-RestMax]} */
-      brs[0] = re_byte_range_to_u32(re_byte_range_make(byte_min, byte_min));
+      brs[0] = bbre_byte_range_to_u32(bbre_byte_range_make(byte_min, byte_min));
       mins[0] = rest_min, maxs[0] = rest_mask;
-      brs[1] = re_byte_range_to_u32(re_byte_range_make(byte_min + 1, byte_max));
+      brs[1] =
+          bbre_byte_range_to_u32(bbre_byte_range_make(byte_min + 1, byte_max));
       mins[1] = 0, maxs[1] = rest_mask;
       n = 2;
     } else {
@@ -1721,32 +1759,33 @@ static int re_compcc_tree_build_one(
        *    [(FirstMin+1)-(FirstMax-1)]----{tree for [00-FF]}
        *             |
        *        [FirstMax-FirstMax]-------{tree for [00-RestMax]} */
-      brs[0] = re_byte_range_to_u32(re_byte_range_make(byte_min, byte_min));
+      brs[0] = bbre_byte_range_to_u32(bbre_byte_range_make(byte_min, byte_min));
       mins[0] = rest_min, maxs[0] = rest_mask;
-      brs[1] =
-          re_byte_range_to_u32(re_byte_range_make(byte_min + 1, byte_max - 1));
+      brs[1] = bbre_byte_range_to_u32(
+          bbre_byte_range_make(byte_min + 1, byte_max - 1));
       mins[1] = 0, maxs[1] = rest_mask;
-      brs[2] = re_byte_range_to_u32(re_byte_range_make(byte_max, byte_max));
+      brs[2] = bbre_byte_range_to_u32(bbre_byte_range_make(byte_max, byte_max));
       mins[2] = 0, maxs[2] = rest_max;
       n = 3;
     }
     for (i = 0; i < n; i++) {
-      re_compcc_tree *parent_node;
-      re_u32 child_ref;
+      bbre_compcc_tree *parent_node;
+      bbre_u32 child_ref;
       /* check if previous child intersects and then compute intersection */
       assert(parent);
       parent_node = (*cc_out) + parent;
       if (parent_node->child_ref &&
-          re_u32_to_byte_range(brs[i]).l <=
-              re_u32_to_byte_range(((*cc_out) + parent_node->child_ref)->range)
+          bbre_u32_to_byte_range(brs[i]).l <=
+              bbre_u32_to_byte_range(
+                  ((*cc_out) + parent_node->child_ref)->range)
                   .h) {
         child_ref = parent_node->child_ref;
       } else {
-        if ((err =
-                 re_compcc_tree_append(r, cc_out, brs[i], parent, &child_ref)))
+        if ((err = bbre_compcc_tree_append(
+                 r, cc_out, brs[i], parent, &child_ref)))
           return err;
       }
-      if ((err = re_compcc_tree_build_one(
+      if ((err = bbre_compcc_tree_build_one(
                r, cc_out, child_ref, mins[i], maxs[i], rest_bits - 6, 6)))
         return err;
     }
@@ -1756,37 +1795,38 @@ static int re_compcc_tree_build_one(
 
 /* Given an array of rune ranges, build their tree. This function splits each
  * rune range amount UTF-8 length boundaries, then calls
- * `re_compcc_tree_build_one` on each split range. */
-static int re_compcc_tree_build(
-    re *r, const re_buf(re_rune_range) cc_in, re_buf(re_compcc_tree) * cc_out)
+ * `bbre_compcc_tree_build_one` on each split range. */
+static int bbre_compcc_tree_build(
+    bbre *r, const bbre_buf(bbre_rune_range) cc_in,
+    bbre_buf(bbre_compcc_tree) * cc_out)
 {
   size_t cc_idx = 0 /* current rune range index in `cc_in` */,
          len_idx = 0 /* current UTF-8 length */,
          min_bound = 0 /* current UTF-8 length minimum bound */;
-  re_u32 root_ref;          /* tree root */
-  re_compcc_tree root_node; /* the actual stored root node */
+  bbre_u32 root_ref;          /* tree root */
+  bbre_compcc_tree root_node; /* the actual stored root node */
   int err = 0;
   root_node.child_ref = root_node.sibling_ref = root_node.aux.hash =
       root_node.range = 0;
   /* clear output charclass */
-  re_buf_clear(cc_out);
-  if ((err = re_compcc_tree_new(r, cc_out, root_node, &root_ref)))
+  bbre_buf_clear(cc_out);
+  if ((err = bbre_compcc_tree_new(r, cc_out, root_node, &root_ref)))
     return err;
-  for (cc_idx = 0, len_idx = 0; cc_idx < re_buf_size(cc_in) && len_idx < 4;) {
+  for (cc_idx = 0, len_idx = 0; cc_idx < bbre_buf_size(cc_in) && len_idx < 4;) {
     /* Loop until we're out of ranges and out of byte lengths */
-    static const re_u32 first_bits[4] = {7, 5, 4, 3};
-    static const re_u32 rest_bits[4] = {0, 6, 12, 18};
+    static const bbre_u32 first_bits[4] = {7, 5, 4, 3};
+    static const bbre_u32 rest_bits[4] = {0, 6, 12, 18};
     /* What is the maximum codepoint that a UTF-8 sequence of length `len_idx`
      * can encode? */
-    re_u32 max_bound = (1 << (rest_bits[len_idx] + first_bits[len_idx])) - 1;
-    re_rune_range rr = cc_in[cc_idx];
+    bbre_u32 max_bound = (1 << (rest_bits[len_idx] + first_bits[len_idx])) - 1;
+    bbre_rune_range rr = cc_in[cc_idx];
     if (min_bound <= rr.h && rr.l <= max_bound) {
       /* [rr.l,rr.h] intersects [min_bound,max_bound] */
       /* clip it so that it lies within [min_bound,max_bound] */
-      re_u32 clamped_min = rr.l < min_bound ? min_bound : rr.l,
-             clamped_max = rr.h > max_bound ? max_bound : rr.h;
+      bbre_u32 clamped_min = rr.l < min_bound ? min_bound : rr.l,
+               clamped_max = rr.h > max_bound ? max_bound : rr.h;
       /* then build it */
-      if ((err = re_compcc_tree_build_one(
+      if ((err = bbre_compcc_tree_build_one(
                r, cc_out, root_ref, clamped_min, clamped_max,
                rest_bits[len_idx], first_bits[len_idx])))
         return err;
@@ -1805,13 +1845,13 @@ static int re_compcc_tree_build(
  * I usually avoid recursion in C. However, this function will only recur a
  * maximum of 4 times, since the maximum depth of a tree (child-wise) is 4,
  * which is the maximum length of a UTF-8 sequence.*/
-static int re_compcc_tree_eq(
-    const re_buf(re_compcc_tree) cc_tree_in, re_u32 a_ref, re_u32 b_ref)
+static int bbre_compcc_tree_eq(
+    const bbre_buf(bbre_compcc_tree) cc_tree_in, bbre_u32 a_ref, bbre_u32 b_ref)
 {
   /* Loop through children of `a` and `b` */
   while (a_ref && b_ref) {
-    const re_compcc_tree *a = cc_tree_in + a_ref, *b = cc_tree_in + b_ref;
-    if (!re_compcc_tree_eq(cc_tree_in, a->child_ref, b->child_ref))
+    const bbre_compcc_tree *a = cc_tree_in + a_ref, *b = cc_tree_in + b_ref;
+    if (!bbre_compcc_tree_eq(cc_tree_in, a->child_ref, b->child_ref))
       return 0;
     if (a->range != b->range)
       return 0;
@@ -1823,29 +1863,30 @@ static int re_compcc_tree_eq(
 }
 
 /* Merge two adjacent subtrees. */
-static void re_compcc_tree_merge_one(
-    re_buf(re_compcc_tree) cc_tree_in, re_u32 child_ref, re_u32 sibling_ref)
+static void bbre_compcc_tree_merge_one(
+    bbre_buf(bbre_compcc_tree) cc_tree_in, bbre_u32 child_ref,
+    bbre_u32 sibling_ref)
 {
-  re_compcc_tree *child = cc_tree_in + child_ref,
-                 *sibling = cc_tree_in + sibling_ref;
+  bbre_compcc_tree *child = cc_tree_in + child_ref,
+                   *sibling = cc_tree_in + sibling_ref;
   child->sibling_ref = sibling->sibling_ref;
   /* Adjacent subtrees can only be merged if their child trees are equal and if
    * their ranges are adjacent. */
   assert(
-      re_byte_range_is_adjacent(
-          re_u32_to_byte_range(child->range),
-          re_u32_to_byte_range(sibling->range)) &&
-      re_compcc_tree_eq(cc_tree_in, child->child_ref, sibling->child_ref));
-  child->range = re_byte_range_to_u32(re_byte_range_make(
-      re_u32_to_byte_range(child->range).l,
-      re_u32_to_byte_range(sibling->range).h));
+      bbre_byte_range_is_adjacent(
+          bbre_u32_to_byte_range(child->range),
+          bbre_u32_to_byte_range(sibling->range)) &&
+      bbre_compcc_tree_eq(cc_tree_in, child->child_ref, sibling->child_ref));
+  child->range = bbre_byte_range_to_u32(bbre_byte_range_make(
+      bbre_u32_to_byte_range(child->range).l,
+      bbre_u32_to_byte_range(sibling->range).h));
 }
 
 /* General purpose hashing function. This should probably be changed to
  * something a bit better, but works very well for this library.
  * Found by the intrepid Chris Wellons:
  * https://nullprogram.com/blog/2018/07/31/ */
-static re_u32 re_hashington(re_u32 x)
+static bbre_u32 bbre_hashington(bbre_u32 x)
 {
   x ^= x >> 16;
   x *= 0x7feb352dU;
@@ -1856,49 +1897,50 @@ static re_u32 re_hashington(re_u32 x)
 }
 
 /* Initialize tree reduction hash table. */
-static int re_compcc_hash_init(
-    re *r, const re_buf(re_compcc_tree) cc_tree_in, re_buf(re_u32) * cc_ht_out)
+static int bbre_compcc_hash_init(
+    bbre *r, const bbre_buf(bbre_compcc_tree) cc_tree_in,
+    bbre_buf(bbre_u32) * cc_ht_out)
 {
   int err = 0;
-  if ((err = re_buf_reserve(
+  if ((err = bbre_buf_reserve(
            r, cc_ht_out,
-           (re_buf_size(cc_tree_in) + (re_buf_size(cc_tree_in) >> 1)))))
+           (bbre_buf_size(cc_tree_in) + (bbre_buf_size(cc_tree_in) >> 1)))))
     return err;
-  memset(*cc_ht_out, 0, re_buf_size(*cc_ht_out) * sizeof(**cc_ht_out));
+  memset(*cc_ht_out, 0, bbre_buf_size(*cc_ht_out) * sizeof(**cc_ht_out));
   return 0;
 }
 
 /* Hash all nodes in the tree, and also merge adjacent nodes with identical
  * subtrees. This is the final optimization opportunity for reducing the
  * resulting amount of instructions. */
-static void
-re_compcc_tree_hash(re *r, re_buf(re_compcc_tree) cc_tree_in, re_u32 parent_ref)
+static void bbre_compcc_tree_hash(
+    bbre *r, bbre_buf(bbre_compcc_tree) cc_tree_in, bbre_u32 parent_ref)
 {
   /* We also flip sibling -> sibling links backwards -- this reorders the byte
    * ranges into ascending order. */
-  re_compcc_tree *parent_node = cc_tree_in + parent_ref;
-  re_u32 child_ref, next_child_ref, sibling_ref = 0;
+  bbre_compcc_tree *parent_node = cc_tree_in + parent_ref;
+  bbre_u32 child_ref, next_child_ref, sibling_ref = 0;
   child_ref = parent_node->child_ref;
   while (child_ref) {
-    re_compcc_tree *child_node = cc_tree_in + child_ref, *sibling_node;
+    bbre_compcc_tree *child_node = cc_tree_in + child_ref, *sibling_node;
     next_child_ref = child_node->sibling_ref;
     child_node->sibling_ref = sibling_ref;
     /* Recursively hash child nodes. */
-    re_compcc_tree_hash(r, cc_tree_in, child_ref);
+    bbre_compcc_tree_hash(r, cc_tree_in, child_ref);
     if (sibling_ref) {
       /* Attempt to merge this node with its next sibling. */
       sibling_node = cc_tree_in + sibling_ref;
-      if (re_byte_range_is_adjacent(
-              re_u32_to_byte_range(child_node->range),
-              re_u32_to_byte_range(sibling_node->range))) {
+      if (bbre_byte_range_is_adjacent(
+              bbre_u32_to_byte_range(child_node->range),
+              bbre_u32_to_byte_range(sibling_node->range))) {
         /* Since the input ranges are normalized, terminal nodes (nodes with no
          * concatenation) are NOT adjacent. */
         /* In other words, we guarantee that there are always gaps between
          * terminal bytes ranges within the tree. */
         assert(sibling_node->child_ref && child_node->child_ref);
-        if (re_compcc_tree_eq(
+        if (bbre_compcc_tree_eq(
                 cc_tree_in, child_node->child_ref, sibling_node->child_ref))
-          re_compcc_tree_merge_one(cc_tree_in, child_ref, sibling_ref);
+          bbre_compcc_tree_merge_one(cc_tree_in, child_ref, sibling_ref);
       }
     }
     {
@@ -1909,7 +1951,7 @@ re_compcc_tree_hash(re *r, re_buf(re_compcc_tree) cc_tree_in, re_u32 parent_ref)
        * O(N) to O(N^2) if they cause a ton of collisions and make us probe a
        * lot, but I can't convince myself how. */
       /* Three guaranteed random numbers, chosen by a fair dice roll. */
-      re_u32 hash_plain[3] = {0x6D99232E, 0xC281FF0B, 0x54978D96};
+      bbre_u32 hash_plain[3] = {0x6D99232E, 0xC281FF0B, 0x54978D96};
       memset(hash_plain, 0, sizeof(hash_plain));
       hash_plain[0] ^= child_node->range;
       if (child_node->sibling_ref)
@@ -1919,8 +1961,8 @@ re_compcc_tree_hash(re *r, re_buf(re_compcc_tree) cc_tree_in, re_u32 parent_ref)
         /* Derive our hash from our child node's hash, which was computed */
         hash_plain[2] = (cc_tree_in + child_node->child_ref)->aux.hash;
       /* Compute and set our hash. */
-      child_node->aux.hash = re_hashington(
-          re_hashington(re_hashington(hash_plain[0]) + hash_plain[1]) +
+      child_node->aux.hash = bbre_hashington(
+          bbre_hashington(bbre_hashington(hash_plain[0]) + hash_plain[1]) +
           hash_plain[2]);
     }
     /* Swap node --> sibling links for node <-- sibling. */
@@ -1934,26 +1976,26 @@ re_compcc_tree_hash(re *r, re_buf(re_compcc_tree) cc_tree_in, re_u32 parent_ref)
 }
 
 /* Reduce nodes in the tree (eliminate common suffixes) */
-static void re_compcc_tree_reduce(
-    re *r, re_buf(re_compcc_tree) cc_tree_in, re_buf(re_u32) cc_ht,
-    re_u32 node_ref, re_u32 *my_out_ref)
+static void bbre_compcc_tree_reduce(
+    bbre *r, bbre_buf(bbre_compcc_tree) cc_tree_in, bbre_buf(bbre_u32) cc_ht,
+    bbre_u32 node_ref, bbre_u32 *my_out_ref)
 {
-  re_u32 prev_sibling_ref = 0;
+  bbre_u32 prev_sibling_ref = 0;
   assert(node_ref);
   assert(!*my_out_ref);
   while (node_ref) {
-    re_compcc_tree *node = cc_tree_in + node_ref;
-    re_u32 probe, found, child_ref = 0;
+    bbre_compcc_tree *node = cc_tree_in + node_ref;
+    bbre_u32 probe, found, child_ref = 0;
     probe = node->aux.hash;
     node->aux.pc = 0;
     /* check if child is in the hash table */
     while (1) {
-      if (!((found = cc_ht[probe % re_buf_size(cc_ht)]) & 1))
+      if (!((found = cc_ht[probe % bbre_buf_size(cc_ht)]) & 1))
         /* child is NOT in the cache */
         break;
       else {
         /* something is in the cache, but it might not be a child */
-        if (re_compcc_tree_eq(cc_tree_in, node_ref, found >> 1)) {
+        if (bbre_compcc_tree_eq(cc_tree_in, node_ref, found >> 1)) {
           if (prev_sibling_ref)
             /* link us to our new previous sibling, if any */
             cc_tree_in[prev_sibling_ref].sibling_ref = found >> 1;
@@ -1967,13 +2009,14 @@ static void re_compcc_tree_reduce(
     }
     /* this could be slow because of the mod operation-- might be a good idea to
      * use one of nullprogram's MST hash tables here */
-    cc_ht[probe % re_buf_size(cc_ht)] = node_ref << 1 | 1;
+    cc_ht[probe % bbre_buf_size(cc_ht)] = node_ref << 1 | 1;
     if (!*my_out_ref)
       /* if this was the first node processed, return it */
       *my_out_ref = node_ref;
     if (node->child_ref) {
       /* reduce our child tree */
-      re_compcc_tree_reduce(r, cc_tree_in, cc_ht, node->child_ref, &child_ref);
+      bbre_compcc_tree_reduce(
+          r, cc_tree_in, cc_ht, node->child_ref, &child_ref);
       node->child_ref = child_ref;
     }
     prev_sibling_ref = node_ref;
@@ -1987,23 +2030,24 @@ static void re_compcc_tree_reduce(
  * `node_ref` is the node to be rendered, `my_out_pc` is the PC of `node_ref`'s
  * instructions, once they are compiled. `frame` allows us to keep track of
  * patch exit points. */
-static int re_compcc_tree_render(
-    re *r, re_buf(re_compcc_tree) cc_tree_in, re_u32 node_ref,
-    re_u32 *my_out_pc, re_compframe *frame)
+static int bbre_compcc_tree_render(
+    bbre *r, bbre_buf(bbre_compcc_tree) cc_tree_in, bbre_u32 node_ref,
+    bbre_u32 *my_out_pc, bbre_compframe *frame)
 {
   int err = 0;
-  re_u32 split_from = 0 /* location of last compiled SPLIT instruction */,
-         my_pc = 0 /* PC of the current node being compiled */,
-         range_pc = 0 /* location of last compiled RANGE instruction */;
+  bbre_u32 split_from = 0 /* location of last compiled SPLIT instruction */,
+           my_pc = 0 /* PC of the current node being compiled */,
+           range_pc = 0 /* location of last compiled RANGE instruction */;
   while (node_ref) {
-    re_compcc_tree *node = cc_tree_in + node_ref;
+    bbre_compcc_tree *node = cc_tree_in + node_ref;
     if (node->aux.pc) {
       /* we've already compiled this node */
       if (split_from) {
         /* instead of compiling the node again, just jump to it and return */
-        re_inst i = re_prog_get(r, split_from);
-        i = re_inst_make(re_inst_opcode(i), re_inst_next(i), node->aux.pc);
-        re_prog_set(r, split_from, i);
+        bbre_inst i = bbre_prog_get(r, split_from);
+        i = bbre_inst_make(
+            bbre_inst_opcode(i), bbre_inst_next(i), node->aux.pc);
+        bbre_prog_set(r, split_from, i);
       } else
         /* return the compiled instructions themselves if we haven't compiled
          * anything else yet */
@@ -2011,51 +2055,51 @@ static int re_compcc_tree_render(
       return 0;
     }
     /* node wasn't found in the cache: we need to compile it */
-    my_pc = re_prog_size(r);
+    my_pc = bbre_prog_size(r);
     if (split_from) {
       /* if there was a previous SPLIT instruction: link it to the upcoming
        * SPLIT/RANGE instruction */
-      re_inst i = re_prog_get(r, split_from);
+      bbre_inst i = bbre_prog_get(r, split_from);
       /* patch into it */
-      i = re_inst_make(re_inst_opcode(i), re_inst_next(i), my_pc);
-      re_prog_set(r, split_from, i);
+      i = bbre_inst_make(bbre_inst_opcode(i), bbre_inst_next(i), my_pc);
+      bbre_prog_set(r, split_from, i);
     }
     if (node->sibling_ref) {
       /* there are more siblings (alternations) left, so we need a SPLIT
        * instruction */
       split_from = my_pc;
-      if ((err = re_prog_emit(
-               r, re_inst_make(RE_OPCODE_SPLIT, my_pc + 1, 0), frame)))
+      if ((err = bbre_prog_emit(
+               r, bbre_inst_make(BBRE_OPCODE_SPLIT, my_pc + 1, 0), frame)))
         return err;
     }
     if (!*my_out_pc)
       *my_out_pc = my_pc;
     /* compile this node's RANGE instruction */
-    range_pc = re_prog_size(r);
-    if ((err = re_prog_emit(
+    range_pc = bbre_prog_size(r);
+    if ((err = bbre_prog_emit(
              r,
-             re_inst_make(
-                 RE_OPCODE_RANGE, 0,
-                 re_byte_range_to_u32(re_byte_range_make(
-                     re_u32_to_byte_range(node->range).l,
-                     re_u32_to_byte_range(node->range).h))),
+             bbre_inst_make(
+                 BBRE_OPCODE_RANGE, 0,
+                 bbre_byte_range_to_u32(bbre_byte_range_make(
+                     bbre_u32_to_byte_range(node->range).l,
+                     bbre_u32_to_byte_range(node->range).h))),
              frame)))
       return err;
     if (node->child_ref) {
       /* node has children: need to down-compile */
-      re_u32 their_pc = 0;
-      re_inst i = re_prog_get(r, range_pc);
-      if ((err = re_compcc_tree_render(
+      bbre_u32 their_pc = 0;
+      bbre_inst i = bbre_prog_get(r, range_pc);
+      if ((err = bbre_compcc_tree_render(
                r, cc_tree_in, node->child_ref, &their_pc, frame)))
         return err;
       /* modify the primary branch target of the RANGE instruction to point to
        * the child's instructions: this introduces a concatenation */
-      i = re_inst_make(re_inst_opcode(i), their_pc, re_inst_param(i));
-      re_prog_set(r, range_pc, i);
+      i = bbre_inst_make(bbre_inst_opcode(i), their_pc, bbre_inst_param(i));
+      bbre_prog_set(r, range_pc, i);
     } else {
       /* node does not have children: register its branch target as an exit
        * point using the patch list */
-      re_patch_add(r, frame, range_pc, 0);
+      bbre_patch_add(r, frame, range_pc, 0);
     }
     node->aux.pc = my_pc;
     node_ref = node->sibling_ref;
@@ -2075,24 +2119,25 @@ static int re_compcc_tree_render(
  * the optimal DFA representing the reversed form of the charclass, but it
  * contains roughly the same number of instructions as the forward program, so
  * it is still compact. */
-static void re_compcc_tree_xpose(
-    const re_buf(re_compcc_tree) cc_tree_in, re_buf(re_compcc_tree) cc_tree_out,
-    re_u32 node_ref, re_u32 root_ref)
+static void bbre_compcc_tree_xpose(
+    const bbre_buf(bbre_compcc_tree) cc_tree_in,
+    bbre_buf(bbre_compcc_tree) cc_tree_out, bbre_u32 node_ref,
+    bbre_u32 root_ref)
 {
-  const re_compcc_tree *src_node;
-  re_compcc_tree *dst_node, *parent_node;
-  assert(node_ref != RE_REF_NONE);
+  const bbre_compcc_tree *src_node;
+  bbre_compcc_tree *dst_node, *parent_node;
+  assert(node_ref != BBRE_REF_NONE);
   /* There needs to be enough space in the output tree. This space is
    * preallocated to simplify this function's error checking. */
-  assert(re_buf_size(cc_tree_out) == re_buf_size(cc_tree_in));
+  assert(bbre_buf_size(cc_tree_out) == bbre_buf_size(cc_tree_in));
   while (node_ref) {
-    re_u32 parent_ref = root_ref;
+    bbre_u32 parent_ref = root_ref;
     src_node = cc_tree_in + node_ref;
     dst_node = cc_tree_out + node_ref;
-    dst_node->sibling_ref = dst_node->child_ref = RE_REF_NONE;
-    if (src_node->child_ref != RE_REF_NONE)
+    dst_node->sibling_ref = dst_node->child_ref = BBRE_REF_NONE;
+    if (src_node->child_ref != BBRE_REF_NONE)
       /* if there is a child, reverse it first */
-      re_compcc_tree_xpose(
+      bbre_compcc_tree_xpose(
           cc_tree_in, cc_tree_out,
           /* if we had a child, then it becomes our parent, since node -> child
              relationships are concatenative */
@@ -2109,59 +2154,61 @@ static void re_compcc_tree_xpose(
 
 /* This function is automatically generated and is defined later in this file.
  */
-static int re_compcc_fold_range(
-    re *r, re_u32 begin, re_u32 end, re_buf(re_rune_range) * cc_out);
+static int bbre_compcc_fold_range(
+    bbre *r, bbre_u32 begin, bbre_u32 end, bbre_buf(bbre_rune_range) * cc_out);
 
 /* Main function for the character class compiler. `ast_root` is the AST ID of
  * the CC node, `frame` is the compiler frame allocated for that node, and
  * `reversed` tells us whether to compile the charclass in reverse. */
-static int re_compcc(re *r, re_u32 ast_root, re_compframe *frame, int reversed)
+static int
+bbre_compcc(bbre *r, bbre_u32 ast_root, bbre_compframe *frame, int reversed)
 {
   int err = 0,
-      is_inverted = *re_ast_type_ref(r, frame->root_ref) == RE_AST_TYPE_ICC,
-      is_insensitive = !!(frame->flags & RE_GROUP_FLAG_INSENSITIVE);
-  re_u32 start_pc = 0; /* start PC of the compiled charclass, this is filled in
-                          by rendertree() */
+      is_inverted = *bbre_ast_type_ref(r, frame->root_ref) == BBRE_AST_TYPE_ICC,
+      is_insensitive = !!(frame->flags & BBRE_GROUP_FLAG_INSENSITIVE);
+  bbre_u32 start_pc = 0; /* start PC of the compiled charclass, this is filled
+                          in by rendertree() */
   /* clear temporary buffers (their space is reserved) */
-  re_buf_clear(&r->compcc.ranges), re_buf_clear(&r->compcc.ranges_2),
-      re_buf_clear(&r->compcc.tree), re_buf_clear(&r->compcc.tree_2),
-      re_buf_clear(&r->compcc.hash);
+  bbre_buf_clear(&r->compcc.ranges), bbre_buf_clear(&r->compcc.ranges_2),
+      bbre_buf_clear(&r->compcc.tree), bbre_buf_clear(&r->compcc.tree_2),
+      bbre_buf_clear(&r->compcc.hash);
   /* push ranges */
   while (ast_root) {
     /* decompose the tree of [I]CC nodes into a flat array in compcc.ranges */
-    re_u32 args[3] /* ast arguments */, rune_lo /* lower bound of rune range */,
+    bbre_u32 args[3] /* ast arguments */,
+        rune_lo /* lower bound of rune range */,
         rune_hi /* upper bound of rune range */;
-    re_ast_decompose(r, ast_root, args);
+    bbre_ast_decompose(r, ast_root, args);
     ast_root = args[0], rune_lo = args[1], rune_hi = args[2];
-    if ((err = re_buf_push(
+    if ((err = bbre_buf_push(
              r, &r->compcc.ranges,
-             re_rune_range_make(
+             bbre_rune_range_make(
                  /* handle out-of-order ranges (lo > hi) */
                  rune_lo > rune_hi ? rune_hi : rune_lo,
                  rune_lo > rune_hi ? rune_lo : rune_hi))))
       return err;
   }
   /* for now, we disallow empty charclasses */
-  assert(re_buf_size(r->compcc.ranges));
+  assert(bbre_buf_size(r->compcc.ranges));
   /* sort and normalize ranges. This is done in a loop, because we may need to
    * do it twice in case the charclass is marked as case-insensitive */
   do {
     /* sort ranges: we want all ranges to be ordered by their lower bound, this
      * makes all subsequent steps O(1). Ideally, we want compilation time to be
      * dominated by this step. */
-    re_compcc_hsort(r->compcc.ranges);
+    bbre_compcc_hsort(r->compcc.ranges);
     /* normalize ranges: we want to eliminate all instances of range overlap,
      * and we also want to merge adjacent ranges. */
     {
       size_t i;
-      re_rune_range next /* currently processed range */,
+      bbre_rune_range next /* currently processed range */,
           prev /* previously processed range, yet to be added to the array */;
-      for (i = 0; i < re_buf_size(r->compcc.ranges); i++) {
+      for (i = 0; i < bbre_buf_size(r->compcc.ranges); i++) {
         next = r->compcc.ranges[i];
         assert(next.l <= next.h); /* ensure ranges are not swapped */
         if (!i)
           /* this is the first range */
-          prev = re_rune_range_make(next.l, next.h);
+          prev = bbre_rune_range_make(next.l, next.h);
         else if (next.l <= prev.h + 1) {
           /* next intersects or is adjacent to prev, merge the two ranges by
            * expanding prev so that it envelops both prev and next */
@@ -2171,37 +2218,37 @@ static int re_compcc(re *r, re_u32 ast_root, re_compframe *frame, int reversed)
           /* since ranges strictly increase, we know that prev does not
            * intersect with any other range in the input array, so we can push
            * it and move on. */
-          if ((err = re_buf_push(r, &r->compcc.ranges_2, prev)))
+          if ((err = bbre_buf_push(r, &r->compcc.ranges_2, prev)))
             return err;
           prev = next;
         }
       }
       assert(i); /* the charclass is never empty here */
-      if ((err = re_buf_push(r, &r->compcc.ranges_2, prev)))
+      if ((err = bbre_buf_push(r, &r->compcc.ranges_2, prev)))
         return err;
       if (is_insensitive) {
         /* casefold normalized ranges */
-        re_buf_clear(&r->compcc.ranges);
-        for (i = 0; i < re_buf_size(r->compcc.ranges_2); i++) {
+        bbre_buf_clear(&r->compcc.ranges);
+        for (i = 0; i < bbre_buf_size(r->compcc.ranges_2); i++) {
           next = r->compcc.ranges_2[i];
-          if ((err = re_buf_push(r, &r->compcc.ranges, next)))
+          if ((err = bbre_buf_push(r, &r->compcc.ranges, next)))
             return err;
-          if ((err =
-                   re_compcc_fold_range(r, next.l, next.h, &r->compcc.ranges)))
+          if ((err = bbre_compcc_fold_range(
+                   r, next.l, next.h, &r->compcc.ranges)))
             return err;
         }
-        re_buf_clear(&r->compcc.ranges_2);
+        bbre_buf_clear(&r->compcc.ranges_2);
       }
     }
   } while (is_insensitive &&
            is_insensitive-- /* re-normalize by looping again */);
   if (is_inverted) {
     /* invert ranges in place, if appropriate */
-    re_u32 hi = 0 /* largest rune encountered plus one */,
-           read /* read index into `compcc_ranges_2` */,
-           write = 0 /* write index into `compcc_ranges_2` */,
-           old_size = re_buf_size(r->compcc.ranges_2);
-    re_rune_range cur = re_rune_range_make(0, 0);
+    bbre_u32 hi = 0 /* largest rune encountered plus one */,
+             read /* read index into `compcc_ranges_2` */,
+             write = 0 /* write index into `compcc_ranges_2` */,
+             old_size = bbre_buf_size(r->compcc.ranges_2);
+    bbre_rune_range cur = bbre_rune_range_make(0, 0);
     for (read = 0; read < old_size; read++) {
       cur = r->compcc.ranges_2[read];
       /* for inverting in place to work, the write index must always lag the
@@ -2210,67 +2257,69 @@ static int re_compcc(re *r, re_u32 ast_root, re_compframe *frame, int reversed)
       if (cur.l > hi) {
         /* create a range that 'fills in the gap' between the previous range and
          * the next one */
-        r->compcc.ranges_2[write++] = re_rune_range_make(hi, cur.l - 1);
+        r->compcc.ranges_2[write++] = bbre_rune_range_make(hi, cur.l - 1);
         hi = cur.h + 1;
       }
     }
     /* it is possible for the amount of inverted ranges to be greater than the
      * amound of ranges (specifically, it may be exactly one greater if the
      * input range does not extend to the maximum codepoint) */
-    if ((err = re_buf_reserve(
-             r, &r->compcc.ranges_2, write += (cur.h < RE_UTF_MAX))))
+    if ((err = bbre_buf_reserve(
+             r, &r->compcc.ranges_2, write += (cur.h < BBRE_UTF_MAX))))
       return err;
     /* make the final inverted range */
-    if (cur.h < RE_UTF_MAX)
-      r->compcc.ranges_2[write - 1] = re_rune_range_make(cur.h + 1, RE_UTF_MAX);
+    if (cur.h < BBRE_UTF_MAX)
+      r->compcc.ranges_2[write - 1] =
+          bbre_rune_range_make(cur.h + 1, BBRE_UTF_MAX);
   }
-  if (!re_buf_size(r->compcc.ranges_2)) {
+  if (!bbre_buf_size(r->compcc.ranges_2)) {
     /* here, it's actually possible to have a charclass that matches no chars,
      * consider the inversion of [\x00-\x{10FFFF}]. Since this case is so rare,
      * we just stub it out by creating an assert that never matches. */
-    if ((err = re_prog_emit(
+    if ((err = bbre_prog_emit(
              r,
-             re_inst_make(
-                 RE_OPCODE_ASSERT, 0, RE_ASSERT_WORD | RE_ASSERT_NOT_WORD),
+             bbre_inst_make(
+                 BBRE_OPCODE_ASSERT, 0,
+                 BBRE_ASSERT_WORD | BBRE_ASSERT_NOT_WORD),
              frame))) /* never matches */
       return err;
     /* just return immediately, the code below assumes that there are actually
      * ranges to compile */
-    re_patch_add(r, frame, re_prog_size(r) - 1, 0);
+    bbre_patch_add(r, frame, bbre_prog_size(r) - 1, 0);
     return err;
   }
   /* build the concat/alt tree */
-  if ((err = re_compcc_tree_build(r, r->compcc.ranges_2, &r->compcc.tree)))
+  if ((err = bbre_compcc_tree_build(r, r->compcc.ranges_2, &r->compcc.tree)))
     return err;
   /* hash the tree */
-  if ((err = re_compcc_hash_init(r, r->compcc.tree, &r->compcc.hash)))
+  if ((err = bbre_compcc_hash_init(r, r->compcc.tree, &r->compcc.hash)))
     return err;
-  re_compcc_tree_hash(r, r->compcc.tree, 1);
+  bbre_compcc_tree_hash(r, r->compcc.tree, 1);
   /* reduce the tree */
-  re_compcc_tree_reduce(r, r->compcc.tree, r->compcc.hash, 2, &start_pc);
+  bbre_compcc_tree_reduce(r, r->compcc.tree, r->compcc.hash, 2, &start_pc);
   if (reversed) {
     /* optionally reverse the tree, if we're compiling in reverse mode */
-    re_u32 i;
-    re_buf(re_compcc_tree) tmp;
+    bbre_u32 i;
+    bbre_buf(bbre_compcc_tree) tmp;
     /* copy all nodes from compcc.tree to compcc.tree_2, this has the side
      * effect of reserving exactly enough space to store the reversed tree */
-    re_buf_clear(&r->compcc.tree_2);
-    for (i = 1 /* skip sentinel */; i < re_buf_size(r->compcc.tree); i++) {
-      if ((err = re_compcc_tree_new(
-               r, &r->compcc.tree_2, r->compcc.tree[i], NULL)) == RE_ERR_MEM)
+    bbre_buf_clear(&r->compcc.tree_2);
+    for (i = 1 /* skip sentinel */; i < bbre_buf_size(r->compcc.tree); i++) {
+      if ((err = bbre_compcc_tree_new(
+               r, &r->compcc.tree_2, r->compcc.tree[i], NULL)) == BBRE_ERR_MEM)
         return err;
       assert(!err);
     }
     /* detach new root */
-    r->compcc.tree_2[1].child_ref = RE_REF_NONE;
+    r->compcc.tree_2[1].child_ref = BBRE_REF_NONE;
     /* reverse all concatenation edges in the tree */
-    re_compcc_tree_xpose(r->compcc.tree, r->compcc.tree_2, 2, 1);
+    bbre_compcc_tree_xpose(r->compcc.tree, r->compcc.tree_2, 2, 1);
     tmp = r->compcc.tree;
     r->compcc.tree = r->compcc.tree_2;
     r->compcc.tree_2 = tmp;
   }
   /* finally, generate the charclass' instructions */
-  if ((err = re_compcc_tree_render(
+  if ((err = bbre_compcc_tree_render(
            r, r->compcc.tree, start_pc, &start_pc, frame)))
     return err;
   return err;
@@ -2279,42 +2328,43 @@ static int re_compcc(re *r, re_u32 ast_root, re_compframe *frame, int reversed)
 /* Given a compiled program described by `src` and `src_end`, duplicate its
  * instructions, and return the duplicate in `dst` as if it was just compiled by
  * an iteration of the compiler loop. */
-int re_compile_dup(
-    re *r, re_compframe *src, re_u32 src_end, re_compframe *dst, re_u32 dest_pc)
+int bbre_compile_dup(
+    bbre *r, bbre_compframe *src, bbre_u32 src_end, bbre_compframe *dst,
+    bbre_u32 dest_pc)
 {
-  re_u32 i;
+  bbre_u32 i;
   int err;
   *dst = *src;
-  re_patch_apply(r, src, dest_pc);
-  dst->pc = re_prog_size(r);
-  dst->patch_head = dst->patch_tail = RE_REF_NONE;
+  bbre_patch_apply(r, src, dest_pc);
+  dst->pc = bbre_prog_size(r);
+  dst->patch_head = dst->patch_tail = BBRE_REF_NONE;
   for (i = src->pc; i < src_end; i++) {
-    re_inst inst = re_prog_get(r, i), next_inst = inst;
+    bbre_inst inst = bbre_prog_get(r, i), next_inst = inst;
     int should_patch[2] = {0, 0}, j;
-    switch (re_inst_opcode(inst)) {
-    case RE_OPCODE_SPLIT:
+    switch (bbre_inst_opcode(inst)) {
+    case BBRE_OPCODE_SPLIT:
       /* Any previous patches in `src` should have been linked to `dest_pc`. We
        * can track them thusly. */
-      should_patch[1] = re_inst_param(inst) == dest_pc;
+      should_patch[1] = bbre_inst_param(inst) == dest_pc;
       /* Duplicate the instruction, relocating relative jumps. */
-      next_inst = re_inst_make(
-          re_inst_opcode(next_inst), re_inst_next(next_inst),
-          should_patch[1] ? 0 : re_inst_param(next_inst) - src->pc + dst->pc);
-    case RE_OPCODE_RANGE:
-    case RE_OPCODE_MATCH:
-    case RE_OPCODE_ASSERT:
-      should_patch[0] = re_inst_next(inst) == dest_pc;
-      next_inst = re_inst_make(
-          re_inst_opcode(next_inst),
-          should_patch[0] ? 0 : re_inst_next(next_inst) - src->pc + dst->pc,
-          re_inst_param(next_inst));
+      next_inst = bbre_inst_make(
+          bbre_inst_opcode(next_inst), bbre_inst_next(next_inst),
+          should_patch[1] ? 0 : bbre_inst_param(next_inst) - src->pc + dst->pc);
+    case BBRE_OPCODE_RANGE:
+    case BBRE_OPCODE_MATCH:
+    case BBRE_OPCODE_ASSERT:
+      should_patch[0] = bbre_inst_next(inst) == dest_pc;
+      next_inst = bbre_inst_make(
+          bbre_inst_opcode(next_inst),
+          should_patch[0] ? 0 : bbre_inst_next(next_inst) - src->pc + dst->pc,
+          bbre_inst_param(next_inst));
     }
-    if ((err = re_prog_emit(r, next_inst, dst)))
+    if ((err = bbre_prog_emit(r, next_inst, dst)))
       return err;
     /* if the above step found patch points, add them to `dst`'s patch list. */
     for (j = 0; j < 2; j++)
       if (should_patch[j])
-        re_patch_add(r, dst, i - src->pc + dst->pc, j);
+        bbre_patch_add(r, dst, i - src->pc + dst->pc, j);
   }
   return 0;
 }
@@ -2322,115 +2372,116 @@ int re_compile_dup(
 /* Main compiler function. Given an AST node through `ast_root`, convert it to
  * compiled instructions. Optionally generate the reversed program if `reverse`
  * is specified. */
-static int re_compile_internal(re *r, re_u32 ast_root, re_u32 reverse)
+static int bbre_compile_internal(bbre *r, bbre_u32 ast_root, bbre_u32 reverse)
 {
   int err = 0;
-  re_compframe
+  bbre_compframe
       initial_frame = {0} /* compiler frame for `ast_root` */,
       returned_frame =
           {0} /* after a child node is compiled, its frame is returned here */,
       child_frame = {
           0}; /* filled when we want to request a child to be compiled */
-  re_u32 sub_idx = 0 /* current subpattern index */,
-         grp_idx = 1 /* current capture group index */,
-         tmp_cc_ast = RE_REF_NONE; /* temporary AST node for converting CHR
-                                      nodes into CC nodes */
+  bbre_u32 sub_idx = 0 /* current subpattern index */,
+           grp_idx = 1 /* current capture group index */,
+           tmp_cc_ast = BBRE_REF_NONE; /* temporary AST node for converting CHR
+                                        nodes into CC nodes */
   /* add sentinel 0th instruction, this compiles to all zeroes */
-  if (!re_prog_size(r) &&
-      ((err = re_buf_push(r, &r->prog, re_inst_make(RE_OPCODE_RANGE, 0, 0))) ||
-       (err = re_buf_push(r, &r->prog_set_idxs, 0))))
+  if (!bbre_prog_size(r) &&
+      ((err = bbre_buf_push(
+            r, &r->prog, bbre_inst_make(BBRE_OPCODE_RANGE, 0, 0))) ||
+       (err = bbre_buf_push(r, &r->prog_set_idxs, 0))))
     return err;
-  assert(re_prog_size(r) > 0);
+  assert(bbre_prog_size(r) > 0);
   /* create the frame for the root node */
   initial_frame.root_ref = ast_root;
   initial_frame.child_ref = initial_frame.patch_head =
-      initial_frame.patch_tail = RE_REF_NONE;
+      initial_frame.patch_tail = BBRE_REF_NONE;
   initial_frame.idx = 0;
-  initial_frame.pc = re_prog_size(r);
+  initial_frame.pc = bbre_prog_size(r);
   /* set the entry point for the forward or reverse program */
-  r->entry[reverse ? RE_PROG_ENTRY_REVERSE : 0] = initial_frame.pc;
-  if ((err = re_buf_push(r, &r->comp_stk, initial_frame)))
+  r->entry[reverse ? BBRE_PROG_ENTRY_REVERSE : 0] = initial_frame.pc;
+  if ((err = bbre_buf_push(r, &r->comp_stk, initial_frame)))
     return err;
-  while (re_buf_size(r->comp_stk)) {
+  while (bbre_buf_size(r->comp_stk)) {
     /* walk the AST tree recursively until we are done visiting nodes */
-    re_compframe frame = *re_buf_peek(&r->comp_stk, 0);
-    re_ast_type type; /* AST node type */
-    re_u32 args[4] /* AST node args */,
-        my_pc = re_prog_size(r); /* PC of this node's instructions */
+    bbre_compframe frame = *bbre_buf_peek(&r->comp_stk, 0);
+    bbre_ast_type type; /* AST node type */
+    bbre_u32 args[4] /* AST node args */,
+        my_pc = bbre_prog_size(r); /* PC of this node's instructions */
     /* we tell the compiler to visit a child by setting `frame.child_ref` to
      * some value other than `frame.root_ref`. By default, we set it to
      * `frame.root_ref` to disable visiting a child. */
     frame.child_ref = frame.root_ref;
 
     child_frame.child_ref = child_frame.root_ref = child_frame.patch_head =
-        child_frame.patch_tail = RE_REF_NONE;
+        child_frame.patch_tail = BBRE_REF_NONE;
     child_frame.idx = child_frame.pc = 0;
-    type = *re_ast_type_ref(r, frame.root_ref); /* may return 0 if epsilon */
+    type = *bbre_ast_type_ref(r, frame.root_ref); /* may return 0 if epsilon */
     if (frame.root_ref)
-      re_ast_decompose(r, frame.root_ref, args);
-    if (type == RE_AST_TYPE_CHR) {
+      bbre_ast_decompose(r, frame.root_ref, args);
+    if (type == BBRE_AST_TYPE_CHR) {
       /* single characters / codepoints, this corresponds to one or more RANGE
        * instructions */
-      re_patch_apply(r, &frame, my_pc);
-      if (args[0] < 128 && !(frame.flags & RE_GROUP_FLAG_INSENSITIVE)) {
+      bbre_patch_apply(r, &frame, my_pc);
+      if (args[0] < 128 && !(frame.flags & BBRE_GROUP_FLAG_INSENSITIVE)) {
         /* ascii characters -- these are common enough that it's worth
          * bypassing
          * the charclass compiler and just emitting a single RANGE */
         /*  in     out
          * ---> R ----> */
-        if ((err = re_prog_emit(
+        if ((err = bbre_prog_emit(
                  r,
-                 re_inst_make(
-                     RE_OPCODE_RANGE, 0,
-                     re_byte_range_to_u32(
-                         re_byte_range_make(args[0], args[0]))),
+                 bbre_inst_make(
+                     BBRE_OPCODE_RANGE, 0,
+                     bbre_byte_range_to_u32(
+                         bbre_byte_range_make(args[0], args[0]))),
                  &frame)))
           return err;
-        re_patch_add(r, &frame, my_pc, 0);
+        bbre_patch_add(r, &frame, my_pc, 0);
       } else { /* unicode */
         /* create temp ast */
         if (!tmp_cc_ast &&
-            (err = re_ast_make(
-                 r, RE_AST_TYPE_CC, RE_REF_NONE, 0, 0, &tmp_cc_ast)))
+            (err = bbre_ast_make(
+                 r, BBRE_AST_TYPE_CC, BBRE_REF_NONE, 0, 0, &tmp_cc_ast)))
           return err;
         /* create a CC node with a range comprising the single codepoint */
-        *re_ast_param_ref(r, tmp_cc_ast, 1) =
-            *re_ast_param_ref(r, tmp_cc_ast, 2) = args[0];
+        *bbre_ast_param_ref(r, tmp_cc_ast, 1) =
+            *bbre_ast_param_ref(r, tmp_cc_ast, 2) = args[0];
         /* call the character class compiler on the single CC node */
-        if ((err = re_compcc(r, tmp_cc_ast, &frame, reverse)))
+        if ((err = bbre_compcc(r, tmp_cc_ast, &frame, reverse)))
           return err;
       }
-    } else if (type == RE_AST_TYPE_ANYBYTE) {
+    } else if (type == BBRE_AST_TYPE_ANYBYTE) {
       /* \C */
       /*  in     out
        * ---> R ----> */
-      re_patch_apply(r, &frame, my_pc);
+      bbre_patch_apply(r, &frame, my_pc);
       /* emit a single range instruction that covers 0x00 - 0xFF */
-      if ((err = re_prog_emit(
+      if ((err = bbre_prog_emit(
                r,
-               re_inst_make(
-                   RE_OPCODE_RANGE, 0,
-                   re_byte_range_to_u32(re_byte_range_make(0x00, 0xFF))),
+               bbre_inst_make(
+                   BBRE_OPCODE_RANGE, 0,
+                   bbre_byte_range_to_u32(bbre_byte_range_make(0x00, 0xFF))),
                &frame)))
         return err;
-      re_patch_add(r, &frame, my_pc, 0);
-    } else if (type == RE_AST_TYPE_CAT) {
+      bbre_patch_add(r, &frame, my_pc, 0);
+    } else if (type == BBRE_AST_TYPE_CAT) {
       /* concatenation: compile child X, then compile and link it to child Y */
       /*  in              out
        * ---> [X] -> [Y] ----> */
       assert(/* frame.idx >= 0 && */ frame.idx <= 2);
       if (frame.idx == 0) {              /* before left child */
         frame.child_ref = args[reverse]; /* push left child */
-        re_patch_xfer(&child_frame, &frame);
+        bbre_patch_xfer(&child_frame, &frame);
         frame.idx++;
       } else if (frame.idx == 1) {        /* after left child */
         frame.child_ref = args[!reverse]; /* push right child */
-        re_patch_xfer(&child_frame, &returned_frame);
+        bbre_patch_xfer(&child_frame, &returned_frame);
         frame.idx++;
       } else /* if (frame.idx == 2) */ { /* after right child */
-        re_patch_xfer(&frame, &returned_frame);
+        bbre_patch_xfer(&frame, &returned_frame);
       }
-    } else if (type == RE_AST_TYPE_ALT) {
+    } else if (type == BBRE_AST_TYPE_ALT) {
       /* alternation: generate a split instruction, then link its outputs to the
        * compiled forms of X and Y */
       /*  in             out
@@ -2439,49 +2490,51 @@ static int re_compile_internal(re *r, re_u32 ast_root, re_u32 reverse)
        *        --> [Y] ----> */
       assert(/* frame.idx >= 0 && */ frame.idx <= 2);
       if (frame.idx == 0) { /* before left child */
-        re_patch_apply(r, &frame, frame.pc);
-        if ((err =
-                 re_prog_emit(r, re_inst_make(RE_OPCODE_SPLIT, 0, 0), &frame)))
+        bbre_patch_apply(r, &frame, frame.pc);
+        if ((err = bbre_prog_emit(
+                 r, bbre_inst_make(BBRE_OPCODE_SPLIT, 0, 0), &frame)))
           return err;
-        re_patch_add(r, &child_frame, frame.pc, 0);
+        bbre_patch_add(r, &child_frame, frame.pc, 0);
         frame.child_ref = args[0], frame.idx++;
       } else if (frame.idx == 1) { /* after left child */
-        re_patch_merge(r, &frame, &returned_frame);
-        re_patch_add(r, &child_frame, frame.pc, 1);
+        bbre_patch_merge(r, &frame, &returned_frame);
+        bbre_patch_add(r, &child_frame, frame.pc, 1);
         frame.child_ref = args[1], frame.idx++;
       } else /* if (frame.idx == 2) */ { /* after right child */
         assert(frame.idx == 2);
-        re_patch_merge(r, &frame, &returned_frame);
+        bbre_patch_merge(r, &frame, &returned_frame);
       }
-    } else if (type == RE_AST_TYPE_QUANT || type == RE_AST_TYPE_UQUANT) {
-      re_u32 child = args[0], min = args[1], max = args[2],
-             is_greedy = !(frame.flags & RE_GROUP_FLAG_UNGREEDY) ^
-                         (type == RE_AST_TYPE_UQUANT);
+    } else if (type == BBRE_AST_TYPE_QUANT || type == BBRE_AST_TYPE_UQUANT) {
+      bbre_u32 child = args[0], min = args[1], max = args[2],
+               is_greedy = !(frame.flags & BBRE_GROUP_FLAG_UNGREEDY) ^
+                           (type == BBRE_AST_TYPE_UQUANT);
       assert(min <= max);
-      assert(RE_IMPLIES((min == RE_INFTY || max == RE_INFTY), min != max));
-      assert(RE_IMPLIES(max == RE_INFTY, frame.idx <= min + 1));
+      assert(
+          BBRE_IMPLIES((min == BBRE_INFTY || max == BBRE_INFTY), min != max));
+      assert(BBRE_IMPLIES(max == BBRE_INFTY, frame.idx <= min + 1));
     again: /* label is used to avoid recompiling child multiple times */
       if (frame.idx < min) {
         /* required repetitions, compile and concatenate child */
         /*  in                 out
          * ---> [X] -> [X...] ----> */
-        re_patch_xfer(&child_frame, frame.idx ? &returned_frame : &frame);
+        bbre_patch_xfer(&child_frame, frame.idx ? &returned_frame : &frame);
         frame.child_ref = child;
       } else if (
-          frame.idx < max && RE_IMPLIES(max == RE_INFTY, frame.idx < min + 1)) {
+          frame.idx < max &&
+          BBRE_IMPLIES(max == BBRE_INFTY, frame.idx < min + 1)) {
         /* optional repetitions (quests), generate a SPLIT and compile child */
         /*  in               out
          * ---> S -> [X...] ---->
          *       \           out
          *        +-------------> */
-        re_patch_apply(r, frame.idx ? &returned_frame : &frame, my_pc);
-        if ((err =
-                 re_prog_emit(r, re_inst_make(RE_OPCODE_SPLIT, 0, 0), &frame)))
+        bbre_patch_apply(r, frame.idx ? &returned_frame : &frame, my_pc);
+        if ((err = bbre_prog_emit(
+                 r, bbre_inst_make(BBRE_OPCODE_SPLIT, 0, 0), &frame)))
           return err;
         frame.pc = my_pc;
-        re_patch_add(r, &frame, my_pc, is_greedy);
-        re_patch_add(r, &child_frame, my_pc, !is_greedy);
-        if (min > 0 && max == RE_INFTY) {
+        bbre_patch_add(r, &frame, my_pc, is_greedy);
+        bbre_patch_add(r, &child_frame, my_pc, !is_greedy);
+        if (min > 0 && max == BBRE_INFTY) {
           /* optimization: for reps of the form {>0,}, jump back to previously
            * compiled child instead of generating another */
           /*        +------+
@@ -2489,11 +2542,11 @@ static int re_compile_internal(re *r, re_u32 ast_root, re_u32 reverse)
            * --> [X] -> S ---+
            *             \      out
            *              +----------> */
-          re_patch_apply(r, &child_frame, returned_frame.pc);
+          bbre_patch_apply(r, &child_frame, returned_frame.pc);
         } else
           /* otherwise generate the child again */
           frame.child_ref = child;
-      } else if (max == RE_INFTY) {
+      } else if (max == BBRE_INFTY) {
         /* after inf. bound */
         /* star, link child back to the split instruction generated above */
         /*        +-------+
@@ -2502,7 +2555,7 @@ static int re_compile_internal(re *r, re_u32 ast_root, re_u32 reverse)
          *       \             out
          *        +-----------------> */
         assert(frame.idx == min + 1);
-        re_patch_apply(r, &returned_frame, frame.pc);
+        bbre_patch_apply(r, &returned_frame, frame.pc);
       } else if (frame.idx) {
         /* after maximum bound, finalize patches */
         /*  in            out
@@ -2510,7 +2563,7 @@ static int re_compile_internal(re *r, re_u32 ast_root, re_u32 reverse)
          *       \        out
          *        +----------> */
         assert(frame.idx == max);
-        re_patch_merge(r, &frame, &returned_frame);
+        bbre_patch_merge(r, &frame, &returned_frame);
       } else {
         /* epsilon */
         /*  in  out  */
@@ -2526,66 +2579,66 @@ static int re_compile_internal(re *r, re_u32 ast_root, re_u32 reverse)
         } else {
           /* we've compiled the child already -- we can duplicate its compiled
            * instructions without actually compiling the child again */
-          re_compframe next_returned_frame = {0};
-          next_returned_frame.pc = re_prog_size(r);
-          re_patch_apply(r, &child_frame, next_returned_frame.pc);
-          if ((err = re_compile_dup(
+          bbre_compframe next_returned_frame = {0};
+          next_returned_frame.pc = bbre_prog_size(r);
+          bbre_patch_apply(r, &child_frame, next_returned_frame.pc);
+          if ((err = bbre_compile_dup(
                    r, &returned_frame, my_pc, &next_returned_frame, my_pc)))
             return err;
           next_returned_frame.root_ref = child;
           returned_frame = next_returned_frame;
           frame.child_ref = frame.root_ref;
-          my_pc = re_prog_size(r);
+          my_pc = bbre_prog_size(r);
           goto again;
         }
       }
-    } else if (type == RE_AST_TYPE_GROUP || type == RE_AST_TYPE_IGROUP) {
+    } else if (type == BBRE_AST_TYPE_GROUP || type == BBRE_AST_TYPE_IGROUP) {
       /* groups: insert opening and closing match instructions, or nothing if
        * the group is a noncapturing group and simply modifies flag state */
-      re_u32 child = args[0], flags = args[1];
+      bbre_u32 child = args[0], flags = args[1];
       frame.flags =
           flags &
-          ~RE_GROUP_FLAG_SUBEXPRESSION; /* we shouldn't propagate this */
-      if (!frame.idx) {                 /* before child */
+          ~BBRE_GROUP_FLAG_SUBEXPRESSION; /* we shouldn't propagate this */
+      if (!frame.idx) {                   /* before child */
         /* before child */
-        if (!(flags & RE_GROUP_FLAG_NONCAPTURING)) {
+        if (!(flags & BBRE_GROUP_FLAG_NONCAPTURING)) {
           /* compile in the beginning match instruction */
           /*  in      out
            * ---> Mb ----> */
-          re_patch_apply(r, &frame, my_pc);
-          if (flags & RE_GROUP_FLAG_SUBEXPRESSION)
+          bbre_patch_apply(r, &frame, my_pc);
+          if (flags & BBRE_GROUP_FLAG_SUBEXPRESSION)
             grp_idx = 0, frame.set_idx = ++sub_idx;
-          if ((err = re_prog_emit(
+          if ((err = bbre_prog_emit(
                    r,
-                   re_inst_make(
-                       RE_OPCODE_MATCH, 0,
-                       re_inst_match_param_make(reverse, grp_idx++)),
+                   bbre_inst_make(
+                       BBRE_OPCODE_MATCH, 0,
+                       bbre_inst_match_param_make(reverse, grp_idx++)),
                    &frame)))
             return err;
-          re_patch_add(r, &child_frame, my_pc, 0);
+          bbre_patch_add(r, &child_frame, my_pc, 0);
         } else
           /* non-capturing group: don't compile in anything */
           /*  in  out
            * --------> */
-          re_patch_xfer(&child_frame, &frame);
+          bbre_patch_xfer(&child_frame, &frame);
         frame.child_ref = child, frame.idx++;
       } else { /* after child */
         /* compile in the ending match instruction */
         /*  in                   out
          * ---> Mb -> [X] -> Me ----> */
-        if (!(flags & RE_GROUP_FLAG_NONCAPTURING)) {
-          re_patch_apply(r, &returned_frame, my_pc);
-          if ((err = re_prog_emit(
+        if (!(flags & BBRE_GROUP_FLAG_NONCAPTURING)) {
+          bbre_patch_apply(r, &returned_frame, my_pc);
+          if ((err = bbre_prog_emit(
                    r,
-                   re_inst_make(
-                       RE_OPCODE_MATCH, 0,
-                       re_inst_match_param_make(
-                           !reverse, re_inst_match_param_idx(re_inst_param(
-                                         re_prog_get(r, frame.pc))))),
+                   bbre_inst_make(
+                       BBRE_OPCODE_MATCH, 0,
+                       bbre_inst_match_param_make(
+                           !reverse, bbre_inst_match_param_idx(bbre_inst_param(
+                                         bbre_prog_get(r, frame.pc))))),
                    &frame)))
             return err;
-          if (!(flags & RE_GROUP_FLAG_SUBEXPRESSION))
-            re_patch_add(r, &frame, my_pc, 0);
+          if (!(flags & BBRE_GROUP_FLAG_SUBEXPRESSION))
+            bbre_patch_add(r, &frame, my_pc, 0);
           else {
             /* for the ending match instruction that corresponds to a
              * subexpression, don't link it anywhere: it signifies the end of a
@@ -2597,23 +2650,23 @@ static int re_compile_internal(re *r, re_u32 ast_root, re_u32 reverse)
           /* non-capturing group: don't compile in anything */
           /*  in       out
            * ---> [X] ----> */
-          re_patch_merge(r, &frame, &returned_frame);
+          bbre_patch_merge(r, &frame, &returned_frame);
       }
-    } else if (type == RE_AST_TYPE_CC || type == RE_AST_TYPE_ICC) {
+    } else if (type == BBRE_AST_TYPE_CC || type == BBRE_AST_TYPE_ICC) {
       /* charclasses: pass off compilation to the character class compiler */
-      re_patch_apply(r, &frame, my_pc);
-      if ((err = re_compcc(r, frame.root_ref, &frame, reverse)))
+      bbre_patch_apply(r, &frame, my_pc);
+      if ((err = bbre_compcc(r, frame.root_ref, &frame, reverse)))
         return err;
-    } else if (type == RE_AST_TYPE_ASSERT) {
+    } else if (type == BBRE_AST_TYPE_ASSERT) {
       /* assertions: add a single ASSERT instruction */
       /*  in     out
        * ---> A ----> */
-      re_u32 assert_flag = args[0];
-      re_patch_apply(r, &frame, my_pc);
-      if ((err = re_prog_emit(
-               r, re_inst_make(RE_OPCODE_ASSERT, 0, assert_flag), &frame)))
+      bbre_u32 assert_flag = args[0];
+      bbre_patch_apply(r, &frame, my_pc);
+      if ((err = bbre_prog_emit(
+               r, bbre_inst_make(BBRE_OPCODE_ASSERT, 0, assert_flag), &frame)))
         return err;
-      re_patch_add(r, &frame, my_pc, 0);
+      bbre_patch_add(r, &frame, my_pc, 0);
     } else {
       /* epsilon */
       /*  in  out  */
@@ -2623,20 +2676,20 @@ static int re_compile_internal(re *r, re_u32 ast_root, re_u32 reverse)
     }
     if (frame.child_ref != frame.root_ref) {
       /* should we push a child? */
-      *re_buf_peek(&r->comp_stk, 0) = frame;
+      *bbre_buf_peek(&r->comp_stk, 0) = frame;
       child_frame.root_ref = frame.child_ref;
       child_frame.idx = 0;
-      child_frame.pc = re_prog_size(r);
+      child_frame.pc = bbre_prog_size(r);
       child_frame.flags = frame.flags;
       child_frame.set_idx = frame.set_idx;
-      if ((err = re_buf_push(r, &r->comp_stk, child_frame)))
+      if ((err = bbre_buf_push(r, &r->comp_stk, child_frame)))
         return err;
     } else {
-      (void)re_buf_pop(&r->comp_stk);
+      (void)bbre_buf_pop(&r->comp_stk);
     }
     returned_frame = frame;
   }
-  assert(!re_buf_size(r->comp_stk));
+  assert(!bbre_buf_size(r->comp_stk));
   assert(!returned_frame.patch_head && !returned_frame.patch_tail);
   {
     /* compile in a dotstar for unanchored matches */
@@ -2645,103 +2698,104 @@ static int re_compile_internal(re *r, re_u32 ast_root, re_u32 reverse)
      * ---> S -> R ---+
      *       \
      *        +---------> [X] */
-    re_u32 dstar =
-        r->entry
-            [RE_PROG_ENTRY_DOTSTAR | (reverse ? RE_PROG_ENTRY_REVERSE : 0)] =
-            re_prog_size(r);
-    re_compframe frame = {0};
-    if ((err = re_prog_emit(
+    bbre_u32 dstar = r->entry
+                         [BBRE_PROG_ENTRY_DOTSTAR |
+                          (reverse ? BBRE_PROG_ENTRY_REVERSE : 0)] =
+        bbre_prog_size(r);
+    bbre_compframe frame = {0};
+    if ((err = bbre_prog_emit(
              r,
-             re_inst_make(
-                 RE_OPCODE_SPLIT, r->entry[reverse ? RE_PROG_ENTRY_REVERSE : 0],
-                 dstar + 1),
+             bbre_inst_make(
+                 BBRE_OPCODE_SPLIT,
+                 r->entry[reverse ? BBRE_PROG_ENTRY_REVERSE : 0], dstar + 1),
              &frame)))
       return err;
-    if ((err = re_prog_emit(
+    if ((err = bbre_prog_emit(
              r,
-             re_inst_make(
-                 RE_OPCODE_RANGE, dstar,
-                 re_byte_range_to_u32(re_byte_range_make(0, 255))),
+             bbre_inst_make(
+                 BBRE_OPCODE_RANGE, dstar,
+                 bbre_byte_range_to_u32(bbre_byte_range_make(0, 255))),
              &frame)))
       return err;
   }
   return 0;
 }
 
-typedef struct re_nfa_thrd {
-  re_u32 pc, slot;
-} re_nfa_thrd;
+typedef struct bbre_nfa_thrd {
+  bbre_u32 pc, slot;
+} bbre_nfa_thrd;
 
-typedef struct re_sset {
-  re_u32 size, dense_size;
-  re_buf(re_u32) sparse;
-  re_buf(re_nfa_thrd) dense;
-} re_sset;
+typedef struct bbre_sset {
+  bbre_u32 size, dense_size;
+  bbre_buf(bbre_u32) sparse;
+  bbre_buf(bbre_nfa_thrd) dense;
+} bbre_sset;
 
-static int re_sset_reset(const re *r, re_sset *s, size_t next_size)
+static int bbre_sset_reset(const bbre *r, bbre_sset *s, size_t next_size)
 {
   int err;
   assert(next_size); /* programs are never of size 0 */
-  if ((err = re_buf_reserve(r, &s->sparse, next_size)))
+  if ((err = bbre_buf_reserve(r, &s->sparse, next_size)))
     return err;
-  if ((err = re_buf_reserve(r, &s->dense, next_size)))
+  if ((err = bbre_buf_reserve(r, &s->dense, next_size)))
     return err;
   s->size = next_size, s->dense_size = 0;
   return 0;
 }
 
-static void re_sset_clear(re_sset *s) { s->dense_size = 0; }
+static void bbre_sset_clear(bbre_sset *s) { s->dense_size = 0; }
 
-static void re_sset_init(re_sset *s)
+static void bbre_sset_init(bbre_sset *s)
 {
-  re_buf_init(&s->sparse), re_buf_init(&s->dense);
+  bbre_buf_init(&s->sparse), bbre_buf_init(&s->dense);
   s->size = s->dense_size = 0;
 }
 
-static void re_sset_destroy(const re *r, re_sset *s)
+static void bbre_sset_destroy(const bbre *r, bbre_sset *s)
 {
-  re_buf_destroy(r, &s->sparse), re_buf_destroy(r, &s->dense);
+  bbre_buf_destroy(r, &s->sparse), bbre_buf_destroy(r, &s->dense);
 }
 
-static int re_sset_is_memb(re_sset *s, re_u32 pc)
+static int bbre_sset_is_memb(bbre_sset *s, bbre_u32 pc)
 {
   assert(pc < s->size);
   return s->sparse[pc] < s->dense_size && s->dense[s->sparse[pc]].pc == pc;
 }
 
-static void re_sset_add(re_sset *s, re_nfa_thrd spec)
+static void bbre_sset_add(bbre_sset *s, bbre_nfa_thrd spec)
 {
   assert(spec.pc < s->size);
   assert(s->dense_size < s->size);
   assert(spec.pc);
-  if (re_sset_is_memb(s, spec.pc))
+  if (bbre_sset_is_memb(s, spec.pc))
     return;
   s->dense[s->dense_size] = spec;
   s->sparse[spec.pc] = s->dense_size++;
 }
 
-typedef struct re_save_slots {
+typedef struct bbre_save_slots {
   size_t *slots, slots_size, slots_alloc, last_empty, per_thrd;
-} re_save_slots;
+} bbre_save_slots;
 
-static void re_save_slots_init(re_save_slots *s)
+static void bbre_save_slots_init(bbre_save_slots *s)
 {
   s->slots = NULL;
   s->slots_size = s->slots_alloc = s->last_empty = s->per_thrd = 0;
 }
 
-static void re_save_slots_destroy(const re *r, re_save_slots *s)
+static void bbre_save_slots_destroy(const bbre *r, bbre_save_slots *s)
 {
-  re_ialloc(r, sizeof(size_t) * s->slots_alloc, 0, s->slots);
+  bbre_ialloc(r, sizeof(size_t) * s->slots_alloc, 0, s->slots);
 }
 
-static void re_save_slots_clear(re_save_slots *s, size_t per_thrd)
+static void bbre_save_slots_clear(bbre_save_slots *s, size_t per_thrd)
 {
   s->slots_size = 0, s->last_empty = 0,
   s->per_thrd = per_thrd + 1 /* for refcnt */;
 }
 
-static int re_save_slots_new(const re *r, re_save_slots *s, re_u32 *next)
+static int
+bbre_save_slots_new(const bbre *r, bbre_save_slots *s, bbre_u32 *next)
 {
   assert(s->per_thrd);
   if (s->last_empty) {
@@ -2753,11 +2807,11 @@ static int re_save_slots_new(const re *r, re_save_slots *s, re_u32 *next)
       /* initial alloc / realloc */
       size_t new_alloc =
           (s->slots_alloc ? s->slots_alloc * 2 : 16) * s->per_thrd;
-      size_t *new_slots = re_ialloc(
+      size_t *new_slots = bbre_ialloc(
           r, s->slots_alloc * sizeof(size_t), new_alloc * sizeof(size_t),
           s->slots);
       if (!new_slots)
-        return RE_ERR_MEM;
+        return BBRE_ERR_MEM;
       s->slots = new_slots, s->slots_alloc = new_alloc;
     }
     if (!s->slots_size) {
@@ -2774,14 +2828,14 @@ static int re_save_slots_new(const re *r, re_save_slots *s, re_u32 *next)
   return 0;
 }
 
-static re_u32 re_save_slots_fork(re_save_slots *s, re_u32 ref)
+static bbre_u32 bbre_save_slots_fork(bbre_save_slots *s, bbre_u32 ref)
 {
   if (s->per_thrd)
     s->slots[ref * s->per_thrd + s->per_thrd - 1]++;
   return ref;
 }
 
-static void re_save_slots_kill(re_save_slots *s, re_u32 ref)
+static void bbre_save_slots_kill(bbre_save_slots *s, bbre_u32 ref)
 {
   if (!s->per_thrd)
     return;
@@ -2792,9 +2846,9 @@ static void re_save_slots_kill(re_save_slots *s, re_u32 ref)
   }
 }
 
-static int re_save_slots_set_internal(
-    const re *r, re_save_slots *s, re_u32 ref, re_u32 idx, size_t v,
-    re_u32 *out)
+static int bbre_save_slots_set_internal(
+    const bbre *r, bbre_save_slots *s, bbre_u32 ref, bbre_u32 idx, size_t v,
+    bbre_u32 *out)
 {
   int err;
   *out = ref;
@@ -2804,9 +2858,9 @@ static int re_save_slots_set_internal(
   if (v == s->slots[ref * s->per_thrd + idx]) {
     /* not changing anything */
   } else {
-    if ((err = re_save_slots_new(r, s, out)))
+    if ((err = bbre_save_slots_new(r, s, out)))
       return err;
-    re_save_slots_kill(s, ref); /* decrement refcount */
+    bbre_save_slots_kill(s, ref); /* decrement refcount */
     assert(
         s->slots[*out * s->per_thrd + s->per_thrd - 1] ==
         1); /* new refcount is 1 */
@@ -2819,232 +2873,240 @@ static int re_save_slots_set_internal(
   return 0;
 }
 
-static re_u32 re_save_slots_per_thrd(re_save_slots *s)
+static bbre_u32 bbre_save_slots_per_thrd(bbre_save_slots *s)
 {
   return s->per_thrd ? s->per_thrd - 1 : s->per_thrd;
 }
 
-static int re_save_slots_set(
-    const re *r, re_save_slots *s, re_u32 ref, re_u32 idx, size_t v,
-    re_u32 *out)
+static int bbre_save_slots_set(
+    const bbre *r, bbre_save_slots *s, bbre_u32 ref, bbre_u32 idx, size_t v,
+    bbre_u32 *out)
 {
-  assert(idx < re_save_slots_per_thrd(s));
-  return re_save_slots_set_internal(r, s, ref, idx, v, out);
+  assert(idx < bbre_save_slots_per_thrd(s));
+  return bbre_save_slots_set_internal(r, s, ref, idx, v, out);
 }
 
-static re_u32 re_save_slots_get(re_save_slots *s, re_u32 ref, re_u32 idx)
+static bbre_u32
+bbre_save_slots_get(bbre_save_slots *s, bbre_u32 ref, bbre_u32 idx)
 {
-  assert(idx < re_save_slots_per_thrd(s));
+  assert(idx < bbre_save_slots_per_thrd(s));
   return s->slots[ref * s->per_thrd + idx];
 }
 
-typedef struct re_nfa {
-  re_sset a, b, c;
-  re_buf(re_nfa_thrd) thrd_stk;
-  re_save_slots slots;
-  re_buf(re_u32) pri_stk;
-  re_buf(re_u32) pri_bmp_tmp;
+typedef struct bbre_nfa {
+  bbre_sset a, b, c;
+  bbre_buf(bbre_nfa_thrd) thrd_stk;
+  bbre_save_slots slots;
+  bbre_buf(bbre_u32) pri_stk;
+  bbre_buf(bbre_u32) pri_bmp_tmp;
   int reversed, pri;
-} re_nfa;
+} bbre_nfa;
 
-#define RE_DFA_MAX_NUM_STATES 256
+#define BBRE_DFA_MAX_NUM_STATES 256
 
-typedef enum re_dfa_state_flag {
-  RE_DFA_STATE_FLAG_FROM_TEXT_BEGIN = 1,
-  RE_DFA_STATE_FLAG_FROM_LINE_BEGIN = 2,
-  RE_DFA_STATE_FLAG_FROM_WORD = 4,
-  RE_DFA_STATE_FLAG_PRIORITY_EXHAUST = 8,
-  RE_DFA_STATE_FLAG_MAX = 16,
-  RE_DFA_STATE_FLAG_DIRTY = 16
-} re_dfa_state_flag;
+typedef enum bbre_dfa_state_flag {
+  BBRE_DFA_STATE_FLAG_FROM_TEXT_BEGIN = 1,
+  BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN = 2,
+  BBRE_DFA_STATE_FLAG_FROM_WORD = 4,
+  BBRE_DFA_STATE_FLAG_PRIORITY_EXHAUST = 8,
+  BBRE_DFA_STATE_FLAG_MAX = 16,
+  BBRE_DFA_STATE_FLAG_DIRTY = 16
+} bbre_dfa_state_flag;
 
-typedef struct re_dfa_state {
-  struct re_dfa_state *ptrs[256 + 1];
-  re_u32 flags, nstate, nset, alloc;
-} re_dfa_state;
+typedef struct bbre_dfa_state {
+  struct bbre_dfa_state *ptrs[256 + 1];
+  bbre_u32 flags, nstate, nset, alloc;
+} bbre_dfa_state;
 
-typedef struct re_dfa {
-  re_dfa_state **states;
+typedef struct bbre_dfa {
+  bbre_dfa_state **states;
   size_t states_size, num_active_states;
-  re_dfa_state
-      *entry[RE_PROG_ENTRY_MAX][RE_DFA_STATE_FLAG_MAX]; /* program entry type
-                                                         * dfa_state_flag */
-  re_buf(re_u32) set_buf;
-  re_buf(size_t) loc_buf;
-  re_buf(re_u32) set_bmp;
-} re_dfa;
+  bbre_dfa_state *entry[BBRE_PROG_ENTRY_MAX]
+                       [BBRE_DFA_STATE_FLAG_MAX]; /* program entry type
+                                                   * dfa_state_flag */
+  bbre_buf(bbre_u32) set_buf;
+  bbre_buf(size_t) loc_buf;
+  bbre_buf(bbre_u32) set_bmp;
+} bbre_dfa;
 
-struct re_exec {
-  const re *r;
-  re_nfa nfa;
-  re_dfa dfa;
+struct bbre_exec {
+  const bbre *r;
+  bbre_nfa nfa;
+  bbre_dfa dfa;
 };
 
-static void re_nfa_init(re_nfa *n)
+static void bbre_nfa_init(bbre_nfa *n)
 {
-  re_sset_init(&n->a), re_sset_init(&n->b), re_sset_init(&n->c);
-  re_buf_init(&n->thrd_stk);
-  re_save_slots_init(&n->slots);
-  re_buf_init(&n->pri_stk);
-  re_buf_init(&n->pri_bmp_tmp);
+  bbre_sset_init(&n->a), bbre_sset_init(&n->b), bbre_sset_init(&n->c);
+  bbre_buf_init(&n->thrd_stk);
+  bbre_save_slots_init(&n->slots);
+  bbre_buf_init(&n->pri_stk);
+  bbre_buf_init(&n->pri_bmp_tmp);
   n->reversed = 0;
 }
 
-static void re_nfa_destroy(const re *r, re_nfa *n)
+static void bbre_nfa_destroy(const bbre *r, bbre_nfa *n)
 {
-  re_sset_destroy(r, &n->a), re_sset_destroy(r, &n->b),
-      re_sset_destroy(r, &n->c);
-  re_buf_destroy(r, &n->thrd_stk);
-  re_save_slots_destroy(r, &n->slots);
-  re_buf_destroy(r, &n->pri_stk), re_buf_destroy(r, &n->pri_bmp_tmp);
+  bbre_sset_destroy(r, &n->a), bbre_sset_destroy(r, &n->b),
+      bbre_sset_destroy(r, &n->c);
+  bbre_buf_destroy(r, &n->thrd_stk);
+  bbre_save_slots_destroy(r, &n->slots);
+  bbre_buf_destroy(r, &n->pri_stk), bbre_buf_destroy(r, &n->pri_bmp_tmp);
 }
 
-#define RE_BITS_PER_U32 (sizeof(re_u32) * CHAR_BIT)
+#define BBRE_BITS_PER_U32 (sizeof(bbre_u32) * CHAR_BIT)
 
-static int re_bmp_init(const re *r, re_buf(re_u32) * b, re_u32 size)
+static int bbre_bmp_init(const bbre *r, bbre_buf(bbre_u32) * b, bbre_u32 size)
 {
-  re_u32 i;
+  bbre_u32 i;
   int err = 0;
-  re_buf_clear(b);
-  for (i = 0; i < (size + RE_BITS_PER_U32) / RE_BITS_PER_U32; i++)
-    if ((err =
-             re_buf_push(r, b, 0))) /* TODO: change this to a bulk allocation */
+  bbre_buf_clear(b);
+  for (i = 0; i < (size + BBRE_BITS_PER_U32) / BBRE_BITS_PER_U32; i++)
+    if ((err = bbre_buf_push(
+             r, b, 0))) /* TODO: change this to a bulk allocation */
       return err;
   return err;
 }
 
-static void re_bmp_clear(re_buf(re_u32) * b) { memset(*b, 0, re_buf_size(*b)); }
+static void bbre_bmp_clear(bbre_buf(bbre_u32) * b)
+{
+  memset(*b, 0, bbre_buf_size(*b));
+}
 
-static void re_bmp_set(re_buf(re_u32) b, re_u32 idx)
+static void bbre_bmp_set(bbre_buf(bbre_u32) b, bbre_u32 idx)
 {
   /* TODO: assert idx < nsets */
-  b[idx / RE_BITS_PER_U32] |= (1 << (idx % RE_BITS_PER_U32));
+  b[idx / BBRE_BITS_PER_U32] |= (1 << (idx % BBRE_BITS_PER_U32));
 }
 
 /* returns 0 or a positive value (not necessarily 1) */
-static re_u32 re_bmp_get(re_buf(re_u32) b, re_u32 idx)
+static bbre_u32 bbre_bmp_get(bbre_buf(bbre_u32) b, bbre_u32 idx)
 {
-  return b[idx / RE_BITS_PER_U32] & (1 << (idx % RE_BITS_PER_U32));
+  return b[idx / BBRE_BITS_PER_U32] & (1 << (idx % BBRE_BITS_PER_U32));
 }
 
-static int re_nfa_start(
-    const re *r, re_nfa *n, re_u32 pc, re_u32 noff, int reversed, int pri)
+static int bbre_nfa_start(
+    const bbre *r, bbre_nfa *n, bbre_u32 pc, bbre_u32 noff, int reversed,
+    int pri)
 {
-  re_nfa_thrd initial_thrd;
-  re_u32 i;
+  bbre_nfa_thrd initial_thrd;
+  bbre_u32 i;
   int err = 0;
-  if ((err = re_sset_reset(r, &n->a, re_prog_size(r))) ||
-      (err = re_sset_reset(r, &n->b, re_prog_size(r))) ||
-      (err = re_sset_reset(r, &n->c, re_prog_size(r))))
+  if ((err = bbre_sset_reset(r, &n->a, bbre_prog_size(r))) ||
+      (err = bbre_sset_reset(r, &n->b, bbre_prog_size(r))) ||
+      (err = bbre_sset_reset(r, &n->c, bbre_prog_size(r))))
     return err;
-  re_buf_clear(&n->thrd_stk), re_buf_clear(&n->pri_stk);
-  re_save_slots_clear(&n->slots, noff);
+  bbre_buf_clear(&n->thrd_stk), bbre_buf_clear(&n->pri_stk);
+  bbre_save_slots_clear(&n->slots, noff);
   initial_thrd.pc = pc;
-  if ((err = re_save_slots_new(r, &n->slots, &initial_thrd.slot)))
+  if ((err = bbre_save_slots_new(r, &n->slots, &initial_thrd.slot)))
     return err;
-  re_sset_add(&n->a, initial_thrd);
+  bbre_sset_add(&n->a, initial_thrd);
   initial_thrd.pc = initial_thrd.slot = 0;
   for (i = 0; i < r->ast_sets; i++)
-    if ((err = re_buf_push(r, &n->pri_stk, 0)))
+    if ((err = bbre_buf_push(r, &n->pri_stk, 0)))
       return err;
-  if ((err = re_bmp_init(r, &n->pri_bmp_tmp, r->ast_sets)))
+  if ((err = bbre_bmp_init(r, &n->pri_bmp_tmp, r->ast_sets)))
     return err;
   n->reversed = reversed;
   n->pri = pri;
   return 0;
 }
 
-static int re_nfa_eps(const re *r, re_nfa *n, size_t pos, re_assert_flag ass)
+static int
+bbre_nfa_eps(const bbre *r, bbre_nfa *n, size_t pos, bbre_assert_flag ass)
 {
   int err;
   size_t i;
-  re_sset_clear(&n->b);
+  bbre_sset_clear(&n->b);
   for (i = 0; i < n->a.dense_size; i++) {
-    re_nfa_thrd dense_thrd = n->a.dense[i];
-    if ((err = re_buf_push(r, &n->thrd_stk, dense_thrd)))
+    bbre_nfa_thrd dense_thrd = n->a.dense[i];
+    if ((err = bbre_buf_push(r, &n->thrd_stk, dense_thrd)))
       return err;
-    re_sset_clear(&n->c);
-    while (re_buf_size(n->thrd_stk)) {
-      re_nfa_thrd thrd = *re_buf_peek(&n->thrd_stk, 0);
-      re_inst op = re_prog_get(r, thrd.pc);
+    bbre_sset_clear(&n->c);
+    while (bbre_buf_size(n->thrd_stk)) {
+      bbre_nfa_thrd thrd = *bbre_buf_peek(&n->thrd_stk, 0);
+      bbre_inst op = bbre_prog_get(r, thrd.pc);
       assert(thrd.pc);
-      if (re_sset_is_memb(&n->c, thrd.pc)) {
+      if (bbre_sset_is_memb(&n->c, thrd.pc)) {
         /* we already processed this thread */
-        (void)re_buf_pop(&n->thrd_stk);
+        (void)bbre_buf_pop(&n->thrd_stk);
         continue;
       }
-      re_sset_add(&n->c, thrd);
-      switch (re_inst_opcode(re_prog_get(r, thrd.pc))) {
-      case RE_OPCODE_MATCH: {
-        re_u32 idx = re_inst_match_param_idx(re_inst_param(op)) * 2 +
-                     re_inst_match_param_end(re_inst_param(op));
-        if (idx < re_save_slots_per_thrd(&n->slots) &&
-            (err = re_save_slots_set(
+      bbre_sset_add(&n->c, thrd);
+      switch (bbre_inst_opcode(bbre_prog_get(r, thrd.pc))) {
+      case BBRE_OPCODE_MATCH: {
+        bbre_u32 idx = bbre_inst_match_param_idx(bbre_inst_param(op)) * 2 +
+                       bbre_inst_match_param_end(bbre_inst_param(op));
+        if (idx < bbre_save_slots_per_thrd(&n->slots) &&
+            (err = bbre_save_slots_set(
                  r, &n->slots, thrd.slot, idx, pos, &thrd.slot)))
           return err;
-        if (re_inst_next(op)) {
-          if (re_inst_match_param_idx(re_inst_param(op)) > 0 ||
+        if (bbre_inst_next(op)) {
+          if (bbre_inst_match_param_idx(bbre_inst_param(op)) > 0 ||
               !n->pri_stk[r->prog_set_idxs[thrd.pc - 1]]) {
-            thrd.pc = re_inst_next(op);
-            *re_buf_peek(&n->thrd_stk, 0) = thrd;
+            thrd.pc = bbre_inst_next(op);
+            *bbre_buf_peek(&n->thrd_stk, 0) = thrd;
           } else
-            (void)re_buf_pop(&n->thrd_stk);
+            (void)bbre_buf_pop(&n->thrd_stk);
           break;
         }
       }
         /* fall through */
-      case RE_OPCODE_RANGE:
-        (void)re_buf_pop(&n->thrd_stk);
-        re_sset_add(&n->b, thrd); /* this is a range or final match */
+      case BBRE_OPCODE_RANGE:
+        (void)bbre_buf_pop(&n->thrd_stk);
+        bbre_sset_add(&n->b, thrd); /* this is a range or final match */
         break;
-      case RE_OPCODE_SPLIT: {
-        re_nfa_thrd pri, sec;
-        pri.pc = re_inst_next(op), pri.slot = thrd.slot;
-        sec.pc = re_inst_param(op),
-        sec.slot = re_save_slots_fork(&n->slots, thrd.slot);
-        *re_buf_peek(&n->thrd_stk, 0) = sec;
-        if ((err = re_buf_push(r, &n->thrd_stk, pri)))
+      case BBRE_OPCODE_SPLIT: {
+        bbre_nfa_thrd pri, sec;
+        pri.pc = bbre_inst_next(op), pri.slot = thrd.slot;
+        sec.pc = bbre_inst_param(op),
+        sec.slot = bbre_save_slots_fork(&n->slots, thrd.slot);
+        *bbre_buf_peek(&n->thrd_stk, 0) = sec;
+        if ((err = bbre_buf_push(r, &n->thrd_stk, pri)))
           /* sec is pushed first because it needs to be processed after pri.
            * pri comes off the stack first because it's FIFO. */
           return err;
         break;
       }
       default: /* ASSERT */ {
-        assert(re_inst_opcode(re_prog_get(r, thrd.pc)) == RE_OPCODE_ASSERT);
-        assert(!!(ass & RE_ASSERT_WORD) ^ !!(ass & RE_ASSERT_NOT_WORD));
-        if ((re_inst_param(op) & ass) == re_inst_param(op)) {
-          thrd.pc = re_inst_next(op);
-          *re_buf_peek(&n->thrd_stk, 0) = thrd;
+        assert(
+            bbre_inst_opcode(bbre_prog_get(r, thrd.pc)) == BBRE_OPCODE_ASSERT);
+        assert(!!(ass & BBRE_ASSERT_WORD) ^ !!(ass & BBRE_ASSERT_NOT_WORD));
+        if ((bbre_inst_param(op) & ass) == bbre_inst_param(op)) {
+          thrd.pc = bbre_inst_next(op);
+          *bbre_buf_peek(&n->thrd_stk, 0) = thrd;
         } else {
-          re_save_slots_kill(&n->slots, thrd.slot);
-          (void)re_buf_pop(&n->thrd_stk);
+          bbre_save_slots_kill(&n->slots, thrd.slot);
+          (void)bbre_buf_pop(&n->thrd_stk);
         }
         break;
       }
       }
     }
   }
-  re_sset_clear(&n->a);
+  bbre_sset_clear(&n->a);
   return 0;
 }
 
-static int re_nfa_match_end(
-    const re *r, re_nfa *n, re_nfa_thrd thrd, size_t pos, unsigned int ch)
+static int bbre_nfa_match_end(
+    const bbre *r, bbre_nfa *n, bbre_nfa_thrd thrd, size_t pos, unsigned int ch)
 {
   int err = 0;
-  re_u32 idx = r->prog_set_idxs[thrd.pc];
-  re_u32 *memo = n->pri_stk + idx - 1;
+  bbre_u32 idx = r->prog_set_idxs[thrd.pc];
+  bbre_u32 *memo = n->pri_stk + idx - 1;
   assert(idx > 0);
-  assert(idx - 1 < re_buf_size(n->pri_stk));
+  assert(idx - 1 < bbre_buf_size(n->pri_stk));
   if (!n->pri && ch < 256)
     goto out_kill;
   if (n->slots.per_thrd) {
-    re_u32 slot_idx = !n->reversed;
+    bbre_u32 slot_idx = !n->reversed;
     if (*memo)
-      re_save_slots_kill(&n->slots, *memo);
+      bbre_save_slots_kill(&n->slots, *memo);
     *memo = thrd.slot;
-    if (slot_idx < re_save_slots_per_thrd(&n->slots) &&
-        (err = re_save_slots_set(r, &n->slots, thrd.slot, slot_idx, pos, memo)))
+    if (slot_idx < bbre_save_slots_per_thrd(&n->slots) &&
+        (err =
+             bbre_save_slots_set(r, &n->slots, thrd.slot, slot_idx, pos, memo)))
       return err;
     goto out_survive;
   } else {
@@ -3054,67 +3116,70 @@ static int re_nfa_match_end(
 out_survive:
   return err;
 out_kill:
-  re_save_slots_kill(&n->slots, thrd.slot);
+  bbre_save_slots_kill(&n->slots, thrd.slot);
   return err;
 }
 
-static int re_nfa_chr(const re *r, re_nfa *n, unsigned int ch, size_t pos)
+static int bbre_nfa_chr(const bbre *r, bbre_nfa *n, unsigned int ch, size_t pos)
 {
   int err;
   size_t i;
-  re_bmp_clear(&n->pri_bmp_tmp);
+  bbre_bmp_clear(&n->pri_bmp_tmp);
   for (i = 0; i < n->b.dense_size; i++) {
-    re_nfa_thrd thrd = n->b.dense[i];
-    re_inst op = re_prog_get(r, thrd.pc);
-    re_u32 pri = re_bmp_get(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]),
-           opcode = re_inst_opcode(op);
+    bbre_nfa_thrd thrd = n->b.dense[i];
+    bbre_inst op = bbre_prog_get(r, thrd.pc);
+    bbre_u32 pri = bbre_bmp_get(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]),
+             opcode = bbre_inst_opcode(op);
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
-    assert(opcode == RE_OPCODE_RANGE || opcode == RE_OPCODE_MATCH);
-    if (opcode == RE_OPCODE_RANGE) {
-      re_byte_range br = re_u32_to_byte_range(re_inst_param(op));
+    assert(opcode == BBRE_OPCODE_RANGE || opcode == BBRE_OPCODE_MATCH);
+    if (opcode == BBRE_OPCODE_RANGE) {
+      bbre_byte_range br = bbre_u32_to_byte_range(bbre_inst_param(op));
       if (ch >= br.l && ch <= br.h) {
-        thrd.pc = re_inst_next(op);
-        re_sset_add(&n->a, thrd);
+        thrd.pc = bbre_inst_next(op);
+        bbre_sset_add(&n->a, thrd);
       } else
-        re_save_slots_kill(&n->slots, thrd.slot);
+        bbre_save_slots_kill(&n->slots, thrd.slot);
     } else /* if opcode == MATCH */ {
-      assert(!re_inst_next(op));
-      if ((err = re_nfa_match_end(r, n, thrd, pos, ch)))
+      assert(!bbre_inst_next(op));
+      if ((err = bbre_nfa_match_end(r, n, thrd, pos, ch)))
         return err;
       if (n->pri)
-        re_bmp_set(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
-      re_save_slots_kill(&n->slots, thrd.slot);
+        bbre_bmp_set(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
+      bbre_save_slots_kill(&n->slots, thrd.slot);
     }
   }
   return 0;
 }
 
-#define RE_SENTINEL_CH 256
+#define BBRE_SENTINEL_CH 256
 
-static re_u32 re_is_word_char(re_u32 ch)
+static bbre_u32 bbre_is_word_char(bbre_u32 ch)
 {
   return (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') ||
          (ch >= 'a' && ch <= 'z') || ch == '_';
 }
 
-static re_assert_flag re_make_assert_flag_raw(
-    re_u32 prev_text_begin, re_u32 prev_line_begin, re_u32 prev_word,
-    re_u32 next_ch)
+static bbre_assert_flag bbre_make_assert_flag_raw(
+    bbre_u32 prev_text_begin, bbre_u32 prev_line_begin, bbre_u32 prev_word,
+    bbre_u32 next_ch)
 {
-  return !!prev_text_begin * RE_ASSERT_TEXT_BEGIN |
-         (next_ch == RE_SENTINEL_CH) * RE_ASSERT_TEXT_END |
-         !!prev_line_begin * RE_ASSERT_LINE_BEGIN |
-         (next_ch == RE_SENTINEL_CH || next_ch == '\n') * RE_ASSERT_LINE_END |
-         ((!!prev_word == re_is_word_char(next_ch)) ? RE_ASSERT_NOT_WORD
-                                                    : RE_ASSERT_WORD);
+  return !!prev_text_begin * BBRE_ASSERT_TEXT_BEGIN |
+         (next_ch == BBRE_SENTINEL_CH) * BBRE_ASSERT_TEXT_END |
+         !!prev_line_begin * BBRE_ASSERT_LINE_BEGIN |
+         (next_ch == BBRE_SENTINEL_CH || next_ch == '\n') *
+             BBRE_ASSERT_LINE_END |
+         ((!!prev_word == bbre_is_word_char(next_ch)) ? BBRE_ASSERT_NOT_WORD
+                                                      : BBRE_ASSERT_WORD);
 }
 
-static re_assert_flag re_make_assert_flag(re_u32 prev_ch, re_u32 next_ch)
+static bbre_assert_flag
+bbre_make_assert_flag(bbre_u32 prev_ch, bbre_u32 next_ch)
 {
-  return re_make_assert_flag_raw(
-      prev_ch == RE_SENTINEL_CH, (prev_ch == RE_SENTINEL_CH || prev_ch == '\n'),
-      re_is_word_char(prev_ch), next_ch);
+  return bbre_make_assert_flag_raw(
+      prev_ch == BBRE_SENTINEL_CH,
+      (prev_ch == BBRE_SENTINEL_CH || prev_ch == '\n'),
+      bbre_is_word_char(prev_ch), next_ch);
 }
 
 /* return number of sets matched, -n otherwise */
@@ -3123,26 +3188,26 @@ static re_assert_flag re_make_assert_flag(re_u32 prev_ch, re_u32 next_ch)
 /* if max_set != 0 and max_span == 0 */
 /* if max_set == 0 and max_span != 0 */
 /* if max_set != 0 and max_span != 0 */
-static int re_nfa_end(
-    const re *r, size_t pos, re_nfa *n, re_u32 max_span, re_u32 max_set,
-    span *out_span, re_u32 *out_set, re_u32 prev_ch)
+static int bbre_nfa_end(
+    const bbre *r, size_t pos, bbre_nfa *n, bbre_u32 max_span, bbre_u32 max_set,
+    span *out_span, bbre_u32 *out_set, bbre_u32 prev_ch)
 {
   int err;
   size_t j, sets = 0, nset = 0;
-  if ((err = re_nfa_eps(
-           r, n, pos, re_make_assert_flag(prev_ch, RE_SENTINEL_CH))) ||
-      (err = re_nfa_chr(r, n, 256, pos)))
+  if ((err = bbre_nfa_eps(
+           r, n, pos, bbre_make_assert_flag(prev_ch, BBRE_SENTINEL_CH))) ||
+      (err = bbre_nfa_chr(r, n, 256, pos)))
     return err;
   for (sets = 0; sets < r->ast_sets && (max_set ? nset < max_set : nset < 1);
        sets++) {
-    re_u32 slot = n->pri_stk[sets];
+    bbre_u32 slot = n->pri_stk[sets];
     if (!slot)
       continue; /* no match for this set */
     for (j = 0; (j < max_span) && out_span; j++) {
       out_span[nset * max_span + j].begin =
-          re_save_slots_get(&n->slots, slot, j * 2);
+          bbre_save_slots_get(&n->slots, slot, j * 2);
       out_span[nset * max_span + j].end =
-          re_save_slots_get(&n->slots, slot, j * 2 + 1);
+          bbre_save_slots_get(&n->slots, slot, j * 2 + 1);
     }
     if (out_set)
       out_set[nset] = sets;
@@ -3151,111 +3216,112 @@ static int re_nfa_end(
   return nset;
 }
 
-static int
-re_nfa_run(const re *r, re_nfa *n, re_u32 ch, size_t pos, re_u32 prev_ch)
+static int bbre_nfa_run(
+    const bbre *r, bbre_nfa *n, bbre_u32 ch, size_t pos, bbre_u32 prev_ch)
 {
   int err;
-  if ((err = re_nfa_eps(r, n, pos, re_make_assert_flag(prev_ch, ch))))
+  if ((err = bbre_nfa_eps(r, n, pos, bbre_make_assert_flag(prev_ch, ch))))
     return err;
-  if ((err = re_nfa_chr(r, n, ch, pos)))
+  if ((err = bbre_nfa_chr(r, n, ch, pos)))
     return err;
   return err;
 }
 
-static void re_dfa_init(re_dfa *d)
+static void bbre_dfa_init(bbre_dfa *d)
 {
   d->states = NULL;
   d->states_size = d->num_active_states = 0;
   memset(d->entry, 0, sizeof(d->entry));
-  re_buf_init(&d->set_buf), re_buf_init(&d->loc_buf), re_buf_init(&d->set_bmp);
+  bbre_buf_init(&d->set_buf), bbre_buf_init(&d->loc_buf),
+      bbre_buf_init(&d->set_bmp);
 }
 
-static void re_dfa_reset(re_dfa *d)
+static void bbre_dfa_reset(bbre_dfa *d)
 {
   size_t i;
   for (i = 0; i < d->states_size; i++)
     if (d->states[i])
-      d->states[i]->flags |= RE_DFA_STATE_FLAG_DIRTY;
+      d->states[i]->flags |= BBRE_DFA_STATE_FLAG_DIRTY;
   d->num_active_states = 0;
-  re_buf_clear(&d->set_buf), re_buf_clear(&d->loc_buf),
-      re_buf_clear(&d->set_bmp);
+  bbre_buf_clear(&d->set_buf), bbre_buf_clear(&d->loc_buf),
+      bbre_buf_clear(&d->set_bmp);
   memset(d->entry, 0, sizeof(d->entry));
 }
 
-static void re_dfa_destroy(const re *r, re_dfa *d)
+static void bbre_dfa_destroy(const bbre *r, bbre_dfa *d)
 {
   size_t i;
   for (i = 0; i < d->states_size; i++)
     if (d->states[i])
-      re_ialloc(r, d->states[i]->alloc, 0, d->states[i]);
-  re_ialloc(r, d->states_size * sizeof(re_dfa_state *), 0, d->states);
-  re_buf_destroy(r, &d->set_buf), re_buf_destroy(r, &d->loc_buf),
-      re_buf_destroy(r, &d->set_bmp);
+      bbre_ialloc(r, d->states[i]->alloc, 0, d->states[i]);
+  bbre_ialloc(r, d->states_size * sizeof(bbre_dfa_state *), 0, d->states);
+  bbre_buf_destroy(r, &d->set_buf), bbre_buf_destroy(r, &d->loc_buf),
+      bbre_buf_destroy(r, &d->set_bmp);
 }
 
-static re_u32 re_dfa_state_alloc(re_u32 nstate, re_u32 nset)
+static bbre_u32 bbre_dfa_state_alloc(bbre_u32 nstate, bbre_u32 nset)
 {
-  re_u32 minsz = sizeof(re_dfa_state) + (nstate + nset) * sizeof(re_u32);
-  re_u32 alloc = sizeof(re_dfa_state) & 0x800;
+  bbre_u32 minsz = sizeof(bbre_dfa_state) + (nstate + nset) * sizeof(bbre_u32);
+  bbre_u32 alloc = sizeof(bbre_dfa_state) & 0x800;
   while (alloc < minsz)
     alloc *= 2;
   return alloc;
 }
 
-static re_u32 *re_dfa_state_data(re_dfa_state *state)
+static bbre_u32 *bbre_dfa_state_data(bbre_dfa_state *state)
 {
-  return (re_u32 *)(state + 1);
+  return (bbre_u32 *)(state + 1);
 }
 
 /* need: current state, but ALSO the previous state's matches */
-static int re_dfa_construct(
-    const re *r, re_dfa *d, re_dfa_state *prev_state, unsigned int ch,
-    re_u32 prev_flag, re_nfa *n, re_dfa_state **out_next_state)
+static int bbre_dfa_construct(
+    const bbre *r, bbre_dfa *d, bbre_dfa_state *prev_state, unsigned int ch,
+    bbre_u32 prev_flag, bbre_nfa *n, bbre_dfa_state **out_next_state)
 {
   size_t i;
   int err = 0;
-  re_u32 hash, table_pos, num_checked, *state_data, next_alloc;
-  re_dfa_state *next_state;
-  assert(!(prev_flag & RE_DFA_STATE_FLAG_DIRTY));
+  bbre_u32 hash, table_pos, num_checked, *state_data, next_alloc;
+  bbre_dfa_state *next_state;
+  assert(!(prev_flag & BBRE_DFA_STATE_FLAG_DIRTY));
   /* check threads in n, and look them up in the dfa cache */
-  hash = re_hashington(prev_flag);
-  hash = re_hashington(hash + n->a.dense_size);
-  hash = re_hashington(hash + re_buf_size(d->set_buf));
+  hash = bbre_hashington(prev_flag);
+  hash = bbre_hashington(hash + n->a.dense_size);
+  hash = bbre_hashington(hash + bbre_buf_size(d->set_buf));
   for (i = 0; i < n->a.dense_size; i++)
-    hash = re_hashington(hash + n->a.dense[i].pc);
-  for (i = 0; i < re_buf_size(d->set_buf); i++)
-    hash = re_hashington(hash + d->set_buf[i]);
+    hash = bbre_hashington(hash + n->a.dense[i].pc);
+  for (i = 0; i < bbre_buf_size(d->set_buf); i++)
+    hash = bbre_hashington(hash + d->set_buf[i]);
   if (!d->states_size) {
     /* need to allocate initial cache */
-    re_dfa_state **next_cache =
-        re_ialloc(r, 0, sizeof(re_dfa_state *) * RE_DFA_MAX_NUM_STATES, NULL);
+    bbre_dfa_state **next_cache = bbre_ialloc(
+        r, 0, sizeof(bbre_dfa_state *) * BBRE_DFA_MAX_NUM_STATES, NULL);
     if (!next_cache)
-      return RE_ERR_MEM;
-    memset(next_cache, 0, sizeof(re_dfa_state *) * RE_DFA_MAX_NUM_STATES);
+      return BBRE_ERR_MEM;
+    memset(next_cache, 0, sizeof(bbre_dfa_state *) * BBRE_DFA_MAX_NUM_STATES);
     assert(!d->states);
-    d->states = next_cache, d->states_size = RE_DFA_MAX_NUM_STATES;
+    d->states = next_cache, d->states_size = BBRE_DFA_MAX_NUM_STATES;
   }
   table_pos = hash % d->states_size, num_checked = 0;
   while (1) {
     /* linear probe for next state */
     if (!d->states[table_pos] ||
-        d->states[table_pos]->flags & RE_DFA_STATE_FLAG_DIRTY) {
+        d->states[table_pos]->flags & BBRE_DFA_STATE_FLAG_DIRTY) {
       next_state = NULL;
       break;
     }
     next_state = d->states[table_pos];
-    assert(!(next_state->flags & RE_DFA_STATE_FLAG_DIRTY));
-    state_data = re_dfa_state_data(next_state);
+    assert(!(next_state->flags & BBRE_DFA_STATE_FLAG_DIRTY));
+    state_data = bbre_dfa_state_data(next_state);
     if (next_state->flags != prev_flag)
       goto not_found;
     if (next_state->nstate != n->a.dense_size)
       goto not_found;
-    if (next_state->nset != re_buf_size(d->set_buf))
+    if (next_state->nset != bbre_buf_size(d->set_buf))
       goto not_found;
     for (i = 0; i < n->a.dense_size; i++)
       if (state_data[i] != n->a.dense[i].pc)
         goto not_found;
-    for (i = 0; i < re_buf_size(d->set_buf); i++)
+    for (i = 0; i < bbre_buf_size(d->set_buf); i++)
       if (state_data[n->a.dense_size + i] != d->set_buf[i])
         goto not_found;
     /* state found! */
@@ -3271,28 +3337,30 @@ static int re_dfa_construct(
   }
   if (!next_state) {
     /* we need to construct a new state */
-    if (d->num_active_states == RE_DFA_MAX_NUM_STATES) {
+    if (d->num_active_states == BBRE_DFA_MAX_NUM_STATES) {
       /* clear cache */
       for (i = 0; i < d->states_size; i++)
         if (d->states[i])
-          d->states[i]->flags |= RE_DFA_STATE_FLAG_DIRTY;
+          d->states[i]->flags |= BBRE_DFA_STATE_FLAG_DIRTY;
       d->num_active_states = 0;
       table_pos = hash % d->states_size;
       memset(d->entry, 0, sizeof(d->entry));
       prev_state = NULL;
     }
     /* can we reuse the previous state? */
-    assert(RE_IMPLIES(
+    assert(BBRE_IMPLIES(
         d->states[table_pos],
-        d->states[table_pos]->flags & RE_DFA_STATE_FLAG_DIRTY));
+        d->states[table_pos]->flags & BBRE_DFA_STATE_FLAG_DIRTY));
     {
-      re_u32 prev_alloc =
+      bbre_u32 prev_alloc =
           d->states[table_pos] ? d->states[table_pos]->alloc : 0;
-      next_alloc = re_dfa_state_alloc(n->a.dense_size, re_buf_size(d->set_buf));
+      next_alloc =
+          bbre_dfa_state_alloc(n->a.dense_size, bbre_buf_size(d->set_buf));
       if (prev_alloc < next_alloc) {
-        next_state = re_ialloc(r, prev_alloc, next_alloc, d->states[table_pos]);
+        next_state =
+            bbre_ialloc(r, prev_alloc, next_alloc, d->states[table_pos]);
         if (!next_state)
-          return RE_ERR_MEM;
+          return BBRE_ERR_MEM;
         d->states[table_pos] = next_state;
       } else {
         next_state = d->states[table_pos];
@@ -3303,11 +3371,11 @@ static int re_dfa_construct(
     next_state->alloc = next_alloc;
     next_state->flags = prev_flag;
     next_state->nstate = n->a.dense_size;
-    next_state->nset = re_buf_size(d->set_buf);
-    state_data = re_dfa_state_data(next_state);
+    next_state->nset = bbre_buf_size(d->set_buf);
+    state_data = bbre_dfa_state_data(next_state);
     for (i = 0; i < n->a.dense_size; i++)
       state_data[i] = n->a.dense[i].pc;
-    for (i = 0; i < re_buf_size(d->set_buf); i++)
+    for (i = 0; i < bbre_buf_size(d->set_buf); i++)
       state_data[n->a.dense_size + i] = d->set_buf[i];
     assert(d->states[table_pos] == next_state);
     d->num_active_states++;
@@ -3320,79 +3388,79 @@ static int re_dfa_construct(
   return err;
 }
 
-static int re_dfa_construct_start(
-    const re *r, re_dfa *d, re_nfa *n, re_u32 entry, re_u32 prev_flag,
-    re_dfa_state **out_next_state)
+static int bbre_dfa_construct_start(
+    const bbre *r, bbre_dfa *d, bbre_nfa *n, bbre_u32 entry, bbre_u32 prev_flag,
+    bbre_dfa_state **out_next_state)
 {
   int err = 0;
   /* clear the set buffer so that it can be used to compare dfa states later */
-  re_buf_clear(&d->set_buf);
+  bbre_buf_clear(&d->set_buf);
   *out_next_state = d->entry[entry][prev_flag];
   if (!*out_next_state) {
-    re_nfa_thrd spec;
+    bbre_nfa_thrd spec;
     spec.pc = r->entry[entry];
     spec.slot = 0;
-    re_sset_clear(&n->a);
-    re_sset_add(&n->a, spec);
-    if ((err = re_dfa_construct(r, d, NULL, 0, prev_flag, n, out_next_state)))
+    bbre_sset_clear(&n->a);
+    bbre_sset_add(&n->a, spec);
+    if ((err = bbre_dfa_construct(r, d, NULL, 0, prev_flag, n, out_next_state)))
       return err;
     d->entry[entry][prev_flag] = *out_next_state;
   }
   return err;
 }
 
-static int re_dfa_construct_chr(
-    const re *r, re_dfa *d, re_nfa *n, re_dfa_state *prev_state,
-    unsigned int ch, re_dfa_state **out_next_state)
+static int bbre_dfa_construct_chr(
+    const bbre *r, bbre_dfa *d, bbre_nfa *n, bbre_dfa_state *prev_state,
+    unsigned int ch, bbre_dfa_state **out_next_state)
 {
   int err;
   size_t i;
   /* clear the set buffer so that it can be used to compare dfa states later */
-  re_buf_clear(&d->set_buf);
+  bbre_buf_clear(&d->set_buf);
   /* we only care about `ch` if `prev_state != NULL`. we only care about
    * `prev_flag` if `prev_state == NULL` */
   /* import prev_state into n */
-  re_sset_clear(&n->a);
+  bbre_sset_clear(&n->a);
   for (i = 0; i < prev_state->nstate; i++) {
-    re_nfa_thrd thrd;
-    thrd.pc = re_dfa_state_data(prev_state)[i];
+    bbre_nfa_thrd thrd;
+    thrd.pc = bbre_dfa_state_data(prev_state)[i];
     thrd.slot = 0;
-    re_sset_add(&n->a, thrd);
+    bbre_sset_add(&n->a, thrd);
   }
   /* run eps on n */
-  if ((err = re_nfa_eps(
+  if ((err = bbre_nfa_eps(
            r, n, 0,
-           re_make_assert_flag_raw(
-               prev_state->flags & RE_DFA_STATE_FLAG_FROM_TEXT_BEGIN,
-               prev_state->flags & RE_DFA_STATE_FLAG_FROM_LINE_BEGIN,
-               prev_state->flags & RE_DFA_STATE_FLAG_FROM_WORD, ch))))
+           bbre_make_assert_flag_raw(
+               prev_state->flags & BBRE_DFA_STATE_FLAG_FROM_TEXT_BEGIN,
+               prev_state->flags & BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN,
+               prev_state->flags & BBRE_DFA_STATE_FLAG_FROM_WORD, ch))))
     return err;
   /* collect matches and match priorities into d->set_buf */
-  re_bmp_clear(&n->pri_bmp_tmp);
+  bbre_bmp_clear(&n->pri_bmp_tmp);
   for (i = 0; i < n->b.dense_size; i++) {
-    re_nfa_thrd thrd = n->b.dense[i];
-    re_inst op = re_prog_get(r, thrd.pc);
-    int pri = re_bmp_get(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
+    bbre_nfa_thrd thrd = n->b.dense[i];
+    bbre_inst op = bbre_prog_get(r, thrd.pc);
+    int pri = bbre_bmp_get(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
-    switch (re_inst_opcode(op)) {
-    case RE_OPCODE_RANGE: {
-      re_byte_range br = re_u32_to_byte_range(re_inst_param(op));
+    switch (bbre_inst_opcode(op)) {
+    case BBRE_OPCODE_RANGE: {
+      bbre_byte_range br = bbre_u32_to_byte_range(bbre_inst_param(op));
       if (ch >= br.l && ch <= br.h) {
-        thrd.pc = re_inst_next(op);
-        re_sset_add(&n->a, thrd);
+        thrd.pc = bbre_inst_next(op);
+        bbre_sset_add(&n->a, thrd);
       } else
-        re_save_slots_kill(&n->slots, thrd.slot);
+        bbre_save_slots_kill(&n->slots, thrd.slot);
       break;
     }
-    case RE_OPCODE_MATCH: {
-      assert(!re_inst_next(op));
+    case BBRE_OPCODE_MATCH: {
+      assert(!bbre_inst_next(op));
       /* NOTE: since there only exists one match instruction for a set n, we
        * don't need to check if we've already pushed the match instruction. */
-      if ((err = re_buf_push(r, &d->set_buf, r->prog_set_idxs[thrd.pc] - 1)))
+      if ((err = bbre_buf_push(r, &d->set_buf, r->prog_set_idxs[thrd.pc] - 1)))
         return err;
       if (n->pri)
-        re_bmp_set(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
+        bbre_bmp_set(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
       break;
     }
     default:
@@ -3400,63 +3468,64 @@ static int re_dfa_construct_chr(
     }
   }
   /* feed ch to n -> this was accomplished by the above code */
-  return re_dfa_construct(
+  return bbre_dfa_construct(
       r, d, prev_state, ch,
-      (ch == RE_SENTINEL_CH) * RE_DFA_STATE_FLAG_FROM_TEXT_BEGIN |
-          (ch == RE_SENTINEL_CH || ch == '\n') *
-              RE_DFA_STATE_FLAG_FROM_LINE_BEGIN |
-          (re_is_word_char(ch) ? RE_DFA_STATE_FLAG_FROM_WORD : 0),
+      (ch == BBRE_SENTINEL_CH) * BBRE_DFA_STATE_FLAG_FROM_TEXT_BEGIN |
+          (ch == BBRE_SENTINEL_CH || ch == '\n') *
+              BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN |
+          (bbre_is_word_char(ch) ? BBRE_DFA_STATE_FLAG_FROM_WORD : 0),
       n, out_next_state);
 }
 
-static void re_dfa_save_matches(re_dfa *dfa, re_dfa_state *state, size_t pos)
+static void
+bbre_dfa_save_matches(bbre_dfa *dfa, bbre_dfa_state *state, size_t pos)
 {
-  re_u32 i;
+  bbre_u32 i;
   for (i = 0; i < state->nset; i++) {
-    dfa->loc_buf[re_dfa_state_data(state)[state->nstate + i]] = pos;
-    re_bmp_set(dfa->set_bmp, i);
+    dfa->loc_buf[bbre_dfa_state_data(state)[state->nstate + i]] = pos;
+    bbre_bmp_set(dfa->set_bmp, i);
   }
 }
 
-static int re_dfa_match(
-    re_exec *exec, re_nfa *nfa, re_u8 *s, size_t n, re_u32 max_span,
-    re_u32 max_set, span *out_span, re_u32 *out_set, anchor_type anchor)
+static int bbre_dfa_match(
+    bbre_exec *exec, bbre_nfa *nfa, bbre_u8 *s, size_t n, bbre_u32 max_span,
+    bbre_u32 max_set, span *out_span, bbre_u32 *out_set, anchor_type anchor)
 {
   int err;
-  re_dfa_state *state = NULL;
+  bbre_dfa_state *state = NULL;
   size_t i;
-  re_u32 entry = anchor == RE_ANCHOR_END   ? RE_PROG_ENTRY_REVERSE
-                 : anchor == RE_UNANCHORED ? RE_PROG_ENTRY_DOTSTAR
-                                           : 0;
-  re_u32 incoming_assert_flag = RE_DFA_STATE_FLAG_FROM_TEXT_BEGIN |
-                                RE_DFA_STATE_FLAG_FROM_LINE_BEGIN,
-         reversed = !!(entry & RE_PROG_ENTRY_REVERSE);
-  int pri = anchor != RE_ANCHOR_BOTH;
+  bbre_u32 entry = anchor == BBRE_ANCHOR_END   ? BBRE_PROG_ENTRY_REVERSE
+                   : anchor == BBRE_UNANCHORED ? BBRE_PROG_ENTRY_DOTSTAR
+                                               : 0;
+  bbre_u32 incoming_assert_flag = BBRE_DFA_STATE_FLAG_FROM_TEXT_BEGIN |
+                                  BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN,
+           reversed = !!(entry & BBRE_PROG_ENTRY_REVERSE);
+  int pri = anchor != BBRE_ANCHOR_BOTH;
   assert(max_span == 0 || max_span == 1);
   assert(
-      anchor == RE_ANCHOR_BOTH || anchor == RE_ANCHOR_START ||
-      anchor == RE_ANCHOR_END);
-  re_dfa_reset(&exec->dfa);
-  if ((err = re_nfa_start(
+      anchor == BBRE_ANCHOR_BOTH || anchor == BBRE_ANCHOR_START ||
+      anchor == BBRE_ANCHOR_END);
+  bbre_dfa_reset(&exec->dfa);
+  if ((err = bbre_nfa_start(
            exec->r, &exec->nfa, exec->r->entry[entry], 0, reversed, pri)))
     return err;
   if (pri) {
-    re_buf_clear(&exec->dfa.loc_buf);
-    if ((err = re_bmp_init(exec->r, &exec->dfa.set_bmp, exec->r->ast_sets)))
+    bbre_buf_clear(&exec->dfa.loc_buf);
+    if ((err = bbre_bmp_init(exec->r, &exec->dfa.set_bmp, exec->r->ast_sets)))
       return err;
     for (i = 0; i < exec->r->ast_sets; i++) {
       size_t p = 0;
-      if ((err = re_buf_push(exec->r, &exec->dfa.loc_buf, p)))
+      if ((err = bbre_buf_push(exec->r, &exec->dfa.loc_buf, p)))
         return err;
     }
   }
   i = reversed ? n : 0;
   if (!(state = exec->dfa.entry[entry][incoming_assert_flag]) &&
-      (err = re_dfa_construct_start(
+      (err = bbre_dfa_construct_start(
            exec->r, &exec->dfa, nfa, entry, incoming_assert_flag, &state)))
     return err;
   if (pri)
-    re_dfa_save_matches(&exec->dfa, state, i);
+    bbre_dfa_save_matches(&exec->dfa, state, i);
   {
     /* This is a *very* hot loop. Don't change this without profiling first. */
     /* Originally this loop used an index on the `s` variable. It was determined
@@ -3464,36 +3533,36 @@ static int re_dfa_match(
      * dereference+increment it every iteration of the character loop. So, we
      * compute the start and end pointers of the span of the string, and then
      * rip through the string until start == end. */
-    const re_u8 *start = reversed ? s + n - 1 : s,
-                *end = reversed ? s - 1 : s + n;
+    const bbre_u8 *start = reversed ? s + n - 1 : s,
+                  *end = reversed ? s - 1 : s + n;
     /* The amount to increment each iteration of the loop. */
     int increment = reversed ? -1 : 1;
     while (start != end) {
-      re_u8 ch = *start;
-      re_dfa_state *next = state->ptrs[ch];
+      bbre_u8 ch = *start;
+      bbre_dfa_state *next = state->ptrs[ch];
       if (!next) {
-        if ((err = re_dfa_construct_chr(
+        if ((err = bbre_dfa_construct_chr(
                  exec->r, &exec->dfa, nfa, state, ch, &next)))
           return err;
       }
       state = next;
       start += increment;
       if (pri)
-        re_dfa_save_matches(&exec->dfa, state, start - s);
+        bbre_dfa_save_matches(&exec->dfa, state, start - s);
     }
   }
-  if (!state->ptrs[RE_SENTINEL_CH]) {
-    if ((err = re_dfa_construct_chr(
-             exec->r, &exec->dfa, nfa, state, RE_SENTINEL_CH, &state)))
+  if (!state->ptrs[BBRE_SENTINEL_CH]) {
+    if ((err = bbre_dfa_construct_chr(
+             exec->r, &exec->dfa, nfa, state, BBRE_SENTINEL_CH, &state)))
       return err;
   } else
     state = state->ptrs[s[i]];
   if (pri) {
-    re_dfa_save_matches(&exec->dfa, state, i);
+    bbre_dfa_save_matches(&exec->dfa, state, i);
     assert(!err);
     for (i = 0; i < exec->r->ast_sets; i++) {
       assert(err >= 0 && err <= (signed)i);
-      if (!re_bmp_get(exec->dfa.set_bmp, i))
+      if (!bbre_bmp_get(exec->dfa.set_bmp, i))
         continue;
       if ((unsigned)err == max_set && max_set)
         break;
@@ -3516,7 +3585,7 @@ static int re_dfa_match(
         out_span[i].begin = 0, out_span[i].end = n;
       }
       if (i < max_set)
-        out_set[i] = re_dfa_state_data(state)[state->nstate + i];
+        out_set[i] = bbre_dfa_state_data(state)[state->nstate + i];
     }
     err = max_set ? (state->nset > max_set ? max_set : state->nset)
                   : !!state->nset;
@@ -3524,80 +3593,80 @@ static int re_dfa_match(
   return err;
 }
 
-int re_exec_init(const re *r, re_exec **pexec)
+int bbre_exec_init(const bbre *r, bbre_exec **pexec)
 {
   int err = 0;
-  re_exec *exec = re_ialloc(r, 0, sizeof(re_exec), NULL);
+  bbre_exec *exec = bbre_ialloc(r, 0, sizeof(bbre_exec), NULL);
   *pexec = exec;
-  assert(re_prog_size(r));
+  assert(bbre_prog_size(r));
   if (!exec)
-    return RE_ERR_MEM;
-  memset(exec, 0, sizeof(re_exec));
+    return BBRE_ERR_MEM;
+  memset(exec, 0, sizeof(bbre_exec));
   exec->r = r;
-  re_nfa_init(&exec->nfa);
-  re_dfa_init(&exec->dfa);
+  bbre_nfa_init(&exec->nfa);
+  bbre_dfa_init(&exec->dfa);
   return err;
 }
 
-void re_exec_destroy(re_exec *exec)
+void bbre_exec_destroy(bbre_exec *exec)
 {
   if (!exec)
     return;
-  re_nfa_destroy(exec->r, &exec->nfa);
-  re_dfa_destroy(exec->r, &exec->dfa);
-  re_ialloc(exec->r, sizeof(re_exec), 0, exec);
+  bbre_nfa_destroy(exec->r, &exec->nfa);
+  bbre_dfa_destroy(exec->r, &exec->dfa);
+  bbre_ialloc(exec->r, sizeof(bbre_exec), 0, exec);
 }
 
-int re_compile(re *r)
+int bbre_compile(bbre *r)
 {
   int err;
-  assert(!re_prog_size(r));
-  if ((err = re_compile_internal(r, r->ast_root, 0)) ||
-      (err = re_compile_internal(r, r->ast_root, 1))) {
+  assert(!bbre_prog_size(r));
+  if ((err = bbre_compile_internal(r, r->ast_root, 0)) ||
+      (err = bbre_compile_internal(r, r->ast_root, 1))) {
     return err;
   }
   return err;
 }
 
-int re_exec_match(
-    re_exec *exec, const char *s, size_t n, re_u32 max_span, re_u32 max_set,
-    span *out_span, re_u32 *out_set, anchor_type anchor)
+int bbre_exec_match(
+    bbre_exec *exec, const char *s, size_t n, bbre_u32 max_span,
+    bbre_u32 max_set, span *out_span, bbre_u32 *out_set, anchor_type anchor)
 {
   int err = 0;
-  re_u32 entry = anchor == RE_ANCHOR_END   ? RE_PROG_ENTRY_REVERSE
-                 : anchor == RE_UNANCHORED ? RE_PROG_ENTRY_DOTSTAR
-                                           : 0;
+  bbre_u32 entry = anchor == BBRE_ANCHOR_END   ? BBRE_PROG_ENTRY_REVERSE
+                   : anchor == BBRE_UNANCHORED ? BBRE_PROG_ENTRY_DOTSTAR
+                                               : 0;
   size_t i;
-  re_u32 prev_ch = RE_SENTINEL_CH;
-  if (!(entry & RE_PROG_ENTRY_DOTSTAR) && (max_span == 0 || max_span == 1)) {
-    err = re_dfa_match(
-        exec, &exec->nfa, (re_u8 *)s, n, max_span, max_set, out_span, out_set,
+  bbre_u32 prev_ch = BBRE_SENTINEL_CH;
+  if (!(entry & BBRE_PROG_ENTRY_DOTSTAR) && (max_span == 0 || max_span == 1)) {
+    err = bbre_dfa_match(
+        exec, &exec->nfa, (bbre_u8 *)s, n, max_span, max_set, out_span, out_set,
         anchor);
     return err;
   }
-  if ((err = re_nfa_start(
+  if ((err = bbre_nfa_start(
            exec->r, &exec->nfa, exec->r->entry[entry], max_span * 2,
-           entry & RE_PROG_ENTRY_REVERSE, entry != RE_ANCHOR_BOTH)))
+           entry & BBRE_PROG_ENTRY_REVERSE, entry != BBRE_ANCHOR_BOTH)))
     return err;
-  if (entry & RE_PROG_ENTRY_REVERSE) {
+  if (entry & BBRE_PROG_ENTRY_REVERSE) {
     for (i = n; i > 0; i--) {
-      if ((err = re_nfa_run(
-               exec->r, &exec->nfa, ((const re_u8 *)s)[i - 1], i, prev_ch)))
+      if ((err = bbre_nfa_run(
+               exec->r, &exec->nfa, ((const bbre_u8 *)s)[i - 1], i, prev_ch)))
         return err;
-      prev_ch = ((const re_u8 *)s)[i - 1];
+      prev_ch = ((const bbre_u8 *)s)[i - 1];
     }
-    if ((err = re_nfa_end(
+    if ((err = bbre_nfa_end(
              exec->r, 0, &exec->nfa, max_span, max_set, out_span, out_set,
              prev_ch)))
       return err;
   } else {
     for (i = 0; i < n; i++) {
-      if ((err = re_nfa_run(
-               exec->r, &exec->nfa, ((const re_u8 *)s)[i], i, prev_ch)))
+      if ((err = bbre_nfa_run(
+               exec->r, &exec->nfa, ((const bbre_u8 *)s)[i], i, prev_ch)))
         return err;
-      prev_ch = ((const re_u8 *)s)[i];
+      prev_ch = ((const bbre_u8 *)s)[i];
     }
-    if ((err = re_nfa_end(
+    if ((err = bbre_nfa_end(
              exec->r, n, &exec->nfa, max_span, max_set, out_span, out_set,
              prev_ch)))
       return err;
@@ -3605,24 +3674,24 @@ int re_exec_match(
   return err;
 }
 
-int re_match(
-    const re *r, const char *s, size_t n, re_u32 max_span, re_u32 max_set,
-    span *out_span, re_u32 *out_set, anchor_type anchor)
+int bbre_match(
+    const bbre *r, const char *s, size_t n, bbre_u32 max_span, bbre_u32 max_set,
+    span *out_span, bbre_u32 *out_set, anchor_type anchor)
 {
-  re_exec *exec = NULL;
+  bbre_exec *exec = NULL;
   int err;
-  if ((err = re_exec_init(r, &exec)))
+  if ((err = bbre_exec_init(r, &exec)))
     goto done;
-  if ((err = re_exec_match(
+  if ((err = bbre_exec_match(
            exec, s, n, max_span, max_set, out_span, out_set, anchor)))
     goto done;
 done:
-  re_exec_destroy(exec);
+  bbre_exec_destroy(exec);
   return err;
 }
 
 /*{ Generated by `unicode_data.py gen_casefold` */
-static const re_s32 re_compcc_fold_array_0[] = {
+static const bbre_s32 bbre_compcc_fold_array_0[] = {
     -0x0040, +0x0000, -0x0022, -0x0022, +0x0022, +0x0022, -0x0040, -0x0040,
     +0x0040, +0x0040, -0x0027, -0x0027, +0x0027, +0x0027, -0x0028, -0x0028,
     +0x0028, +0x0028, -0x97D0, -0x97D0, -0x1C60, -0x1C60, -0x2A3F, -0x2A3F,
@@ -3673,7 +3742,7 @@ static const re_s32 re_compcc_fold_array_0[] = {
     +0x0000, +0x0001, -0x0001, -0x0020, +0x0079, -0x0020, +0x2046, +0x0020,
     +0x1DBF, +0x0000, +0x02E7, -0x0020, +0x0000, -0x0020, +0x010C, -0x0020,
     +0x20BF, +0x0000, -0x0020, +0x0020, +0x0000, +0x0020};
-static const re_u16 re_compcc_fold_array_1[] = {
+static const bbre_u16 bbre_compcc_fold_array_1[] = {
     0x002, 0x002, 0x060, 0x060, 0x004, 0x002, 0x002, 0x002, 0x002, 0x004, 0x004,
     0x004, 0x004, 0x006, 0x006, 0x006, 0x006, 0x008, 0x008, 0x008, 0x008, 0x00A,
     0x00A, 0x00A, 0x00A, 0x00C, 0x00C, 0x00C, 0x00C, 0x00E, 0x00E, 0x00E, 0x00E,
@@ -3731,7 +3800,7 @@ static const re_u16 re_compcc_fold_array_1[] = {
     0x05E, 0x05E, 0x17F, 0x05E, 0x05E, 0x05E, 0x18B, 0x05C, 0x183, 0x060, 0x060,
     0x189, 0x05C, 0x05C, 0x05C, 0x05E, 0x18B, 0x060, 0x060, 0x18C, 0x05E, 0x05E,
     0x05E};
-static const re_u16 re_compcc_fold_array_2[] = {
+static const bbre_u16 bbre_compcc_fold_array_2[] = {
     0x000, 0x07D, 0x005, 0x005, 0x009, 0x009, 0x075, 0x075, 0x00D, 0x00D, 0x011,
     0x011, 0x01D, 0x01D, 0x021, 0x021, 0x025, 0x025, 0x029, 0x029, 0x02D, 0x02D,
     0x031, 0x031, 0x035, 0x035, 0x039, 0x039, 0x04D, 0x04D, 0x051, 0x051, 0x055,
@@ -3754,7 +3823,7 @@ static const re_u16 re_compcc_fold_array_2[] = {
     0x211, 0x21D, 0x219, 0x225, 0x221, 0x22D, 0x229, 0x235, 0x231, 0x071, 0x239,
     0x06D, 0x23D, 0x245, 0x241, 0x24D, 0x249, 0x0B6, 0x075, 0x255, 0x251, 0x0BC,
     0x07D, 0x0DE, 0x259, 0x25D, 0x0E1, 0x079, 0x261, 0x265, 0x079};
-static const re_u8 re_compcc_fold_array_3[] = {
+static const bbre_u8 bbre_compcc_fold_array_3[] = {
     0x0E, 0x0E, 0x44, 0x0C, 0x0C, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x0E,
     0x0E, 0x42, 0x0C, 0x40, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x3E,
     0x3E, 0x3C, 0x3A, 0x38, 0x30, 0x30, 0x30, 0x30, 0x26, 0x26, 0x26, 0x24,
@@ -3796,7 +3865,7 @@ static const re_u8 re_compcc_fold_array_3[] = {
     0x30, 0x30, 0x30, 0x30, 0xEE, 0xEC, 0xEA, 0xE8, 0x30, 0x30, 0x30, 0xE6,
     0x2E, 0xE4, 0xE2, 0xE0, 0x2C, 0x2C, 0x2C, 0xDE, 0xDC, 0x2C, 0x2C, 0xDA,
     0xD8, 0xD6, 0xD4, 0xD2, 0xD0, 0xCE, 0x2C, 0xCC};
-static const re_u16 re_compcc_fold_array_4[] = {
+static const bbre_u16 bbre_compcc_fold_array_4[] = {
     0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC,
     0x0CC, 0x0CC, 0x046, 0x0CC, 0x06A, 0x0F3, 0x0CC, 0x05B, 0x0CC, 0x0CC, 0x0CC,
     0x020, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x000,
@@ -3807,7 +3876,7 @@ static const re_u16 re_compcc_fold_array_4[] = {
     0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x1C8, 0x1A8, 0x188,
     0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x0CC, 0x036, 0x168, 0x0CC, 0x0CC, 0x0CC, 0x0CC,
     0x10C, 0x148};
-static const re_u8 re_compcc_fold_array_5[] = {
+static const bbre_u8 bbre_compcc_fold_array_5[] = {
     0x55, 0x10, 0x3C, 0x3C, 0x3C, 0x2B, 0x3C, 0x00, 0x1E, 0x3C, 0x3C, 0x45,
     0x3C, 0x3C, 0x3C, 0x37, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C,
     0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C,
@@ -3821,14 +3890,14 @@ static const re_u8 re_compcc_fold_array_5[] = {
     0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C, 0x3C,
     0x3C, 0x3C, 0x3C, 0x3C};
 
-static re_s32 re_compcc_fold_next(re_u32 rune)
+static bbre_s32 bbre_compcc_fold_next(bbre_u32 rune)
 {
-  return re_compcc_fold_array_0
-      [re_compcc_fold_array_1
-           [re_compcc_fold_array_2
-                [re_compcc_fold_array_3
-                     [re_compcc_fold_array_4
-                          [re_compcc_fold_array_5[((rune >> 13) & 0xFF)] +
+  return bbre_compcc_fold_array_0
+      [bbre_compcc_fold_array_1
+           [bbre_compcc_fold_array_2
+                [bbre_compcc_fold_array_3
+                     [bbre_compcc_fold_array_4
+                          [bbre_compcc_fold_array_5[((rune >> 13) & 0xFF)] +
                            ((rune >> 9) & 0x0F)] +
                       ((rune >> 4) & 0x1F)] +
                  ((rune >> 3) & 0x01)] +
@@ -3836,52 +3905,52 @@ static re_s32 re_compcc_fold_next(re_u32 rune)
        (rune & 0x01)];
 }
 
-static int re_compcc_fold_range(
-    re *r, re_u32 begin, re_u32 end, re_buf(re_rune_range) * cc_out)
+static int bbre_compcc_fold_range(
+    bbre *r, bbre_u32 begin, bbre_u32 end, bbre_buf(bbre_rune_range) * cc_out)
 {
+  bbre_s32 a0;
+  bbre_u16 a1, a2, a4;
+  bbre_u32 current, x0, x1, x2, x3, x4, x5;
+  bbre_u8 a3, a5;
   int err = 0;
-  re_s32 a0;
-  re_u16 a1, a2, a4;
-  re_u32 current, x0, x1, x2, x3, x4, x5;
-  re_u8 a3, a5;
-  assert(begin <= RE_UTF_MAX && end <= RE_UTF_MAX && begin <= end);
+  assert(begin <= BBRE_UTF_MAX && end <= BBRE_UTF_MAX && begin <= end);
   for (x5 = ((begin >> 13) & 0xFF); x5 <= 0x87 && begin <= end; x5++) {
-    if ((a5 = re_compcc_fold_array_5[x5]) == 0x3C) {
+    if ((a5 = bbre_compcc_fold_array_5[x5]) == 0x3C) {
       begin = ((begin >> 13) + 1) << 13;
       continue;
     }
     for (x4 = ((begin >> 9) & 0x0F); x4 <= 0xF && begin <= end; x4++) {
-      if ((a4 = re_compcc_fold_array_4[a5 + x4]) == 0xCC) {
+      if ((a4 = bbre_compcc_fold_array_4[a5 + x4]) == 0xCC) {
         begin = ((begin >> 9) + 1) << 9;
         continue;
       }
       for (x3 = ((begin >> 4) & 0x1F); x3 <= 0x1F && begin <= end; x3++) {
-        if ((a3 = re_compcc_fold_array_3[a4 + x3]) == 0x30) {
+        if ((a3 = bbre_compcc_fold_array_3[a4 + x3]) == 0x30) {
           begin = ((begin >> 4) + 1) << 4;
           continue;
         }
         for (x2 = ((begin >> 3) & 0x01); x2 <= 0x1 && begin <= end; x2++) {
-          if ((a2 = re_compcc_fold_array_2[a3 + x2]) == 0x7D) {
+          if ((a2 = bbre_compcc_fold_array_2[a3 + x2]) == 0x7D) {
             begin = ((begin >> 3) + 1) << 3;
             continue;
           }
           for (x1 = ((begin >> 1) & 0x03); x1 <= 0x3 && begin <= end; x1++) {
-            if ((a1 = re_compcc_fold_array_1[a2 + x1]) == 0x60) {
+            if ((a1 = bbre_compcc_fold_array_1[a2 + x1]) == 0x60) {
               begin = ((begin >> 1) + 1) << 1;
               continue;
             }
             for (x0 = (begin & 0x01); x0 <= 0x1 && begin <= end; x0++) {
-              if ((a0 = re_compcc_fold_array_0[a1 + x0]) == +0x0) {
+              if ((a0 = bbre_compcc_fold_array_0[a1 + x0]) == +0x0) {
                 begin = ((begin >> 0) + 1) << 0;
                 continue;
               }
               current = begin + a0;
               while (current != begin) {
-                if ((err = re_buf_push(
-                         r, cc_out, re_rune_range_make(current, current))))
+                if ((err = bbre_buf_push(
+                         r, cc_out, bbre_rune_range_make(current, current))))
                   return err;
-                current =
-                    (re_u32)((re_s32)current + re_compcc_fold_next(current));
+                current = (bbre_u32)((bbre_s32)current +
+                                     bbre_compcc_fold_next(current));
               }
               begin++;
             }
@@ -3895,10 +3964,10 @@ static int re_compcc_fold_range(
 
 /*} Generated by `unicode_data.py gen_casefold` */
 
-typedef struct re_builtin_cc {
-  re_u16 name_len, num_range, start;
+typedef struct bbre_builtin_cc {
+  bbre_u16 name_len, num_range, start;
   const char *name;
-} re_builtin_cc;
+} bbre_builtin_cc;
 
 /* builtin_cc_data is a bitstream representing compressed rune ranges.
  * Normalized ranges are flattened into an array of integers so that even
@@ -3927,7 +3996,7 @@ typedef struct re_builtin_cc {
 
 /*{ Generated by `unicode_data.py gen_ccs impl` */
 /* 3360 ranges, 6720 integers, 4320 bytes */
-const re_u32 re_builtin_cc_data[1080] = {
+const bbre_u32 bbre_builtin_cc_data[1080] = {
     0x7ACF7CF7, 0x00007AD7, 0xAD77ADFF, 0x00000007, 0x000017F2, 0x00005A9F,
     0x003ECD7A, 0x00007CF7, 0x006ECDFB, 0x007ADFB3, 0x12B0D0DF, 0x001ECCFB,
     0xD331CDFB, 0xD3B6D3B1, 0x00000004, 0x0012B2DF, 0x0007ADFF, 0x7ACF7CF7,
@@ -4108,7 +4177,7 @@ const re_u32 re_builtin_cc_data[1080] = {
     0xCF36D6BB, 0x6F32CB32, 0x35C7B36C, 0x4CCF26D3, 0x77DF5BDB, 0x36EDF59D,
     0xADD7330D, 0xD36CDB34, 0xDCF3CB2C, 0xB6CDF1D6, 0xACF3CF3D, 0x0001BD0A,
     0x000E622B, 0x001E622B, 0xB23FC8FB, 0x3FD98FBE, 0x8F669C33, 0x00007EBF};
-const re_builtin_cc re_builtin_ccs_ascii[16] = {
+const bbre_builtin_cc bbre_builtin_ccs_ascii[16] = {
     {5,  3, 0,  "alnum"     },
     {5,  2, 2,  "alpha"     },
     {5,  1, 4,  "ascii"     },
@@ -4126,7 +4195,7 @@ const re_builtin_cc re_builtin_ccs_ascii[16] = {
     {6,  3, 19, "xdigit"    },
     {0,  0, 0,  ""          }
 };
-const re_builtin_cc re_builtin_ccs_unicode_property[30] = {
+const bbre_builtin_cc bbre_builtin_ccs_unicode_property[30] = {
     {2, 2,   21,   "Cc"},
     {2, 21,  23,   "Cf"},
     {2, 6,   36,   "Co"},
@@ -4158,7 +4227,7 @@ const re_builtin_cc re_builtin_ccs_unicode_property[30] = {
     {2, 7,   1076, "Zs"},
     {0, 0,   0,    ""  }
 };
-const re_builtin_cc re_builtin_ccs_perl[4] = {
+const bbre_builtin_cc bbre_builtin_ccs_perl[4] = {
     {1, 1, 7,  "d"},
     {1, 3, 10, "s"},
     {1, 4, 17, "w"},
@@ -4169,23 +4238,23 @@ const re_builtin_cc re_builtin_ccs_perl[4] = {
 
 /* Read a single bit from the compressed bit stream. Update the pointer and the
  * bit index variables appropriately. */
-static int re_builtin_cc_next_bit(const re_u32 **p, re_u32 *idx)
+static int bbre_builtin_cc_next_bit(const bbre_u32 **p, bbre_u32 *idx)
 {
-  re_u32 out = ((**p) & ((re_u32)1 << (*idx)++));
+  bbre_u32 out = ((**p) & ((bbre_u32)1 << (*idx)++));
   if (*idx == 32)
     *idx = 0, (*p)++;
   return (int)!!out;
 }
 
-static int re_builtin_cc_decode(
-    re *r, const re_u8 *name, size_t name_len, int invert,
-    const re_builtin_cc *start)
+static int bbre_builtin_cc_decode(
+    bbre *r, const bbre_u8 *name, size_t name_len, int invert,
+    const bbre_builtin_cc *start)
 {
 
-  const re_builtin_cc *p = NULL, *found = NULL;
-  const re_u32 *read; /* pointer to compressed data */
-  re_u32 i, bit_idx, prev = RE_UTF_MAX + 1, accum = 0, res = RE_REF_NONE;
-  re_u32 max = 0, range[2];
+  const bbre_builtin_cc *p = NULL, *found = NULL;
+  const bbre_u32 *read; /* pointer to compressed data */
+  bbre_u32 i, bit_idx, prev = BBRE_UTF_MAX + 1, accum = 0, res = BBRE_REF_NONE;
+  bbre_u32 max = 0, range[2];
   int err;
   /* Find the property with the matching name. */
   for (p = start; p->name_len; p++)
@@ -4194,30 +4263,30 @@ static int re_builtin_cc_decode(
       break;
     }
   if (!found)
-    return re_parse_err(r, "invalid Unicode property name");
+    return bbre_parse_err(r, "invalid Unicode property name");
   /* Start reading from the p->start offset in the compressed bit stream. */
-  read = re_builtin_cc_data + p->start, bit_idx = 0;
+  read = bbre_builtin_cc_data + p->start, bit_idx = 0;
   for (i = 0; i < p->num_range; i++) {
-    re_u32 *number, k;
+    bbre_u32 *number, k;
     range[0] = 0, range[1] = 0;
     /* Read two integers per range. */
     for (number = range; number < &(range[2]); number++) {
       /* If the previous number was zero, we *know* that the next number is
        * nonzero. So, we don't read the 'is zero' bit if we don't need to. */
-      int not_zero = prev == 0 ? 1 : re_builtin_cc_next_bit(&read, &bit_idx);
+      int not_zero = prev == 0 ? 1 : bbre_builtin_cc_next_bit(&read, &bit_idx);
       if (!not_zero)
         *number = 0;
       else {
         /* The 'not one' bit is always necessary. */
-        int not_one = re_builtin_cc_next_bit(&read, &bit_idx);
+        int not_one = bbre_builtin_cc_next_bit(&read, &bit_idx);
         if (!not_one)
           *number = 1;
         else {
           do
             for (k = 0; k < 3; k++)
               *number =
-                  (*number << 1) | re_builtin_cc_next_bit(&read, &bit_idx);
-          while (re_builtin_cc_next_bit(&read, &bit_idx));
+                  (*number << 1) | bbre_builtin_cc_next_bit(&read, &bit_idx);
+          while (bbre_builtin_cc_next_bit(&read, &bit_idx));
           *number += 2;
         }
       }
@@ -4231,14 +4300,14 @@ static int re_builtin_cc_decode(
       /* We now have decoded the low and high ordinals of the range, so
        * optionally invert it. */
       if (!invert) {
-        if ((err =
-                 re_ast_make(r, RE_AST_TYPE_CC, res, range[0], range[1], &res)))
+        if ((err = bbre_ast_make(
+                 r, BBRE_AST_TYPE_CC, res, range[0], range[1], &res)))
           return err;
       } else {
         assert(range[0] >= max);
         if (max != range[0] &&
-            (err =
-                 re_ast_make(r, RE_AST_TYPE_CC, res, max, range[0] - 1, &res)))
+            (err = bbre_ast_make(
+                 r, BBRE_AST_TYPE_CC, res, max, range[0] - 1, &res)))
           return err;
         else
           max = range[1] + 1;
@@ -4246,41 +4315,45 @@ static int re_builtin_cc_decode(
     }
   }
   assert(
-      range[1] < RE_UTF_MAX); /* builtin charclasses never reach RE_UTF_MAX */
-  assert(i);                  /* builtin charclasses are not length zero */
-  if (invert && (err = re_ast_make(
-                     r, RE_AST_TYPE_CC, res, range[1] + 1, RE_UTF_MAX, &res)))
+      range[1] <
+      BBRE_UTF_MAX); /* builtin charclasses never reach BBRE_UTF_MAX */
+  assert(i);         /* builtin charclasses are not length zero */
+  if (invert &&
+      (err = bbre_ast_make(
+           r, BBRE_AST_TYPE_CC, res, range[1] + 1, BBRE_UTF_MAX, &res)))
     return err;
-  return re_buf_push(r, &r->arg_stk, res);
+  return bbre_buf_push(r, &r->arg_stk, res);
 }
 
-static int re_builtin_cc_unicode_property(
-    re *r, const re_u8 *name, size_t name_len, int invert)
+static int bbre_builtin_cc_unicode_property(
+    bbre *r, const bbre_u8 *name, size_t name_len, int invert)
 {
-  return re_builtin_cc_decode(
-      r, name, name_len, invert, re_builtin_ccs_unicode_property);
-}
-
-static int
-re_builtin_cc_ascii(re *r, const re_u8 *name, size_t name_len, int invert)
-{
-  return re_builtin_cc_decode(r, name, name_len, invert, re_builtin_ccs_ascii);
+  return bbre_builtin_cc_decode(
+      r, name, name_len, invert, bbre_builtin_ccs_unicode_property);
 }
 
 static int
-re_builtin_cc_perl(re *r, const re_u8 *name, size_t name_len, int invert)
+bbre_builtin_cc_ascii(bbre *r, const bbre_u8 *name, size_t name_len, int invert)
 {
-  return re_builtin_cc_decode(r, name, name_len, invert, re_builtin_ccs_perl);
+  return bbre_builtin_cc_decode(
+      r, name, name_len, invert, bbre_builtin_ccs_ascii);
+}
+
+static int
+bbre_builtin_cc_perl(bbre *r, const bbre_u8 *name, size_t name_len, int invert)
+{
+  return bbre_builtin_cc_decode(
+      r, name, name_len, invert, bbre_builtin_ccs_perl);
 }
 
 /*{ The rest of this file contains functions that aid debugging. */
-#ifndef RE_COV
+#ifndef BBRE_COV
 
   #include <stdio.h>
 
 enum dumpformat { TERM, GRAPHVIZ };
 
-static char d_hex(re_u8 d)
+static char d_hex(bbre_u8 d)
 {
   d &= 0xF;
   if (d < 10)
@@ -4289,7 +4362,7 @@ static char d_hex(re_u8 d)
     return 'A' + d - 10;
 }
 
-static char *d_chr(char *buf, re_u32 ch, int ascii)
+static char *d_chr(char *buf, bbre_u32 ch, int ascii)
 {
   if ((ch == '\a' && ch == 'a') || (ch == '\b' && ch == 'b') ||
       (ch == '\t' && ch == 't') || (ch == '\n' && ch == 'n') ||
@@ -4310,35 +4383,35 @@ static char *d_chr(char *buf, re_u32 ch, int ascii)
   return buf;
 }
 
-static char *d_chr_ascii(char *buf, re_u32 ch) { return d_chr(buf, ch, 1); }
+static char *d_chr_ascii(char *buf, bbre_u32 ch) { return d_chr(buf, ch, 1); }
 
-static char *d_chr_unicode(char *buf, re_u32 ch) { return d_chr(buf, ch, 0); }
+static char *d_chr_unicode(char *buf, bbre_u32 ch) { return d_chr(buf, ch, 0); }
 
-static char *d_assert(char *buf, re_assert_flag af)
+static char *d_assert(char *buf, bbre_assert_flag af)
 {
-  buf = strcat(buf, af & RE_ASSERT_LINE_BEGIN ? "^" : "");
-  buf = strcat(buf, af & RE_ASSERT_LINE_END ? "$" : "");
-  buf = strcat(buf, af & RE_ASSERT_TEXT_BEGIN ? "\\\\A" : "");
-  buf = strcat(buf, af & RE_ASSERT_TEXT_END ? "\\\\z" : "");
-  buf = strcat(buf, af & RE_ASSERT_WORD ? "\\\\b" : "");
-  buf = strcat(buf, af & RE_ASSERT_NOT_WORD ? "\\\\B" : "");
+  buf = strcat(buf, af & BBRE_ASSERT_LINE_BEGIN ? "^" : "");
+  buf = strcat(buf, af & BBRE_ASSERT_LINE_END ? "$" : "");
+  buf = strcat(buf, af & BBRE_ASSERT_TEXT_BEGIN ? "\\\\A" : "");
+  buf = strcat(buf, af & BBRE_ASSERT_TEXT_END ? "\\\\z" : "");
+  buf = strcat(buf, af & BBRE_ASSERT_WORD ? "\\\\b" : "");
+  buf = strcat(buf, af & BBRE_ASSERT_NOT_WORD ? "\\\\B" : "");
   return buf;
 }
 
-static char *d_group_flag(char *buf, re_group_flag gf)
+static char *d_group_flag(char *buf, bbre_group_flag gf)
 {
-  buf = strcat(buf, gf & RE_GROUP_FLAG_INSENSITIVE ? "i" : "");
-  buf = strcat(buf, gf & RE_GROUP_FLAG_MULTILINE ? "m" : "");
-  buf = strcat(buf, gf & RE_GROUP_FLAG_DOTNEWLINE ? "s" : "");
-  buf = strcat(buf, gf & RE_GROUP_FLAG_UNGREEDY ? "U" : "");
-  buf = strcat(buf, gf & RE_GROUP_FLAG_NONCAPTURING ? ":" : "");
-  buf = strcat(buf, gf & RE_GROUP_FLAG_SUBEXPRESSION ? "R" : "");
+  buf = strcat(buf, gf & BBRE_GROUP_FLAG_INSENSITIVE ? "i" : "");
+  buf = strcat(buf, gf & BBRE_GROUP_FLAG_MULTILINE ? "m" : "");
+  buf = strcat(buf, gf & BBRE_GROUP_FLAG_DOTNEWLINE ? "s" : "");
+  buf = strcat(buf, gf & BBRE_GROUP_FLAG_UNGREEDY ? "U" : "");
+  buf = strcat(buf, gf & BBRE_GROUP_FLAG_NONCAPTURING ? ":" : "");
+  buf = strcat(buf, gf & BBRE_GROUP_FLAG_SUBEXPRESSION ? "R" : "");
   return buf;
 }
 
-static char *d_quant(char *buf, re_u32 quantval)
+static char *d_quant(char *buf, bbre_u32 quantval)
 {
-  if (quantval >= RE_INFTY)
+  if (quantval >= BBRE_INFTY)
     strcat(buf, "\xe2\x88\x9e"); /* infinity symbol */
   else {
     /* macos doesn't have sprintf(), gcc --std=c89 doesn't have snprintf() */
@@ -4356,26 +4429,26 @@ static char *d_quant(char *buf, re_u32 quantval)
   return buf;
 }
 
-void d_ast_i(re *r, re_u32 root, re_u32 ilvl, int format)
+void d_ast_i(bbre *r, bbre_u32 root, bbre_u32 ilvl, int format)
 {
   const char *colors[] = {"1", "2", "3", "4"};
-  re_u32 i, first = root ? *re_ast_type_ref(r, root) : 0;
-  re_u32 sub[2] = {0xFF, 0xFF};
+  bbre_u32 i, first = root ? *bbre_ast_type_ref(r, root) : 0;
+  bbre_u32 sub[2] = {0xFF, 0xFF};
   char buf[32] = {0}, buf2[32] = {0};
   const char *node_name =
-      root == RE_REF_NONE             ? "\xc9\x9b" /* epsilon */
-      : (first == RE_AST_TYPE_CHR)    ? "CHR"
-      : (first == RE_AST_TYPE_CAT)    ? (sub[0] = 0, sub[1] = 1, "CAT")
-      : (first == RE_AST_TYPE_ALT)    ? (sub[0] = 0, sub[1] = 1, "ALT")
-      : (first == RE_AST_TYPE_QUANT)  ? (sub[0] = 0, "QUANT")
-      : (first == RE_AST_TYPE_UQUANT) ? (sub[0] = 0, "UQUANT")
-      : (first == RE_AST_TYPE_GROUP)  ? (sub[0] = 0, "GROUP")
-      : (first == RE_AST_TYPE_IGROUP) ? (sub[0] = 0, "IGROUP")
-      : (first == RE_AST_TYPE_CC)     ? (sub[0] = 0, "CLS")
-      : (first == RE_AST_TYPE_ICC)    ? (sub[0] = 0, "ICLS")
-      : (first == RE_AST_TYPE_ANYBYTE)
+      root == BBRE_REF_NONE             ? "\xc9\x9b" /* epsilon */
+      : (first == BBRE_AST_TYPE_CHR)    ? "CHR"
+      : (first == BBRE_AST_TYPE_CAT)    ? (sub[0] = 0, sub[1] = 1, "CAT")
+      : (first == BBRE_AST_TYPE_ALT)    ? (sub[0] = 0, sub[1] = 1, "ALT")
+      : (first == BBRE_AST_TYPE_QUANT)  ? (sub[0] = 0, "QUANT")
+      : (first == BBRE_AST_TYPE_UQUANT) ? (sub[0] = 0, "UQUANT")
+      : (first == BBRE_AST_TYPE_GROUP)  ? (sub[0] = 0, "GROUP")
+      : (first == BBRE_AST_TYPE_IGROUP) ? (sub[0] = 0, "IGROUP")
+      : (first == BBRE_AST_TYPE_CC)     ? (sub[0] = 0, "CLS")
+      : (first == BBRE_AST_TYPE_ICC)    ? (sub[0] = 0, "ICLS")
+      : (first == BBRE_AST_TYPE_ANYBYTE)
           ? "ANYBYTE"
-          : /* (first == RE_AST_TYPE_ASSERT) */ "ASSERT";
+          : /* (first == BBRE_AST_TYPE_ASSERT) */ "ASSERT";
   assert(node_name != NULL);
   if (format == TERM) {
     printf("%04u ", root);
@@ -4385,18 +4458,18 @@ void d_ast_i(re *r, re_u32 root, re_u32 ilvl, int format)
   } else if (format == GRAPHVIZ) {
     printf("A%04X [label=\"%s\\n", root, node_name);
   }
-  if (first == RE_AST_TYPE_CHR)
-    printf("%s", d_chr_unicode(buf, *re_ast_param_ref(r, root, 0)));
-  else if (first == RE_AST_TYPE_GROUP || first == RE_AST_TYPE_IGROUP)
-    printf("%s", d_group_flag(buf, *re_ast_param_ref(r, root, 1)));
-  else if (first == RE_AST_TYPE_QUANT || first == RE_AST_TYPE_UQUANT)
+  if (first == BBRE_AST_TYPE_CHR)
+    printf("%s", d_chr_unicode(buf, *bbre_ast_param_ref(r, root, 0)));
+  else if (first == BBRE_AST_TYPE_GROUP || first == BBRE_AST_TYPE_IGROUP)
+    printf("%s", d_group_flag(buf, *bbre_ast_param_ref(r, root, 1)));
+  else if (first == BBRE_AST_TYPE_QUANT || first == BBRE_AST_TYPE_UQUANT)
     printf(
-        "%s-%s", d_quant(buf, *re_ast_param_ref(r, root, 1)),
-        d_quant(buf2, *re_ast_param_ref(r, root, 2)));
-  else if (first == RE_AST_TYPE_CC || first == RE_AST_TYPE_ICC)
+        "%s-%s", d_quant(buf, *bbre_ast_param_ref(r, root, 1)),
+        d_quant(buf2, *bbre_ast_param_ref(r, root, 2)));
+  else if (first == BBRE_AST_TYPE_CC || first == BBRE_AST_TYPE_ICC)
     printf(
-        "%s-%s", d_chr_unicode(buf, *re_ast_param_ref(r, root, 1)),
-        d_chr_unicode(buf2, *re_ast_param_ref(r, root, 2)));
+        "%s-%s", d_chr_unicode(buf, *bbre_ast_param_ref(r, root, 1)),
+        d_chr_unicode(buf2, *bbre_ast_param_ref(r, root, 2)));
   if (format == GRAPHVIZ)
     printf(
         "\"]\nsubgraph cluster_%04X { "
@@ -4406,7 +4479,7 @@ void d_ast_i(re *r, re_u32 root, re_u32 ilvl, int format)
     printf("\n");
   for (i = 0; i < sizeof(sub) / sizeof(*sub); i++)
     if (sub[i] != 0xFF) {
-      re_u32 child = *re_ast_param_ref(r, root, sub[i]);
+      bbre_u32 child = *bbre_ast_param_ref(r, root, sub[i]);
       d_ast_i(r, child, ilvl + 1, format);
       if (format == GRAPHVIZ)
         printf(
@@ -4416,25 +4489,25 @@ void d_ast_i(re *r, re_u32 root, re_u32 ilvl, int format)
     printf("}\n");
 }
 
-void d_ast(re *r) { d_ast_i(r, r->ast_root, 0, TERM); }
+void d_ast(bbre *r) { d_ast_i(r, r->ast_root, 0, TERM); }
 
-void d_ast_gv(re *r) { d_ast_i(r, r->ast_root, 0, GRAPHVIZ); }
+void d_ast_gv(bbre *r) { d_ast_i(r, r->ast_root, 0, GRAPHVIZ); }
 
-void d_sset(re_sset *s)
+void d_sset(bbre_sset *s)
 {
-  re_u32 i;
+  bbre_u32 i;
   for (i = 0; i < s->dense_size; i++)
     printf("%04X pc: %04X slot: %04X\n", i, s->dense[i].pc, s->dense[i].slot);
 }
 
-void d_prog_range(const re *r, re_u32 start, re_u32 end, int format)
+void d_prog_range(const bbre *r, bbre_u32 start, bbre_u32 end, int format)
 {
-  re_u32 j, k;
-  assert(end <= re_prog_size(r));
+  bbre_u32 j, k;
+  assert(end <= bbre_prog_size(r));
   if (format == GRAPHVIZ)
     printf("node [colorscheme=pastel16]\n");
   for (; start < end; start++) {
-    re_inst ins = re_prog_get(r, start);
+    bbre_inst ins = bbre_prog_get(r, start);
     static const char *ops[] = {"RANGE", "SPLIT", "MATCH", "ASSRT"};
     static const char *labels[] = {"F  ", "R  ", "F.*", "R.*", "   ", "+  "};
     char start_buf[10] = {0}, end_buf[10] = {0}, assert_buf[32] = {0};
@@ -4446,14 +4519,15 @@ void d_prog_range(const re *r, re_u32 start, re_u32 end, int format)
       static const int colors[] = {91, 94, 93, 92};
       printf(
           "%04X %01X \x1b[%im%s\x1b[0m \x1b[%im%04X\x1b[0m %04X %s", start,
-          r->prog_set_idxs[start], colors[re_inst_opcode(ins)],
-          ops[re_inst_opcode(ins)],
-          re_inst_next(ins) ? (re_inst_next(ins) == start + 1 ? 90 : 0) : 91,
-          re_inst_next(ins), re_inst_param(ins), labels[k]);
-      if (re_inst_opcode(ins) == RE_OPCODE_MATCH)
+          r->prog_set_idxs[start], colors[bbre_inst_opcode(ins)],
+          ops[bbre_inst_opcode(ins)],
+          bbre_inst_next(ins) ? (bbre_inst_next(ins) == start + 1 ? 90 : 0)
+                              : 91,
+          bbre_inst_next(ins), bbre_inst_param(ins), labels[k]);
+      if (bbre_inst_opcode(ins) == BBRE_OPCODE_MATCH)
         printf(
-            " %u %s", re_inst_match_param_idx(re_inst_param(ins)),
-            re_inst_match_param_end(re_inst_param(ins)) ? "end" : "begin");
+            " %u %s", bbre_inst_match_param_idx(bbre_inst_param(ins)),
+            bbre_inst_match_param_end(bbre_inst_param(ins)) ? "end" : "begin");
       printf("\n");
     } else {
       static const char *shapes[] = {"box", "oval", "pentagon", "diamond"};
@@ -4463,63 +4537,71 @@ void d_prog_range(const re *r, re_u32 start, re_u32 end, int format)
           "[shape=%s,fillcolor=%i,style=filled,regular=false,forcelabels=true,"
           "xlabel=\"%u\","
           "label=\"%s\\n",
-          start, shapes[re_inst_opcode(ins)], colors[re_inst_opcode(ins)],
-          start, ops[re_inst_opcode(ins)]);
-      if (re_inst_opcode(ins) == RE_OPCODE_RANGE)
+          start, shapes[bbre_inst_opcode(ins)], colors[bbre_inst_opcode(ins)],
+          start, ops[bbre_inst_opcode(ins)]);
+      if (bbre_inst_opcode(ins) == BBRE_OPCODE_RANGE)
         printf(
             "%s-%s",
-            d_chr_ascii(start_buf, re_u32_to_byte_range(re_inst_param(ins)).l),
-            d_chr_ascii(end_buf, re_u32_to_byte_range(re_inst_param(ins)).h));
-      else if (re_inst_opcode(ins) == RE_OPCODE_MATCH)
+            d_chr_ascii(
+                start_buf, bbre_u32_to_byte_range(bbre_inst_param(ins)).l),
+            d_chr_ascii(
+                end_buf, bbre_u32_to_byte_range(bbre_inst_param(ins)).h));
+      else if (bbre_inst_opcode(ins) == BBRE_OPCODE_MATCH)
         printf(
-            "%u %s", re_inst_match_param_idx(re_inst_param(ins)),
-            re_inst_match_param_end(re_inst_param(ins)) ? "end" : "begin");
-      else if (re_inst_opcode(ins) == RE_OPCODE_ASSERT)
-        printf("%s", d_assert(assert_buf, re_inst_param(ins)));
+            "%u %s", bbre_inst_match_param_idx(bbre_inst_param(ins)),
+            bbre_inst_match_param_end(bbre_inst_param(ins)) ? "end" : "begin");
+      else if (bbre_inst_opcode(ins) == BBRE_OPCODE_ASSERT)
+        printf("%s", d_assert(assert_buf, bbre_inst_param(ins)));
       printf("\"]\n");
-      if (!(re_inst_opcode(ins) == RE_OPCODE_MATCH && !re_inst_next(ins))) {
-        printf("I%04X -> I%04X\n", start, re_inst_next(ins));
-        if (re_inst_opcode(ins) == RE_OPCODE_SPLIT)
-          printf("I%04X -> I%04X [style=dashed]\n", start, re_inst_param(ins));
+      if (!(bbre_inst_opcode(ins) == BBRE_OPCODE_MATCH &&
+            !bbre_inst_next(ins))) {
+        printf("I%04X -> I%04X\n", start, bbre_inst_next(ins));
+        if (bbre_inst_opcode(ins) == BBRE_OPCODE_SPLIT)
+          printf(
+              "I%04X -> I%04X [style=dashed]\n", start, bbre_inst_param(ins));
       }
     }
   }
 }
 
-void d_prog(const re *r)
+void d_prog(const bbre *r)
 {
-  d_prog_range(r, 1, r->entry[RE_PROG_ENTRY_REVERSE], TERM);
+  d_prog_range(r, 1, r->entry[BBRE_PROG_ENTRY_REVERSE], TERM);
 }
 
-void d_prog_r(const re *r)
+void d_prog_r(const bbre *r)
 {
-  d_prog_range(r, r->entry[RE_PROG_ENTRY_REVERSE], re_prog_size(r), TERM);
+  d_prog_range(r, r->entry[BBRE_PROG_ENTRY_REVERSE], bbre_prog_size(r), TERM);
 }
 
-void d_prog_whole(const re *r) { d_prog_range(r, 0, re_prog_size(r), TERM); }
-
-void d_prog_gv(const re *r)
+void d_prog_whole(const bbre *r)
 {
-  d_prog_range(r, 1, r->entry[RE_PROG_ENTRY_DOTSTAR], GRAPHVIZ);
+  d_prog_range(r, 0, bbre_prog_size(r), TERM);
 }
 
-void d_cctree_i(const re_buf(re_compcc_tree) cc_tree, re_u32 ref, re_u32 lvl)
+void d_prog_gv(const bbre *r)
 {
-  re_u32 i;
-  const re_compcc_tree *node = cc_tree + ref;
+  d_prog_range(r, 1, r->entry[BBRE_PROG_ENTRY_DOTSTAR], GRAPHVIZ);
+}
+
+void d_cctree_i(
+    const bbre_buf(bbre_compcc_tree) cc_tree, bbre_u32 ref, bbre_u32 lvl)
+{
+  bbre_u32 i;
+  const bbre_compcc_tree *node = cc_tree + ref;
   printf("%04X [%08X] ", ref, node->aux.pc);
   for (i = 0; i < lvl; i++)
     printf("  ");
   printf(
-      "%02X-%02X\n", re_u32_to_byte_range(node->range).l,
-      re_u32_to_byte_range(node->range).h);
+      "%02X-%02X\n", bbre_u32_to_byte_range(node->range).l,
+      bbre_u32_to_byte_range(node->range).h);
   if (node->child_ref)
     d_cctree_i(cc_tree, node->child_ref, lvl + 1);
   if (node->sibling_ref)
     d_cctree_i(cc_tree, node->sibling_ref, lvl);
 }
 
-void d_cctree(const re_buf(re_compcc_tree) cc_tree, re_u32 ref)
+void d_cctree(const bbre_buf(bbre_compcc_tree) cc_tree, bbre_u32 ref)
 {
   d_cctree_i(cc_tree, ref, 0);
 }

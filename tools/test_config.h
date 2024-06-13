@@ -1,6 +1,6 @@
 #include "mptest.h"
 
-void *re_default_alloc(size_t prev, size_t next, void *ptr)
+void *bbre_default_alloc(size_t prev, size_t next, void *ptr)
 {
   if (next) {
     (void)prev, assert((prev || !ptr));
@@ -11,4 +11,4 @@ void *re_default_alloc(size_t prev, size_t next, void *ptr)
   return NULL;
 }
 
-#define RE_DEFAULT_ALLOC re_default_alloc
+#define BBRE_DEFAULT_ALLOC bbre_default_alloc

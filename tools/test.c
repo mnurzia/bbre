@@ -7,11 +7,11 @@
 
 #include "mptest.h"
 
-#include "../re.h"
+#include "../bbre.h"
 
 #ifdef TEST_BULK
   #define TEST_NAMED_CLASS_RANGE_MAX 0x110000
-#elif RE_COV
+#elif BBRE_COV
   /* to ensure the OOM checker doesn't take a long-ass time */
   #define TEST_NAMED_CLASS_RANGE_MAX 0x1
 #else
@@ -20,25 +20,25 @@
 
 #define IMPLIES(c, pred) (!(c) || (pred))
 
-size_t utf_encode(char *out_buf, re_u32 codep)
+size_t utf_encode(char *out_buf, bbre_u32 codep)
 {
   if (codep <= 0x7F) {
     out_buf[0] = codep & 0x7F;
     return 1;
   } else if (codep <= 0x07FF) {
-    out_buf[0] = (re_u8)(((codep >> 6) & 0x1F) | 0xC0);
-    out_buf[1] = (re_u8)(((codep >> 0) & 0x3F) | 0x80);
+    out_buf[0] = (bbre_u8)(((codep >> 6) & 0x1F) | 0xC0);
+    out_buf[1] = (bbre_u8)(((codep >> 0) & 0x3F) | 0x80);
     return 2;
   } else if (codep <= 0xFFFF) {
-    out_buf[0] = (re_u8)(((codep >> 12) & 0x0F) | 0xE0);
-    out_buf[1] = (re_u8)(((codep >> 6) & 0x3F) | 0x80);
-    out_buf[2] = (re_u8)(((codep >> 0) & 0x3F) | 0x80);
+    out_buf[0] = (bbre_u8)(((codep >> 12) & 0x0F) | 0xE0);
+    out_buf[1] = (bbre_u8)(((codep >> 6) & 0x3F) | 0x80);
+    out_buf[2] = (bbre_u8)(((codep >> 0) & 0x3F) | 0x80);
     return 3;
   } else if (codep <= 0x10FFFF) {
-    out_buf[0] = (re_u8)(((codep >> 18) & 0x07) | 0xF0);
-    out_buf[1] = (re_u8)(((codep >> 12) & 0x3F) | 0x80);
-    out_buf[2] = (re_u8)(((codep >> 6) & 0x3F) | 0x80);
-    out_buf[3] = (re_u8)(((codep >> 0) & 0x3F) | 0x80);
+    out_buf[0] = (bbre_u8)(((codep >> 18) & 0x07) | 0xF0);
+    out_buf[1] = (bbre_u8)(((codep >> 12) & 0x3F) | 0x80);
+    out_buf[2] = (bbre_u8)(((codep >> 6) & 0x3F) | 0x80);
+    out_buf[3] = (bbre_u8)(((codep >> 0) & 0x3F) | 0x80);
     return 4;
   } else {
     assert(0);
@@ -50,24 +50,25 @@ size_t utf_encode(char *out_buf, re_u32 codep)
 #define TEST_MAX_SET  10
 
 int check_match_results(
-    re *r, re_exec *e, const char *s, size_t n, re_u32 max_span, re_u32 max_set,
-    anchor_type anchor, span *check_span, re_u32 *check_set, re_u32 check_nsets)
+    bbre *r, bbre_exec *e, const char *s, size_t n, bbre_u32 max_span,
+    bbre_u32 max_set, anchor_type anchor, span *check_span, bbre_u32 *check_set,
+    bbre_u32 check_nsets)
 {
   int err;
   /* memory for found spans and found sets */
   span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
-  re_u32 found_set[TEST_MAX_SET], sets_to_check;
-  re_u32 i, j;
+  bbre_u32 found_set[TEST_MAX_SET], sets_to_check;
+  bbre_u32 i, j;
   /* perform the match */
   assert(e);
-  if ((err = re_exec_match(
+  if ((err = bbre_exec_match(
            e, s, n, max_span, max_set, found_span, found_set, anchor)) ==
-      RE_ERR_MEM)
+      BBRE_ERR_MEM)
     goto oom_re;
-  ASSERT_GTEm(err, 0, "re_match() returned an error");
+  ASSERT_GTEm(err, 0, "bbre_match() returned an error");
   ASSERT_EQm(
-      (re_u32)err, check_nsets,
-      "re_match() didn't match the correct number of sets");
+      (bbre_u32)err, check_nsets,
+      "bbre_match() didn't match the correct number of sets");
   /* we only actually need to check a subset of the sets matched, according to
    * the `check_nsets` parameter. also, in the case of boolean matches, max_set
    * will be zero and check_nsets will be 1. */
@@ -88,41 +89,41 @@ int check_match_results(
   }
   PASS();
 oom_re:
-  re_exec_destroy(e);
-  re_destroy(r);
+  bbre_exec_destroy(e);
+  bbre_destroy(r);
   OOM();
 }
 
 int check_matches_n(
-    const char **regexes, size_t *regex_n, re_u32 nregex, const char *s,
-    size_t n, re_u32 max_span, re_u32 max_set, anchor_type anchor,
-    span *check_span, re_u32 *check_set, re_u32 check_nsets)
+    const char **regexes, size_t *regex_n, bbre_u32 nregex, const char *s,
+    size_t n, bbre_u32 max_span, bbre_u32 max_set, anchor_type anchor,
+    span *check_span, bbre_u32 *check_set, bbre_u32 check_nsets)
 {
-  re *r = NULL;
-  re_exec *e = NULL;
+  bbre *r = NULL;
+  bbre_exec *e = NULL;
   int err;
-  re_u32 i;
+  bbre_u32 i;
   ASSERT_LTEm(nregex, TEST_MAX_SET, "too many regexes to match");
   ASSERT_LTEm(max_span, TEST_MAX_SPAN, "too many spans to match");
   ASSERT_LTEm(max_set, TEST_MAX_SET, "too many sets to match");
   /* initialize the regex: use argument to init_full() if there's only one
    * regex, otherwise union all input regexes */
-  if ((err = re_init_full(
+  if ((err = bbre_init_full(
            &r, nregex == 1 ? *regexes : NULL, nregex == 1 ? regex_n[0] : 0,
-           NULL)) == RE_ERR_MEM)
+           NULL)) == BBRE_ERR_MEM)
     goto oom_re;
-  ASSERT_EQm(err, 0, "re_init_full() returned a nonzero value");
+  ASSERT_EQm(err, 0, "bbre_init_full() returned a nonzero value");
   for (i = 0; i < nregex && nregex != 1; i++) {
-    if ((err = re_union(r, regexes[i], regex_n[i])) == RE_ERR_MEM)
+    if ((err = bbre_union(r, regexes[i], regex_n[i])) == BBRE_ERR_MEM)
       goto oom_re;
-    ASSERT_EQm(err, 0, "re_union() returned a nonzero value");
+    ASSERT_EQm(err, 0, "bbre_union() returned a nonzero value");
   }
-  if ((err = re_compile(r)) == RE_ERR_MEM)
+  if ((err = bbre_compile(r)) == BBRE_ERR_MEM)
     goto oom_re;
-  ASSERT_EQm(err, 0, "re_compile() returned a nonzero value");
-  if ((err = re_exec_init(r, &e)))
+  ASSERT_EQm(err, 0, "bbre_compile() returned a nonzero value");
+  if ((err = bbre_exec_init(r, &e)))
     goto oom_re;
-  ASSERT_EQm(err, 0, "re_exec_init() returned a nonzero value");
+  ASSERT_EQm(err, 0, "bbre_exec_init() returned a nonzero value");
   PROPAGATE(check_match_results(
       r, e, s, n, max_span, max_set, anchor, check_span, check_set,
       check_nsets));
@@ -143,28 +144,28 @@ int check_matches_n(
   if (1) {
     /* start with just bounds */
     span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
-    re_u32 found_set[TEST_MAX_SET], idx;
-    err =
-        re_exec_match(e, s, n, 1, TEST_MAX_SET, found_span, found_set, anchor);
-    if (err == RE_ERR_MEM)
+    bbre_u32 found_set[TEST_MAX_SET], idx;
+    err = bbre_exec_match(
+        e, s, n, 1, TEST_MAX_SET, found_span, found_set, anchor);
+    if (err == BBRE_ERR_MEM)
       goto oom_re;
     ASSERT_GTE(err, 0);
     for (idx = 0; idx < (unsigned)err; idx++) {
-      re *r2;
+      bbre *r2;
       int err2;
       span found_span_2[1];
-      re_u32 found_set_2[1];
-      if ((err2 = re_init_full(
+      bbre_u32 found_set_2[1];
+      if ((err2 = bbre_init_full(
                &r2, regexes[found_set[idx]], regex_n[found_set[idx]], NULL)) ==
-          RE_ERR_MEM)
+          BBRE_ERR_MEM)
         goto oom_re2;
-      ASSERT_EQm(err2, 0, "re_init_full() returned nonzero value");
-      if ((err2 = re_compile(r2)) == RE_ERR_MEM)
+      ASSERT_EQm(err2, 0, "bbre_init_full() returned nonzero value");
+      if ((err2 = bbre_compile(r2)) == BBRE_ERR_MEM)
         goto oom_re2;
-      ASSERT_EQm(err2, 0, "re_compile() returned nonzero value");
+      ASSERT_EQm(err2, 0, "bbre_compile() returned nonzero value");
       /* both anchors */
-      if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'B')) ==
-          RE_ERR_MEM)
+      if ((err2 = bbre_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'B')) ==
+          BBRE_ERR_MEM)
         goto oom_re2;
       ASSERT_GTE(err2, 0);
       if (err2 == 1) {
@@ -178,8 +179,8 @@ int check_matches_n(
         ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
       }
       /* start anchored */
-      if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'S')) ==
-          RE_ERR_MEM)
+      if ((err2 = bbre_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'S')) ==
+          BBRE_ERR_MEM)
         goto oom_re2;
       if (err2 == 1) {
         ASSERT_EQ(found_span_2[0].begin, 0);
@@ -192,8 +193,8 @@ int check_matches_n(
         ASSERT_EQ(found_set_2[0], 0);
       }
       /* end anchored */
-      if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'E')) ==
-          RE_ERR_MEM)
+      if ((err2 = bbre_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'E')) ==
+          BBRE_ERR_MEM)
         goto oom_re2;
       if (err2 == 1) {
         ASSERT_EQ(found_span_2[0].end, n);
@@ -205,8 +206,8 @@ int check_matches_n(
         ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
       }
       /* unanchored */
-      if ((err2 = re_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'U')) ==
-          RE_ERR_MEM)
+      if ((err2 = bbre_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'U')) ==
+          BBRE_ERR_MEM)
         goto oom_re2;
       if (err2 == 1) {
         ASSERT_EQ(found_set_2[0], 0);
@@ -216,25 +217,26 @@ int check_matches_n(
         ASSERT_EQ(found_span_2[0].begin, found_span[idx].begin);
         ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
       }
-      re_destroy(r2);
+      bbre_destroy(r2);
       continue;
     oom_re2:
-      re_destroy(r2);
+      bbre_destroy(r2);
       goto oom_re;
     }
   }
-  re_exec_destroy(e);
-  re_destroy(r);
+  bbre_exec_destroy(e);
+  bbre_destroy(r);
   PASS();
 oom_re:
-  re_exec_destroy(e);
-  re_destroy(r);
+  bbre_exec_destroy(e);
+  bbre_destroy(r);
   OOM();
 }
 
 int check_match(
-    const char *regex, const char *s, size_t n, re_u32 max_span, re_u32 max_set,
-    anchor_type anchor, span *check_span, re_u32 *check_set, re_u32 check_nsets)
+    const char *regex, const char *s, size_t n, bbre_u32 max_span,
+    bbre_u32 max_set, anchor_type anchor, span *check_span, bbre_u32 *check_set,
+    bbre_u32 check_nsets)
 {
   size_t regex_n = strlen(regex);
   return check_matches_n(
@@ -244,12 +246,12 @@ int check_match(
 
 int check_fullmatch_n(const char *regex, const char *s, size_t n)
 {
-  return check_match(regex, s, n, 0, 0, RE_ANCHOR_BOTH, NULL, NULL, 1);
+  return check_match(regex, s, n, 0, 0, BBRE_ANCHOR_BOTH, NULL, NULL, 1);
 }
 
 int check_not_fullmatch_n(const char *regex, const char *s, size_t n)
 {
-  return check_match(regex, s, n, 0, 0, RE_ANCHOR_BOTH, NULL, NULL, 0);
+  return check_match(regex, s, n, 0, 0, BBRE_ANCHOR_BOTH, NULL, NULL, 0);
 }
 
 int check_fullmatch(const char *regex, const char *s)
@@ -283,7 +285,7 @@ int check_match_g2_a(
 int check_match_s2_a(
     const char *r1, const char *r2, const char *s, anchor_type anchor)
 {
-  re_u32 set[2] = {0, 1};
+  bbre_u32 set[2] = {0, 1};
   const char *regexes[2];
   size_t regexes_n[2];
   regexes[0] = r1, regexes[1] = r2;
@@ -296,7 +298,7 @@ int check_match_s2_g1_a(
     const char *r1, const char *r2, const char *s, size_t b11, size_t e11,
     size_t b21, size_t e21, anchor_type anchor)
 {
-  re_u32 set[2] = {0, 1};
+  bbre_u32 set[2] = {0, 1};
   span g[2];
   const char *regexes[2];
   size_t regexes_n[2];
@@ -313,7 +315,7 @@ int check_match_s2_g2_a(
     size_t b12, size_t e12, size_t b21, size_t e21, size_t b22, size_t e22,
     anchor_type anchor)
 {
-  re_u32 set[2] = {0, 1};
+  bbre_u32 set[2] = {0, 1};
   span g[4];
   const char *regexes[2];
   size_t regexes_n[2];
@@ -336,41 +338,41 @@ int check_match_s2_g2_a(
 #define ASSERT_MATCH_G1_A(regex, str, b, e, anchor)                            \
   PROPAGATE(check_match_g1_a(regex, str, b, e, anchor))
 #define ASSERT_MATCH_G1(regex, str, b, e)                                      \
-  ASSERT_MATCH_G1_A(regex, str, b, e, RE_ANCHOR_BOTH)
+  ASSERT_MATCH_G1_A(regex, str, b, e, BBRE_ANCHOR_BOTH)
 #define ASSERT_MATCH_G2_A(regex, str, b, e, b2, e2, anchor)                    \
   PROPAGATE(check_match_g2_a(regex, str, b, e, b2, e2, anchor))
 #define ASSERT_MATCH_G2(regex, str, b, e, b2, e2)                              \
-  ASSERT_MATCH_G2_A(regex, str, b, e, b2, e2, RE_ANCHOR_BOTH)
+  ASSERT_MATCH_G2_A(regex, str, b, e, b2, e2, BBRE_ANCHOR_BOTH)
 #define ASSERT_MATCH_S2(r1, r2, str)                                           \
-  PROPAGATE(check_match_s2_a(r1, r2, str, RE_ANCHOR_BOTH))
+  PROPAGATE(check_match_s2_a(r1, r2, str, BBRE_ANCHOR_BOTH))
 #define ASSERT_MATCH_S2_G1(r1, r2, str, b11, e11, b21, e21)                    \
   PROPAGATE(                                                                   \
-      check_match_s2_g1_a(r1, r2, str, b11, e11, b21, e21, RE_ANCHOR_BOTH))
+      check_match_s2_g1_a(r1, r2, str, b11, e11, b21, e21, BBRE_ANCHOR_BOTH))
 #define ASSERT_MATCH_S2_G2(                                                    \
     r1, r2, str, b11, e11, b12, e12, b21, e21, b22, e22)                       \
   PROPAGATE(check_match_s2_g2_a(                                               \
-      r1, r2, str, b11, e11, b12, e12, b21, e21, b22, e22, RE_ANCHOR_BOTH))
+      r1, r2, str, b11, e11, b12, e12, b21, e21, b22, e22, BBRE_ANCHOR_BOTH))
 
 #define ASSERT_MATCH_ONLY(regex, str) ASSERT_MATCH(regex, str)
 
 int check_noparse_n(
     const char *regex, size_t n, const char *err_msg, size_t err_msg_pos)
 {
-  re *r;
+  bbre *r;
   int err;
   const char *actual_err_msg;
   size_t actual_err_msg_pos, actual_err_msg_size;
-  if ((err = re_init_full(&r, regex, n, NULL)) == RE_ERR_MEM)
+  if ((err = bbre_init_full(&r, regex, n, NULL)) == BBRE_ERR_MEM)
     goto oom;
-  ASSERT_EQ(err, RE_ERR_PARSE);
-  actual_err_msg_size = re_get_error(r, &actual_err_msg, &actual_err_msg_pos);
+  ASSERT_EQ(err, BBRE_ERR_PARSE);
+  actual_err_msg_size = bbre_get_error(r, &actual_err_msg, &actual_err_msg_pos);
   ASSERT(!strcmp(err_msg, actual_err_msg));
   ASSERT_EQ(err_msg_pos, actual_err_msg_pos);
   ASSERT_EQ(actual_err_msg_size, strlen(actual_err_msg));
-  re_destroy(r);
+  bbre_destroy(r);
   PASS();
 oom:
-  re_destroy(r);
+  bbre_destroy(r);
   OOM();
 }
 
@@ -385,17 +387,17 @@ int check_noparse(const char *regex, const char *err_msg, size_t err_msg_pos)
 
 int check_compiles_n(const char *regex, size_t n)
 {
-  re *r;
+  bbre *r;
   int err;
-  if ((err = re_init_full(&r, regex, n, NULL)) == RE_ERR_MEM)
+  if ((err = bbre_init_full(&r, regex, n, NULL)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, 0);
-  if ((err = re_match(r, "", 0, 0, 0, NULL, NULL, 'U')) == RE_ERR_MEM)
+  if ((err = bbre_match(r, "", 0, 0, 0, NULL, NULL, 'U')) == BBRE_ERR_MEM)
     goto oom;
-  re_destroy(r);
+  bbre_destroy(r);
   PASS();
 oom:
-  re_destroy(r);
+  bbre_destroy(r);
   OOM();
 }
 
@@ -405,9 +407,9 @@ int check_compiles(const char *regex)
   PASS();
 }
 
-re_u32 matchnum(const char *num)
+bbre_u32 matchnum(const char *num)
 {
-  re_u32 out = 0;
+  bbre_u32 out = 0;
   unsigned char chout;
   if (sscanf(num, "0x%X", &out))
     return out;
@@ -418,9 +420,9 @@ re_u32 matchnum(const char *num)
   return 0;
 }
 
-re_u32 matchspec(const char *spec, re_u32 *ranges)
+bbre_u32 matchspec(const char *spec, bbre_u32 *ranges)
 {
-  re_u32 n = 0;
+  bbre_u32 n = 0;
   while (*spec) {
     const char *comma = strchr(spec, ',');
     const char *nextspec = comma ? comma + 1 : comma;
@@ -444,26 +446,27 @@ re_u32 matchspec(const char *spec, re_u32 *ranges)
 }
 
 int assert_cc_match_raw(
-    const char *regex, const re_u32 *ranges, re_u32 num_ranges, int invert)
+    const char *regex, const bbre_u32 *ranges, bbre_u32 num_ranges, int invert)
 {
-  re *r;
+  bbre *r;
   int err;
-  re_u32 codep, range_idx;
+  bbre_u32 codep, range_idx;
   char utf8[16];
-  re_exec *exec = NULL;
-  if ((err = re_init_full(&r, regex, strlen(regex), NULL)) == RE_ERR_MEM)
+  bbre_exec *exec = NULL;
+  if ((err = bbre_init_full(&r, regex, strlen(regex), NULL)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT(!err);
-  if ((err = re_compile(r)) == RE_ERR_MEM)
+  if ((err = bbre_compile(r)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT(!err);
-  if ((err = re_exec_init(r, &exec)) == RE_ERR_MEM)
+  if ((err = bbre_exec_init(r, &exec)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
     size_t sz = utf_encode(utf8, codep);
-    if ((err = re_exec_match(
-             exec, utf8, sz, 0, 0, NULL, NULL, RE_ANCHOR_BOTH)) == RE_ERR_MEM)
+    if ((err = bbre_exec_match(
+             exec, utf8, sz, 0, 0, NULL, NULL, BBRE_ANCHOR_BOTH)) ==
+        BBRE_ERR_MEM)
       goto oom;
     for (range_idx = 0; range_idx < num_ranges; range_idx++) {
       if (codep >= ranges[range_idx * 2] &&
@@ -473,25 +476,26 @@ int assert_cc_match_raw(
       }
     }
     if (range_idx == num_ranges) {
-      if ((err = re_exec_match(
-               exec, utf8, sz, 0, 0, NULL, NULL, RE_ANCHOR_BOTH)) == RE_ERR_MEM)
+      if ((err = bbre_exec_match(
+               exec, utf8, sz, 0, 0, NULL, NULL, BBRE_ANCHOR_BOTH)) ==
+          BBRE_ERR_MEM)
         goto oom;
       ASSERT_EQ(err, invert);
     }
   }
-  re_exec_destroy(exec);
-  re_destroy(r);
+  bbre_exec_destroy(exec);
+  bbre_destroy(r);
   PASS();
 oom:
-  re_exec_destroy(exec);
-  re_destroy(r);
+  bbre_exec_destroy(exec);
+  bbre_destroy(r);
   OOM();
 }
 
 int assert_cc_match(const char *regex, const char *spec, int invert)
 {
-  re_u32 ranges[128];
-  re_u32 nrange = matchspec(spec, ranges);
+  bbre_u32 ranges[128];
+  bbre_u32 nrange = matchspec(spec, ranges);
   PROPAGATE(assert_cc_match_raw(regex, ranges, nrange, invert));
   PASS();
 }
@@ -501,30 +505,30 @@ int assert_cc_match(const char *regex, const char *spec, int invert)
 TEST(init_empty)
 {
   /* init should initialize the regular expression or return NULL on OOM */
-  re *r = re_init("");
+  bbre *r = bbre_init("");
   if (!r)
     OOM();
-  re_destroy(r);
+  bbre_destroy(r);
   PASS();
 }
 
 TEST(init_some)
 {
-  re *r = re_init("a");
+  bbre *r = bbre_init("a");
   if (!r)
     OOM();
-  re_destroy(r);
+  bbre_destroy(r);
   PASS();
 }
 
-extern void *re_default_alloc(size_t prev, size_t next, void *ptr);
+extern void *bbre_default_alloc(size_t prev, size_t next, void *ptr);
 
 TEST(init_full_default_alloc)
 {
-  re *r;
-  int err = re_init_full(&r, "abc", 3, re_default_alloc);
-  re_destroy(r);
-  if (err == RE_ERR_MEM)
+  bbre *r;
+  int err = bbre_init_full(&r, "abc", 3, bbre_default_alloc);
+  bbre_destroy(r);
+  if (err == BBRE_ERR_MEM)
     OOM();
   ASSERT_EQ(err, 0);
   return err;
@@ -534,7 +538,7 @@ TEST(init_full_default_alloc)
 currently, we have no way of differentiating between a parse error and OOM
 TEST(init_bad)
 {
-  re *r = re_init("\xff");
+  re *r = bbre_init("\xff");
   if (!r)
     OOM();
   PASS();
@@ -650,13 +654,13 @@ TEST(star_ungreedy_then_greedy)
 
 TEST(star_ungreedy_with_assert)
 {
-  ASSERT_MATCH_G2_A("(a*?)\\b a*", "a a b", 0, 3, 0, 1, RE_ANCHOR_START);
+  ASSERT_MATCH_G2_A("(a*?)\\b a*", "a a b", 0, 3, 0, 1, BBRE_ANCHOR_START);
   PASS();
 }
 
 TEST(star_ungreedy_with_assert_unanchored)
 {
-  ASSERT_MATCH_G2_A("(a*?)\\b a*", "lauaaa a", 3, 8, 3, 6, RE_UNANCHORED);
+  ASSERT_MATCH_G2_A("(a*?)\\b a*", "lauaaa a", 3, 8, 3, 6, BBRE_UNANCHORED);
   PASS();
 }
 
@@ -2266,7 +2270,7 @@ TEST(grp_named_regular_unfinished)
   PASS();
 }
 
-TEST(grp_named_regular_malformed_before_name)
+TEST(grp_named_regular_malformed_befobbre_name)
 {
   ASSERT_NOPARSE("(?\xff", "invalid utf-8 sequence", 2);
   PASS();
@@ -2284,13 +2288,13 @@ TEST(grp_named_perl)
   PASS();
 }
 
-TEST(grp_named_perl_unfinished_before_name)
+TEST(grp_named_perl_unfinished_befobbre_name)
 {
   ASSERT_NOPARSE("(?P", "expected '<' after named group opener \"(?P\"", 3);
   PASS();
 }
 
-TEST(grp_named_perl_malformed_before_name)
+TEST(grp_named_perl_malformed_befobbre_name)
 {
   ASSERT_NOPARSE("(?P\xff", "invalid utf-8 sequence", 3);
   PASS();
@@ -2315,7 +2319,7 @@ TEST(grp_named_perl_invalid)
   PASS();
 }
 
-TEST(grp_named_perl_invalid_before_name)
+TEST(grp_named_perl_invalid_befobbre_name)
 {
   ASSERT_NOPARSE("(?Pl", "expected '<' after named group opener \"(?P\"", 4);
   PASS();
@@ -2326,12 +2330,12 @@ SUITE(grp_named)
   RUN_TEST(grp_named_regular);
   RUN_TEST(grp_named_regular_unfinished);
   RUN_TEST(grp_named_regular_malformed);
-  RUN_TEST(grp_named_regular_malformed_before_name);
-  RUN_TEST(grp_named_perl_unfinished_before_name);
-  RUN_TEST(grp_named_perl_malformed_before_name);
+  RUN_TEST(grp_named_regular_malformed_befobbre_name);
+  RUN_TEST(grp_named_perl_unfinished_befobbre_name);
+  RUN_TEST(grp_named_perl_malformed_befobbre_name);
   RUN_TEST(grp_named_perl);
   RUN_TEST(grp_named_perl_unfinished);
-  RUN_TEST(grp_named_perl_invalid_before_name);
+  RUN_TEST(grp_named_perl_invalid_befobbre_name);
 }
 
 TEST(grp_unfinished)
@@ -2522,24 +2526,24 @@ TEST(set_two_char_grp)
 
 TEST(set_many)
 {
-  re *r;
-  int err = re_init_full(&r, NULL, 0, NULL);
-  re_u32 i;
-  if (err == RE_ERR_MEM)
+  bbre *r;
+  int err = bbre_init_full(&r, NULL, 0, NULL);
+  bbre_u32 i;
+  if (err == BBRE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, 0);
   for (i = 0; i < 26; i++) {
     char reg[] = "a";
     reg[0] += i;
-    err = re_union(r, reg, 1);
-    if (err == RE_ERR_MEM)
+    err = bbre_union(r, reg, 1);
+    if (err == BBRE_ERR_MEM)
       goto oom;
     ASSERT_EQ(err, 0);
   }
-  re_destroy(r);
+  bbre_destroy(r);
   PASS();
 oom:
-  re_destroy(r);
+  bbre_destroy(r);
   OOM();
 }
 
@@ -2967,17 +2971,17 @@ SUITE(fuzz_regression); /* provided by test-gen.c */
 
 TEST(limit_program_size)
 {
-  re *r = re_init("a{99999}{2}");
+  bbre *r = bbre_init("a{99999}{2}");
   int err;
   if (!r)
     goto oom;
-  if ((err = re_compile(r)) == RE_ERR_MEM)
+  if ((err = bbre_compile(r)) == BBRE_ERR_MEM)
     goto oom;
-  ASSERT_EQ(err, RE_ERR_LIMIT);
-  re_destroy(r);
+  ASSERT_EQ(err, BBRE_ERR_LIMIT);
+  bbre_destroy(r);
   PASS();
 oom:
-  re_destroy(r);
+  bbre_destroy(r);
   OOM();
 }
 
@@ -3016,7 +3020,7 @@ int main(int argc, const char *const *argv)
   RUN_SUITE(set);
   RUN_SUITE(assert);
   RUN_SUITE(limits);
-#ifndef RE_COV
+#ifndef BBRE_COV
   /* regression tests should not account for coverage. we should explicitly
    * write tests that fully cover our code, as they are more documentable than
    * potentially cryptic regression tests. */

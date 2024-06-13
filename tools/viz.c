@@ -1,10 +1,10 @@
-#include "../re.h"
+#include "../bbre.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
-void d_prog_gv(re *r);
-void d_ast_gv(re *r);
+void d_prog_gv(bbre *r);
+void d_ast_gv(bbre *r);
 
 /* these Graphviz escaping rules are really confusing... */
 const char *escape(const char *regex, char *buf)
@@ -30,14 +30,14 @@ const char *escape(const char *regex, char *buf)
 
 int main(int argc, const char *const *argv)
 {
-  re *r;
+  bbre *r;
   char buf[BUFSIZ] = {0}, esc_buf[BUFSIZ] = {0}, *res;
   int ast, err;
   assert(argc > 1);
   ast = !strcmp(argv[1], "ast");
   res = fgets(buf, sizeof(buf), stdin);
   assert(res);
-  err = re_init_full(&r, buf, strlen(buf), NULL);
+  err = bbre_init_full(&r, buf, strlen(buf), NULL);
   assert(!err);
   printf(
       "digraph D { label=\"%s for \\\"%s\\\"\"; labelloc=\"t\";\n",
@@ -45,11 +45,11 @@ int main(int argc, const char *const *argv)
   if (ast)
     d_ast_gv(r);
   else {
-    re_compile(r);
+    bbre_compile(r);
     d_prog_gv(r);
   }
   (void)(esc_buf);
-  re_destroy(r);
+  bbre_destroy(r);
   printf("}\n");
   return 0;
 }

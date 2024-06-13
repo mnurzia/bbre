@@ -5,11 +5,11 @@
 #include <stdlib.h>
 #include <time.h>
 
-#include "../re.h"
+#include "../bbre.h"
 
-re_u32 xorshift32(re_u32 *state)
+bbre_u32 xorshift32(bbre_u32 *state)
 {
-  re_u32 x = *state;
+  bbre_u32 x = *state;
   x ^= x << 13;
   x ^= x >> 17;
   x ^= x << 5;
@@ -18,9 +18,9 @@ re_u32 xorshift32(re_u32 *state)
 
 void fill_rand(char *buf, size_t buf_size)
 {
-  re_u32 rng_state = 5;
+  bbre_u32 rng_state = 5;
   size_t i;
-  re_u32 *buf_4 = (re_u32 *)buf;
+  bbre_u32 *buf_4 = (bbre_u32 *)buf;
   assert(!(buf_size % 4));
   for (i = 0; i < buf_size / 4; i++) {
     buf_4[i] = xorshift32(&rng_state);
@@ -59,7 +59,7 @@ void bench_run(bench_func f, const char *bench_name)
 
 char run_pointer_chase(char *buf, size_t buf_size)
 {
-  re_u32 state = 10;
+  bbre_u32 state = 10;
   static char *pointers[256];
   size_t i;
   char *end = buf + buf_size;
@@ -68,8 +68,8 @@ char run_pointer_chase(char *buf, size_t buf_size)
     pointers[i] = (char *)(pointers + i);
   }
   for (i = 0; i < 65536; i++) {
-    re_u32 a = xorshift32(&state) & 0xFF;
-    re_u32 b = xorshift32(&state) & 0xFF;
+    bbre_u32 a = xorshift32(&state) & 0xFF;
+    bbre_u32 b = xorshift32(&state) & 0xFF;
     char *temp = pointers[a];
     pointers[a] = pointers[b];
     pointers[b] = temp;
@@ -102,31 +102,31 @@ void pointer_chase(void)
 
 void bool_match_full(void)
 {
-  re *r = re_init("123456789123456789*");
-  re_exec *e;
+  bbre *r = bbre_init("123456789123456789*");
+  bbre_exec *e;
   char *buf = rand_buf(BENCH_SIZE);
-  re_compile(r);
-  re_exec_init(r, &e);
+  bbre_compile(r);
+  bbre_exec_init(r, &e);
   bench_start();
-  re_exec_match(e, buf, BENCH_SIZE, 0, 0, NULL, NULL, 'B');
+  bbre_exec_match(e, buf, BENCH_SIZE, 0, 0, NULL, NULL, 'B');
   bench_end(BENCH_SIZE);
-  re_exec_destroy(e);
-  re_destroy(r);
+  bbre_exec_destroy(e);
+  bbre_destroy(r);
   free(buf);
 }
 
 void bool_match_unanchored(void)
 {
-  re *r = re_init("123456789123456789*");
-  re_exec *e;
+  bbre *r = bbre_init("123456789123456789*");
+  bbre_exec *e;
   char *buf = rand_buf(BENCH_SIZE);
-  re_compile(r);
-  re_exec_init(r, &e);
+  bbre_compile(r);
+  bbre_exec_init(r, &e);
   bench_start();
-  re_exec_match(e, buf, BENCH_SIZE, 0, 0, NULL, NULL, 'S');
+  bbre_exec_match(e, buf, BENCH_SIZE, 0, 0, NULL, NULL, 'S');
   bench_end(BENCH_SIZE);
-  re_exec_destroy(e);
-  re_destroy(r);
+  bbre_exec_destroy(e);
+  bbre_destroy(r);
   free(buf);
 }
 

@@ -33,8 +33,8 @@ FUZZINGTON_ITERS=10000000
 OPEN_URL=$(PYTHON) -m webbrowser
 
 OUT_DIR=build/$(PROFILE)
-RE_C=../re.c
-RE_H=../re.h
+BBRE_C=../bbre.c
+BBRE_H=../bbre.h
 
 ## run target `test`
 all: test
@@ -57,8 +57,8 @@ $(OUT_DIR): build
 $(OUT_DIR)/mptest.o: $(OUT_DIR) mptest.c
 	$(CC) $(CFLAGS) mptest.c -c -o $@
 
-$(OUT_DIR)/re.o: $(OUT_DIR) $(RE_C)
-	$(CC) $(CFLAGS) -DRE_CONFIG_HEADER_FILE=\"$(shell realpath test_config.h)\" $(RE_C) -c -o $@
+$(OUT_DIR)/re.o: $(OUT_DIR) $(BBRE_C)
+	$(CC) $(CFLAGS) -DBBRE_CONFIG_HEADER_FILE=\"$(shell realpath test_config.h)\" $(BBRE_C) -c -o $@
 
 $(OUT_DIR)/test.o: $(OUT_DIR) test.c
 	$(CC) $(CFLAGS) test.c -c -o $@
@@ -69,8 +69,8 @@ $(OUT_DIR)/test_gen.o: $(OUT_DIR) test_gen.c
 $(OUT_DIR)/re_test: $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test_gen.o
 	$(CC) $(CFLAGS) $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test_gen.o -o $@
 
-$(OUT_DIR)/re.S: $(OUT_DIR) $(RE_C)
-	$(CC) $(CFLAGS) $(RE_C) -S -fverbose-asm -o $@
+$(OUT_DIR)/re.S: $(OUT_DIR) $(BBRE_C)
+	$(CC) $(CFLAGS) $(BBRE_C) -S -fverbose-asm -o $@
 
 ## run tests
 test: $(OUT_DIR)/re_test
@@ -137,11 +137,11 @@ parser_fuzz: build build/parser_fuzz
 parser_fuzz_import: build
 	$(UDATA) add_parser_fuzz_regression_tests fuzz_results.json build/fuzz/artifact/*
 
-$(OUT_DIR)/bench.o: $(OUT_DIR) bench.c $(RE_H)
+$(OUT_DIR)/bench.o: $(OUT_DIR) bench.c $(BBRE_H)
 	$(CC) $(CFLAGS) bench.c -c -o $@
 
-$(OUT_DIR)/re-bench.o: $(OUT_DIR) $(RE_C) $(RE_H)
-	$(CC) $(CFLAGS) $(RE_C) -c -o $@
+$(OUT_DIR)/re-bench.o: $(OUT_DIR) $(BBRE_C) $(BBRE_H)
+	$(CC) $(CFLAGS) $(BBRE_C) -c -o $@
 
 $(OUT_DIR)/bench: $(OUT_DIR)/bench.o $(OUT_DIR)/re-bench.o
 	$(CC) $(CFLAGS) $(OUT_DIR)/bench.o $(OUT_DIR)/re-bench.o -o $@
@@ -163,18 +163,18 @@ fuzzington_run: build build/fuzzington/release/fuzzington
 
 ## generate data tables for re.c
 tables:
-	$(UDATA) gen_casefold $(RE_C)
-	$(PYTHON) scripts/charclass_tree.py dfa $(RE_C)
-	$(UDATA) gen_ccs impl $(RE_C)
-	$(FORMAT) $(RE_C)
+	$(UDATA) gen_casefold $(BBRE_C)
+	$(PYTHON) scripts/charclass_tree.py dfa $(BBRE_C)
+	$(UDATA) gen_ccs impl $(BBRE_C)
+	$(FORMAT) $(BBRE_C)
 
 ## run clang-format/black on all .c/.py sources
 format:
-	$(FORMAT) $(RE_C) $(RE_H) test_gen.c test.c test_config.h viz.c parser_fuzz.c
+	$(FORMAT) $(BBRE_C) $(BBRE_H) test_gen.c test.c test_config.h viz.c parser_fuzz.c
 	$(PYTHON) -m black -q scripts/*.py
 
-build/viz: build viz.c $(RE_C)
-	$(CC) $(CFLAGS) viz.c $(RE_C) -o $@
+build/viz: build viz.c $(BBRE_C)
+	$(CC) $(CFLAGS) viz.c $(BBRE_C) -o $@
 
 viz_gv_%:
 	TVIZ=$$(mktemp); ./build/viz $(subst viz_gv_,,$@) | dot -Tsvg > "$$TVIZ"; $(OPEN_URL) file://$$(realpath $$TVIZ); sleep 0.5; rm -rf $$TVIZ
@@ -195,11 +195,11 @@ help_profiles:
 
 ## build documentation
 docs: build build/viz
-	$(PYTHON) scripts/make_docs.py --folder docs --debug $(RE_C) internals/AST.md
-	$(PYTHON) scripts/make_docs.py --folder docs --debug $(RE_C) internals/Charclass_Compiler.md
+	$(PYTHON) scripts/make_docs.py --folder docs --debug $(BBRE_C) internals/AST.md
+	$(PYTHON) scripts/make_docs.py --folder docs --debug $(BBRE_C) internals/Charclass_Compiler.md
 
 ## build a folder with re + tests for testing on other platforms
-port: build $(RE_C) $(RE_H) test.c test_gen.c mptest.c mptest.h test_config.h
+port: build $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h test_config.h
 	mkdir -p build/port
 	cp -f scripts/port/* build/port
-	cp -f $(RE_C) $(RE_H) test.c test_gen.c mptest.c mptest.h test_config.h build/port
+	cp -f $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h test_config.h build/port

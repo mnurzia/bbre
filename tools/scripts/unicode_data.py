@@ -159,29 +159,31 @@ def _cmd_gen_casefold(args) -> int:
 
     for i, array in enumerate(arrays):
         num_digits = (max(map(abs, array)).bit_length() + 3) // 4
-        out(f"static const {data_types[i].to_ctype()} re_compcc_fold_array_{i}[] = {{")
+        out(
+            f"static const {data_types[i].to_ctype()} bbre_compcc_fold_array_{i}[] = {{"
+        )
         out(",".join(fmt_hex(n, data_types[i], num_digits) for n in array))
         out("};")
 
-    out("static re_s32 re_compcc_fold_next(re_u32 rune) { return ")
+    out("static bbre_s32 bbre_compcc_fold_next(bbre_u32 rune) { return ")
 
     def shift_mask_expr(name: str, i: int) -> str:
         shift_expr = f"({name} >> {shifts[i]})" if shifts[i] != 0 else name
         return f"({shift_expr} & 0x{masks[i]:02X})"
 
     for i in range(len(arrays)):
-        out(f"re_compcc_fold_array_{i}[")
+        out(f"bbre_compcc_fold_array_{i}[")
     for i in reversed(range(len(arrays))):
         out(f"{'+' if i != len(arrays) - 1 else ''}{shift_mask_expr('rune', i)}]")
     out(";}")
 
     out(
-        "static int re_compcc_fold_range(re *r, re_u32 begin, re_u32 end, re_buf(re_rune_range) *cc_out) {"
+        "static int bbre_compcc_fold_range(bbre *r, bbre_u32 begin, bbre_u32 end, bbre_buf(bbre_rune_range) *cc_out) {"
     )
 
     types = {
         "int": ["err = 0"],
-        "re_u32": ["current"] + [f"x{i}" for i in range(len(arrays))],
+        "bbre_u32": ["current"] + [f"x{i}" for i in range(len(arrays))],
     }
 
     for i, data_type in enumerate(data_types):
@@ -192,7 +194,7 @@ def _cmd_gen_casefold(args) -> int:
     for data_type, defs in sorted(types.items()):
         out(f"{data_type} {','.join(defs)};")
 
-    out("assert(begin <= RE_UTF_MAX && end <= RE_UTF_MAX && begin <= end);")
+    out("assert(begin <= BBRE_UTF_MAX && end <= BBRE_UTF_MAX && begin <= end);")
 
     for i, array in reversed(list(enumerate(arrays))):
         limit = len(arrays[-1]) if i == len(array_sizes) else array_sizes[i]
@@ -203,7 +205,7 @@ def _cmd_gen_casefold(args) -> int:
         out(") {")
         out("if (")
         decl_name = f"a{i+1} +" if i != len(arrays) - 1 else ""
-        out(f"  (a{i} = re_compcc_fold_array_{i}[{decl_name}x{i}])")
+        out(f"  (a{i} = bbre_compcc_fold_array_{i}[{decl_name}x{i}])")
         out(f"    == {fmt_hex(arrays[i].zero_location, data_types[i])}")
         out(") {")
         out(f"  begin = ((begin >> {shifts[i]}) + 1) << {shifts[i]};")
@@ -212,9 +214,11 @@ def _cmd_gen_casefold(args) -> int:
 
     out("current = begin + a0;")
     out("while (current != begin) {")
-    out("  if ((err = re_buf_push(r, cc_out, re_rune_range_make(current, current))))")
+    out(
+        "  if ((err = bbre_buf_push(r, cc_out, bbre_rune_range_make(current, current))))"
+    )
     out("    return err;")
-    out("  current = (re_u32)((re_s32)current + re_compcc_fold_next(current));")
+    out("  current = (bbre_u32)((bbre_s32)current + bbre_compcc_fold_next(current));")
     out("}")
     out("begin++;")
 
@@ -393,12 +397,12 @@ def _cmd_gen_ccs_impl(args) -> int:
     out(
         f"/* {num_ranges} ranges, {num_ranges * 2} integers, {len(encoded_arr) * 4} bytes */"
     )
-    out(f"const re_u32 re_builtin_cc_data[{len(encoded_arr)}] = {{")
+    out(f"const bbre_u32 bbre_builtin_cc_data[{len(encoded_arr)}] = {{")
     out(",".join(f"0x{e:08X}" for e in encoded_arr))
     out("};")
     for cc_type in _BuiltinCCType:
         ccs = sorted([cc for cc in builtin_ccs if cc.cctype == cc_type])
-        out(f"const re_builtin_cc re_builtin_ccs_{cc_type}[{len(ccs) + 1}] = {{")
+        out(f"const bbre_builtin_cc bbre_builtin_ccs_{cc_type}[{len(ccs) + 1}] = {{")
         for builtin_cc in ccs:
             out(
                 f'{{ {len(builtin_cc.name)}, {len(builtin_cc.ranges)}, {encoded_locs[builtin_cc.ranges]}, "{builtin_cc.name}"}},'
@@ -421,7 +425,7 @@ def _cmd_gen_ccs_test(args) -> int:
         encoded_ranges = {",".join(f"0x{lo:X} 0x{hi:X}" for lo, hi in cc)}
         return f"""
         TEST({test_name}) {{
-            static const re_u32 ranges[] = {{{",".join(f"0x{r:X}" for c in cc for r in c)}}};
+            static const bbre_u32 ranges[] = {{{",".join(f"0x{r:X}" for c in cc for r in c)}}};
             PROPAGATE(assert_cc_match_raw(
                 {regex},
                 ranges, {len(cc)}, {int(invert)}));
