@@ -326,6 +326,7 @@ def cmd_dfa(args) -> int:
     for state in state_n.keys():
         this_trans_table = [len(state_n)] * 256
         node = state
+        row = []
         while node is not None:
             assert isinstance(node, TreeNode)
             for j in range(node.range[0], node.range[1] + 1):
@@ -338,20 +339,23 @@ def cmd_dfa(args) -> int:
                 this_trans_table[next(iter(cc))] == this_trans_table[elem]
                 for elem in cc
             )
-            state_table.append(this_trans_table[next(iter(cc))])
+            row.append(this_trans_table[next(iter(cc))])
+        state_table.append(row)
 
     def shift_amt(n):
         binv = f"{n:08b}"
         return len(binv) - len(binv.lstrip("1")) if n >= 0xC0 and n <= 0xF4 else 0
 
     lines, out = make_appender_func()
-    out(f"static const re_u32 re_utf8_dfa_num_range = {len(common_classes)};")
-    out(f"static const re_u32 re_utf8_dfa_num_state = {len(state_n) + 1};")
-    out(f"static const re_u8 re_utf8_dfa_trans[] = {{")
-    out(",".join(map(str, state_table)) + "};")
-    out(f"static const re_u8 re_utf8_dfa_class[] = {{")
+    out(f"#define RE_UTF8_DFA_NUM_CLASS {len(common_classes)}")
+    out(f"#define RE_UTF8_DFA_NUM_STATE {len(state_n) + 1}")
+    out(f"static const re_u8 re_utf8_dfa_class[256] = {{")
     out(",".join(map(str, class_table)) + "};")
-    out(f"static const re_u8 re_utf8_dfa_shift[] = {{")
+    out(
+        f"static const re_u8 re_utf8_dfa_trans[RE_UTF8_DFA_NUM_STATE][RE_UTF8_DFA_NUM_CLASS] = {{"
+    )
+    out(",".join("{" + ",".join(map(str, row)) + "}" for row in state_table) + "};")
+    out(f"static const re_u8 re_utf8_dfa_shift[RE_UTF8_DFA_NUM_CLASS] = {{")
     out(",".join(map(str, (shift_amt(next(iter(cc))) for cc in common_classes))) + "};")
 
     insert_c_file(args.file, lines, "dfa", file_name="charclass_tree.py")
