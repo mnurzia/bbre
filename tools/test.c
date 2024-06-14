@@ -50,8 +50,8 @@ size_t utf_encode(char *out_buf, bbre_u32 codep)
 #define TEST_MAX_SET  10
 
 int check_match_results(
-    bbre *r, bbre_exec *e, const char *s, size_t n, bbre_u32 max_span,
-    bbre_u32 max_set, anchor_type anchor, span *check_span, bbre_u32 *check_set,
+    bbre *r, const char *s, size_t n, bbre_u32 max_span, bbre_u32 max_set,
+    anchor_type anchor, span *check_span, bbre_u32 *check_set,
     bbre_u32 check_nsets)
 {
   int err;
@@ -60,9 +60,8 @@ int check_match_results(
   bbre_u32 found_set[TEST_MAX_SET], sets_to_check;
   bbre_u32 i, j;
   /* perform the match */
-  assert(e);
-  if ((err = bbre_exec_match(
-           e, s, n, max_span, max_set, found_span, found_set, anchor)) ==
+  if ((err = bbre_match(
+           r, s, n, max_span, max_set, found_span, found_set, anchor)) ==
       BBRE_ERR_MEM)
     goto oom_re;
   ASSERT_GTEm(err, 0, "bbre_match() returned an error");
@@ -89,7 +88,6 @@ int check_match_results(
   }
   PASS();
 oom_re:
-  bbre_exec_destroy(e);
   bbre_destroy(r);
   OOM();
 }
@@ -100,7 +98,6 @@ int check_matches_n(
     span *check_span, bbre_u32 *check_set, bbre_u32 check_nsets)
 {
   bbre *r = NULL;
-  bbre_exec *e = NULL;
   int err;
   bbre_u32 i;
   ASSERT_LTEm(nregex, TEST_MAX_SET, "too many regexes to match");
@@ -121,32 +118,28 @@ int check_matches_n(
   if ((err = bbre_compile(r)) == BBRE_ERR_MEM)
     goto oom_re;
   ASSERT_EQm(err, 0, "bbre_compile() returned a nonzero value");
-  if ((err = bbre_exec_init(r, &e)))
-    goto oom_re;
   ASSERT_EQm(err, 0, "bbre_exec_init() returned a nonzero value");
   PROPAGATE(check_match_results(
-      r, e, s, n, max_span, max_set, anchor, check_span, check_set,
-      check_nsets));
+      r, s, n, max_span, max_set, anchor, check_span, check_set, check_nsets));
   /* check to make sure that all match modes agree */
   /* if `check_nsets` > 0, then a boolean match *must* return 1.
    * if `check_nsets` == 0, then a boolean match *must* return 0. */
   PROPAGATE(
-      check_match_results(r, e, s, n, 0, 0, anchor, NULL, NULL, !!check_nsets));
+      check_match_results(r, s, n, 0, 0, anchor, NULL, NULL, !!check_nsets));
   if (anchor == 'B' && !max_span) {
     /* if we're fully anchored, group 0 *must* be the bounds of the match */
     span check_span_anchored[TEST_MAX_SET];
     for (i = 0; i < check_nsets; i++)
       check_span_anchored[i].begin = 0, check_span_anchored[i].end = n;
     PROPAGATE(check_match_results(
-        r, e, s, n, 1, max_set, anchor, check_span_anchored, check_set,
+        r, s, n, 1, max_set, anchor, check_span_anchored, check_set,
         check_nsets));
   }
   if (1) {
     /* start with just bounds */
     span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
     bbre_u32 found_set[TEST_MAX_SET], idx;
-    err = bbre_exec_match(
-        e, s, n, 1, TEST_MAX_SET, found_span, found_set, anchor);
+    err = bbre_match(r, s, n, 1, TEST_MAX_SET, found_span, found_set, anchor);
     if (err == BBRE_ERR_MEM)
       goto oom_re;
     ASSERT_GTE(err, 0);
@@ -224,11 +217,9 @@ int check_matches_n(
       goto oom_re;
     }
   }
-  bbre_exec_destroy(e);
   bbre_destroy(r);
   PASS();
 oom_re:
-  bbre_exec_destroy(e);
   bbre_destroy(r);
   OOM();
 }
@@ -452,20 +443,16 @@ int assert_cc_match_raw(
   int err;
   bbre_u32 codep, range_idx;
   char utf8[16];
-  bbre_exec *exec = NULL;
   if ((err = bbre_init_full(&r, regex, strlen(regex), NULL)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT(!err);
   if ((err = bbre_compile(r)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT(!err);
-  if ((err = bbre_exec_init(r, &exec)) == BBRE_ERR_MEM)
-    goto oom;
   ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
     size_t sz = utf_encode(utf8, codep);
-    if ((err = bbre_exec_match(
-             exec, utf8, sz, 0, 0, NULL, NULL, BBRE_ANCHOR_BOTH)) ==
+    if ((err = bbre_match(r, utf8, sz, 0, 0, NULL, NULL, BBRE_ANCHOR_BOTH)) ==
         BBRE_ERR_MEM)
       goto oom;
     for (range_idx = 0; range_idx < num_ranges; range_idx++) {
@@ -476,18 +463,15 @@ int assert_cc_match_raw(
       }
     }
     if (range_idx == num_ranges) {
-      if ((err = bbre_exec_match(
-               exec, utf8, sz, 0, 0, NULL, NULL, BBRE_ANCHOR_BOTH)) ==
+      if ((err = bbre_match(r, utf8, sz, 0, 0, NULL, NULL, BBRE_ANCHOR_BOTH)) ==
           BBRE_ERR_MEM)
         goto oom;
       ASSERT_EQ(err, invert);
     }
   }
-  bbre_exec_destroy(exec);
   bbre_destroy(r);
   PASS();
 oom:
-  bbre_exec_destroy(exec);
   bbre_destroy(r);
   OOM();
 }

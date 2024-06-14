@@ -36,7 +36,6 @@ typedef BBRE_U32_TYPE bbre_u32;
 /* These are purposefully opaque. */
 typedef struct bbre_spec bbre_spec;
 typedef struct bbre bbre;
-typedef struct bbre_exec bbre_exec;
 typedef struct bbre_set bbre_set;
 typedef struct bbre_set_exec bbre_set_exec;
 
@@ -118,14 +117,8 @@ typedef enum anchor_type {
 
 /* max_span: 1 means match bounds, 2+ means match group n */
 int bbre_match(
-    const bbre *r, const char *s, size_t n, bbre_u32 max_span, bbre_u32 max_set,
+    bbre *r, const char *s, size_t n, bbre_u32 max_span, bbre_u32 max_set,
     span *out_span, bbre_u32 *out_set, anchor_type anchor);
-
-int bbre_exec_init(const bbre *r, bbre_exec **exec);
-void bbre_exec_destroy(bbre_exec *exec);
-int bbre_exec_match(
-    bbre_exec *exec, const char *s, size_t n, bbre_u32 max_span,
-    bbre_u32 max_set, span *out_span, bbre_u32 *out_set, anchor_type anchor);
 
 int bbre_fork(bbre *r, bbre **out);
 int bbre_set_fork(bbre_set *s, bbre_set **out);

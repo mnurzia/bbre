@@ -233,6 +233,8 @@ struct bbre_spec {
   bbre_flags flags; /* regex flags used for parsing / the root AST */
 };
 
+typedef struct bbre_exec bbre_exec;
+
 /* A compiled regular expression. */
 struct bbre {
   bbre_alloc alloc;           /* allocator function */
@@ -253,6 +255,7 @@ struct bbre {
       expr_size;                       /* number of bytes in expr */
   const char *error;                   /* error message, if any */
   size_t error_pos; /* position the error was encountered in expr */
+  bbre_exec *exec;  /* local execution context, NULL until actually used */
 };
 
 /* A set of compiled regular expressions. */
@@ -608,6 +611,7 @@ int bbre_init_full(bbre **pr, const char *regex, size_t n, bbre_alloc alloc)
       bbre_buf_init(&r->compcc.ranges_2), bbre_buf_init(&r->compcc.tree_2),
       bbre_buf_init(&r->compcc.hash);
   bbre_buf_init(&r->prog), bbre_buf_init(&r->prog_set_idxs);
+  r->exec = NULL;
   memset(r->entry, 0, sizeof(r->entry));
   if (regex) {
     if ((err = bbre_parse(r, (const bbre_u8 *)regex, n, &r->ast_root))) {
@@ -646,6 +650,8 @@ int bbre_init_spec(bbre **pr, const bbre_spec *spec, bbre_alloc alloc)
   return err;
 }
 
+void bbre_exec_destroy(bbre_exec *exec);
+
 void bbre_destroy(bbre *r)
 {
   if (!r)
@@ -661,6 +667,7 @@ void bbre_destroy(bbre *r)
       bbre_buf_destroy(r->alloc, &r->compcc.hash);
   bbre_buf_destroy(r->alloc, &r->prog);
   bbre_buf_destroy(r->alloc, (void **)&r->prog_set_idxs);
+  bbre_exec_destroy(r->exec);
   r->alloc(sizeof(*r), 0, r);
 }
 
@@ -3840,18 +3847,17 @@ int bbre_exec_match(
 }
 
 int bbre_match(
-    const bbre *r, const char *s, size_t n, bbre_u32 max_span, bbre_u32 max_set,
+    bbre *r, const char *s, size_t n, bbre_u32 max_span, bbre_u32 max_set,
     span *out_span, bbre_u32 *out_set, anchor_type anchor)
 {
-  bbre_exec *exec = NULL;
-  int err;
-  if ((err = bbre_exec_init(r, &exec)))
-    goto done;
+  int err = 0;
+  if (!r->exec)
+    if ((err = bbre_exec_init(r, &r->exec)))
+      return err;
   if ((err = bbre_exec_match(
-           exec, s, n, max_span, max_set, out_span, out_set, anchor)))
+           r->exec, s, n, max_span, max_set, out_span, out_set, anchor)))
     goto done;
 done:
-  bbre_exec_destroy(exec);
   return err;
 }
 
