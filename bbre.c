@@ -2403,6 +2403,25 @@ bbre_compcc(bbre *r, bbre_u32 ast_root, bbre_compframe *frame, int reversed)
   return err;
 }
 
+/* Duplicate the instruction, relocating relative jumps. */
+bbre_inst bbre_inst_relocate(bbre_inst inst, bbre_u32 src, bbre_u32 dst)
+{
+  bbre_inst next_inst = inst;
+  switch (bbre_inst_opcode(inst)) {
+  case BBRE_OPCODE_SPLIT:
+    next_inst = bbre_inst_make(
+        bbre_inst_opcode(next_inst), bbre_inst_next(next_inst),
+        bbre_inst_param(next_inst) - src + dst);
+  case BBRE_OPCODE_RANGE:
+  case BBRE_OPCODE_MATCH:
+  case BBRE_OPCODE_ASSERT:
+    next_inst = bbre_inst_make(
+        bbre_inst_opcode(next_inst), bbre_inst_next(next_inst) - src + dst,
+        bbre_inst_param(next_inst));
+  }
+  return next_inst;
+}
+
 /* Given a compiled program described by `src` and `src_end`, duplicate its
  * instructions, and return the duplicate in `dst` as if it was just compiled by
  * an iteration of the compiler loop. */
@@ -2417,7 +2436,8 @@ int bbre_compile_dup(
   dst->pc = bbre_prog_size(r);
   dst->patch_head = dst->patch_tail = BBRE_REF_NONE;
   for (i = src->pc; i < src_end; i++) {
-    bbre_inst inst = bbre_prog_get(r, i), next_inst = inst;
+    bbre_inst inst = bbre_prog_get(r, i),
+              next_inst = bbre_inst_relocate(inst, src->pc, dst->pc);
     int should_patch[2] = {0, 0}, j;
     switch (bbre_inst_opcode(inst)) {
     case BBRE_OPCODE_SPLIT:
@@ -2427,14 +2447,14 @@ int bbre_compile_dup(
       /* Duplicate the instruction, relocating relative jumps. */
       next_inst = bbre_inst_make(
           bbre_inst_opcode(next_inst), bbre_inst_next(next_inst),
-          should_patch[1] ? 0 : bbre_inst_param(next_inst) - src->pc + dst->pc);
+          should_patch[1] ? 0 : bbre_inst_param(next_inst));
     case BBRE_OPCODE_RANGE:
     case BBRE_OPCODE_MATCH:
     case BBRE_OPCODE_ASSERT:
       should_patch[0] = bbre_inst_next(inst) == dest_pc;
       next_inst = bbre_inst_make(
           bbre_inst_opcode(next_inst),
-          should_patch[0] ? 0 : bbre_inst_next(next_inst) - src->pc + dst->pc,
+          should_patch[0] ? 0 : bbre_inst_next(next_inst),
           bbre_inst_param(next_inst));
     }
     if ((err = bbre_prog_emit(r, next_inst, dst)))
