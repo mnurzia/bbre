@@ -34,9 +34,15 @@ typedef BBRE_S32_TYPE bbre_s32;
 typedef BBRE_U32_TYPE bbre_u32;
 
 /* These are purposefully opaque. */
+typedef struct bbre_spec bbre_spec;
 typedef struct bbre bbre;
-typedef struct bbre_prog bbre_prog;
 typedef struct bbre_exec bbre_exec;
+typedef struct bbre_set bbre_set;
+typedef struct bbre_set_exec bbre_set_exec;
+
+typedef struct span {
+  size_t begin, end;
+} span;
 
 /* Allocator callback.
  * `prev` is the previous size of the allocation, `next` is the requested
@@ -51,6 +57,17 @@ typedef struct bbre_exec bbre_exec;
  * don't need to worry about this part of the API. */
 typedef void *(*bbre_alloc)(size_t prev, size_t next, void *ptr);
 
+typedef enum bbre_flags {
+  BBRE_FLAG_INSENSITIVE = 1,
+  BBRE_FLAG_MULTILINE = 2,
+  BBRE_FLAG_DOTNEWLINE = 4,
+  BBRE_FLAG_UNGREEDY = 8
+} bbre_flags;
+
+int bbre_spec_init(bbre_spec **b, char *s, size_t n, bbre_alloc alloc);
+void bbre_spec_flags(bbre_spec *b, bbre_flags flags);
+void bbre_spec_destroy(bbre_spec *b);
+
 /* Initialize a regular expression. `regex_nt` is the null-terminated regexp.
  * Returns the regex object on success, NULL on failure.
  * This function is intended for quick use, so it does not provide robust error
@@ -63,8 +80,11 @@ bbre *bbre_init(const char *regex_nt);
  * you want to use the stdlib.
  * Returns 0 on success, BBRE_ERR_MEM if out of memory, or BBRE_ERR_PARSE if the
  * regexp was ill-formed. */
-int bbre_init_full(bbre **r, const char *s, size_t n, bbre_alloc alloc);
+int bbre_init_full(bbre **pr, const char *regex, size_t n, bbre_alloc alloc);
 
+int bbre_init_spec(bbre **pr, const bbre_spec *spec, bbre_alloc alloc);
+
+size_t bbre_get_error(bbre *r, const char **msg, size_t *pos);
 /* Add another regexp to the set of regular expressions that `r` matches. */
 int bbre_union(bbre *r, const char *s, size_t n);
 
@@ -74,11 +94,20 @@ int bbre_compile(bbre *r);
 /* Destroy the regular expression. */
 void bbre_destroy(bbre *r);
 
-size_t bbre_get_error(bbre *r, const char **out, size_t *pos);
+int bbre_is_match(bbre *r, const char *s, size_t n);
+int bbre_find(bbre *r, const char *s, size_t n, span *out);
+int bbre_captures(bbre *r, const char *s, size_t n, bbre_u32 ngrp, span *out);
 
-typedef struct span {
-  size_t begin, end;
-} span;
+/* Initialize a set of regular expressions. */
+int bbre_set_init(bbre_set **set, const bbre **rs, size_t n, bbre_alloc alloc);
+
+/* Destroy a set of regular expressions. */
+void bbre_set_destroy(bbre_set *set);
+
+int bbre_set_is_match(bbre_set *set, const char *s, size_t n);
+int bbre_set_matches(
+    bbre_set *set, const char *s, size_t n, bbre_u32 out_size, bbre_u32 *nmatch,
+    bbre_u32 *out);
 
 typedef enum anchor_type {
   BBRE_ANCHOR_BOTH = 'B',
@@ -97,5 +126,8 @@ void bbre_exec_destroy(bbre_exec *exec);
 int bbre_exec_match(
     bbre_exec *exec, const char *s, size_t n, bbre_u32 max_span,
     bbre_u32 max_set, span *out_span, bbre_u32 *out_set, anchor_type anchor);
+
+int bbre_fork(bbre *r, bbre **out);
+int bbre_set_fork(bbre_set *s, bbre_set **out);
 
 #endif /* MN_BBRE_H */
