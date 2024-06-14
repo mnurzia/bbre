@@ -262,6 +262,66 @@ struct bbre_set {
   bbre_buf(bbre_u32) prog_set_idxs; /* pattern index for each instruction */
 };
 
+typedef struct bbre_save_slots {
+  size_t *slots, slots_size, slots_alloc, last_empty, per_thrd;
+} bbre_save_slots;
+
+typedef struct bbre_nfa_thrd {
+  bbre_u32 pc, slot;
+} bbre_nfa_thrd;
+
+typedef struct bbre_sset {
+  bbre_u32 size, dense_size;
+  bbre_buf(bbre_u32) sparse;
+  bbre_buf(bbre_nfa_thrd) dense;
+} bbre_sset;
+
+typedef struct bbre_nfa {
+  bbre_sset a, b, c;
+  bbre_buf(bbre_nfa_thrd) thrd_stk;
+  bbre_save_slots slots;
+  bbre_buf(bbre_u32) pri_stk;
+  bbre_buf(bbre_u32) pri_bmp_tmp;
+  int reversed, pri;
+} bbre_nfa;
+
+#define BBRE_DFA_MAX_NUM_STATES 256
+
+typedef enum bbre_dfa_state_flag {
+  BBRE_DFA_STATE_FLAG_FROM_TEXT_BEGIN = 1,
+  BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN = 2,
+  BBRE_DFA_STATE_FLAG_FROM_WORD = 4,
+  BBRE_DFA_STATE_FLAG_PRIORITY_EXHAUST = 8,
+  BBRE_DFA_STATE_FLAG_MAX = 16,
+  BBRE_DFA_STATE_FLAG_DIRTY = 16
+} bbre_dfa_state_flag;
+
+typedef struct bbre_dfa_state {
+  struct bbre_dfa_state *ptrs[256 + 1];
+  bbre_u32 flags, nstate, nset, alloc;
+} bbre_dfa_state;
+
+typedef struct bbre_dfa {
+  bbre_dfa_state **states;
+  size_t states_size, num_active_states;
+  bbre_dfa_state *entry[BBRE_PROG_ENTRY_MAX]
+                       [BBRE_DFA_STATE_FLAG_MAX]; /* program entry type
+                                                   * dfa_state_flag */
+  bbre_buf(bbre_u32) set_buf;
+  bbre_buf(size_t) loc_buf;
+  bbre_buf(bbre_u32) set_bmp;
+} bbre_dfa;
+
+struct bbre_exec {
+  bbre_alloc alloc;
+  bbre_buf(bbre_inst) const *prog;
+  bbre_buf(bbre_u32) const *prog_set_idxs;
+  bbre_u32 entry[BBRE_PROG_ENTRY_MAX];
+  bbre_u32 npat;
+  bbre_nfa nfa;
+  bbre_dfa dfa;
+};
+
 /* Helper macro for assertions. */
 #define BBRE_IMPLIES(subject, predicate) (!(subject) || (predicate))
 
@@ -1572,9 +1632,9 @@ static void bbre_prog_set(bbre *r, bbre_u32 pc, bbre_inst i)
 }
 
 /* Get the program instruction at `pc`. */
-static bbre_inst bbre_prog_get(const bbre *r, bbre_u32 pc)
+static bbre_inst bbre_prog_get(const bbre_buf(bbre_inst) prog, bbre_u32 pc)
 {
-  return r->prog[pc];
+  return prog[pc];
 }
 
 /* Get the size (number of instructions) in the program. */
@@ -1604,7 +1664,7 @@ static int bbre_prog_emit(bbre *r, bbre_inst i, bbre_compframe *frame)
  * `pc_secondary` encode the actual PC. */
 static bbre_inst bbre_patch_set(bbre *r, bbre_u32 pc_secondary, bbre_u32 val)
 {
-  bbre_inst prev = bbre_prog_get(r, pc_secondary >> 1);
+  bbre_inst prev = bbre_prog_get(r->prog, pc_secondary >> 1);
   assert(pc_secondary);
   /* Only SPLIT instructions have a secondary branch target. */
   assert(BBRE_IMPLIES(
@@ -2122,7 +2182,7 @@ static int bbre_compcc_tree_render(
       /* we've already compiled this node */
       if (split_from) {
         /* instead of compiling the node again, just jump to it and return */
-        bbre_inst i = bbre_prog_get(r, split_from);
+        bbre_inst i = bbre_prog_get(r->prog, split_from);
         i = bbre_inst_make(
             bbre_inst_opcode(i), bbre_inst_next(i), node->aux.pc);
         bbre_prog_set(r, split_from, i);
@@ -2137,7 +2197,7 @@ static int bbre_compcc_tree_render(
     if (split_from) {
       /* if there was a previous SPLIT instruction: link it to the upcoming
        * SPLIT/RANGE instruction */
-      bbre_inst i = bbre_prog_get(r, split_from);
+      bbre_inst i = bbre_prog_get(r->prog, split_from);
       /* patch into it */
       i = bbre_inst_make(bbre_inst_opcode(i), bbre_inst_next(i), my_pc);
       bbre_prog_set(r, split_from, i);
@@ -2166,7 +2226,7 @@ static int bbre_compcc_tree_render(
     if (node->child_ref) {
       /* node has children: need to down-compile */
       bbre_u32 their_pc = 0;
-      bbre_inst i = bbre_prog_get(r, range_pc);
+      bbre_inst i = bbre_prog_get(r->prog, range_pc);
       if ((err = bbre_compcc_tree_render(
                r, cc_tree_in, node->child_ref, &their_pc, frame)))
         return err;
@@ -2436,7 +2496,7 @@ int bbre_compile_dup(
   dst->pc = bbre_prog_size(r);
   dst->patch_head = dst->patch_tail = BBRE_REF_NONE;
   for (i = src->pc; i < src_end; i++) {
-    bbre_inst inst = bbre_prog_get(r, i),
+    bbre_inst inst = bbre_prog_get(r->prog, i),
               next_inst = bbre_inst_relocate(inst, src->pc, dst->pc);
     int should_patch[2] = {0, 0}, j;
     switch (bbre_inst_opcode(inst)) {
@@ -2732,7 +2792,7 @@ static int bbre_compile_internal(bbre *r, bbre_u32 ast_root, bbre_u32 reverse)
                        BBRE_OPCODE_MATCH, 0,
                        bbre_inst_match_param_make(
                            !reverse, bbre_inst_match_param_idx(bbre_inst_param(
-                                         bbre_prog_get(r, frame.pc))))),
+                                         bbre_prog_get(r->prog, frame.pc))))),
                    &frame)))
             return err;
           if (!(flags & BBRE_GROUP_FLAG_SUBEXPRESSION))
@@ -2819,6 +2879,8 @@ static int bbre_compile_internal(bbre *r, bbre_u32 ast_root, bbre_u32 reverse)
   return 0;
 }
 
+int bbre_set_compile(bbre_set *set, const bbre **rs, size_t n);
+
 int bbre_set_init(bbre_set **pset, const bbre **rs, size_t n, bbre_alloc alloc)
 {
   int err = 0;
@@ -2830,27 +2892,50 @@ int bbre_set_init(bbre_set **pset, const bbre **rs, size_t n, bbre_alloc alloc)
   set = *pset;
   memset(set, 0, sizeof(*set));
   bbre_buf_init(&set->prog), bbre_buf_init(&set->prog_set_idxs);
-  (void)rs, (void)n;
+  return bbre_set_compile(set, rs, n);
+}
+
+void bbre_set_destroy(bbre_set *set)
+{
+  if (!set)
+    return;
+  bbre_buf_destroy(set->alloc, &set->prog),
+      bbre_buf_destroy(set->alloc, &set->prog_set_idxs);
+  set->alloc(sizeof(*set), 0, set);
+}
+
+int bbre_set_compile(bbre_set *set, const bbre **rs, size_t n)
+{
+  int err = 0;
+  size_t i;
+  /* add sentinel 0th instruction */
+  if ((err = bbre_buf_push(
+           set->alloc, &set->prog, bbre_inst_make(BBRE_OPCODE_RANGE, 0, 0))))
+    return err;
+  for (i = 0; i < n; i++) {
+    /* relocate all subpatterns */
+    const bbre *r = rs[i];
+    bbre_u32 src_pc, dst_pc = bbre_buf_size(set->prog);
+    for (src_pc = r->entry[0]; src_pc < r->entry[BBRE_PROG_ENTRY_DOTSTAR];
+         src_pc++) {
+      if ((err = bbre_buf_push(
+               set->alloc, &set->prog,
+               bbre_inst_relocate(r->prog[src_pc], src_pc, dst_pc))))
+        return err;
+      if ((err = bbre_buf_push(set->alloc, &set->prog_set_idxs, i + 1)))
+        return err;
+    }
+  }
   return err;
 }
 
-typedef struct bbre_nfa_thrd {
-  bbre_u32 pc, slot;
-} bbre_nfa_thrd;
-
-typedef struct bbre_sset {
-  bbre_u32 size, dense_size;
-  bbre_buf(bbre_u32) sparse;
-  bbre_buf(bbre_nfa_thrd) dense;
-} bbre_sset;
-
-static int bbre_sset_reset(const bbre *r, bbre_sset *s, size_t next_size)
+static int bbre_sset_reset(bbre_exec *exec, bbre_sset *s, size_t next_size)
 {
   int err;
   assert(next_size); /* programs are never of size 0 */
-  if ((err = bbre_buf_reserve(r->alloc, &s->sparse, next_size)))
+  if ((err = bbre_buf_reserve(exec->alloc, &s->sparse, next_size)))
     return err;
-  if ((err = bbre_buf_reserve(r->alloc, &s->dense, next_size)))
+  if ((err = bbre_buf_reserve(exec->alloc, &s->dense, next_size)))
     return err;
   s->size = next_size, s->dense_size = 0;
   return 0;
@@ -2864,9 +2949,10 @@ static void bbre_sset_init(bbre_sset *s)
   s->size = s->dense_size = 0;
 }
 
-static void bbre_sset_destroy(const bbre *r, bbre_sset *s)
+static void bbre_sset_destroy(bbre_exec *exec, bbre_sset *s)
 {
-  bbre_buf_destroy(r->alloc, &s->sparse), bbre_buf_destroy(r->alloc, &s->dense);
+  bbre_buf_destroy(exec->alloc, &s->sparse),
+      bbre_buf_destroy(exec->alloc, &s->dense);
 }
 
 static int bbre_sset_is_memb(bbre_sset *s, bbre_u32 pc)
@@ -2886,19 +2972,15 @@ static void bbre_sset_add(bbre_sset *s, bbre_nfa_thrd spec)
   s->sparse[spec.pc] = s->dense_size++;
 }
 
-typedef struct bbre_save_slots {
-  size_t *slots, slots_size, slots_alloc, last_empty, per_thrd;
-} bbre_save_slots;
-
 static void bbre_save_slots_init(bbre_save_slots *s)
 {
   s->slots = NULL;
   s->slots_size = s->slots_alloc = s->last_empty = s->per_thrd = 0;
 }
 
-static void bbre_save_slots_destroy(const bbre *r, bbre_save_slots *s)
+static void bbre_save_slots_destroy(bbre_exec *exec, bbre_save_slots *s)
 {
-  bbre_ialloc(r, sizeof(size_t) * s->slots_alloc, 0, s->slots);
+  exec->alloc(sizeof(size_t) * s->slots_alloc, 0, s->slots);
 }
 
 static void bbre_save_slots_clear(bbre_save_slots *s, size_t per_thrd)
@@ -2908,7 +2990,7 @@ static void bbre_save_slots_clear(bbre_save_slots *s, size_t per_thrd)
 }
 
 static int
-bbre_save_slots_new(const bbre *r, bbre_save_slots *s, bbre_u32 *next)
+bbre_save_slots_new(bbre_exec *exec, bbre_save_slots *s, bbre_u32 *next)
 {
   assert(s->per_thrd);
   if (s->last_empty) {
@@ -2920,8 +3002,8 @@ bbre_save_slots_new(const bbre *r, bbre_save_slots *s, bbre_u32 *next)
       /* initial alloc / realloc */
       size_t new_alloc =
           (s->slots_alloc ? s->slots_alloc * 2 : 16) * s->per_thrd;
-      size_t *new_slots = bbre_ialloc(
-          r, s->slots_alloc * sizeof(size_t), new_alloc * sizeof(size_t),
+      size_t *new_slots = exec->alloc(
+          s->slots_alloc * sizeof(size_t), new_alloc * sizeof(size_t),
           s->slots);
       if (!new_slots)
         return BBRE_ERR_MEM;
@@ -2960,7 +3042,7 @@ static void bbre_save_slots_kill(bbre_save_slots *s, bbre_u32 ref)
 }
 
 static int bbre_save_slots_set_internal(
-    const bbre *r, bbre_save_slots *s, bbre_u32 ref, bbre_u32 idx, size_t v,
+    bbre_exec *exec, bbre_save_slots *s, bbre_u32 ref, bbre_u32 idx, size_t v,
     bbre_u32 *out)
 {
   int err;
@@ -2971,7 +3053,7 @@ static int bbre_save_slots_set_internal(
   if (v == s->slots[ref * s->per_thrd + idx]) {
     /* not changing anything */
   } else {
-    if ((err = bbre_save_slots_new(r, s, out)))
+    if ((err = bbre_save_slots_new(exec, s, out)))
       return err;
     bbre_save_slots_kill(s, ref); /* decrement refcount */
     assert(
@@ -2992,11 +3074,11 @@ static bbre_u32 bbre_save_slots_per_thrd(bbre_save_slots *s)
 }
 
 static int bbre_save_slots_set(
-    const bbre *r, bbre_save_slots *s, bbre_u32 ref, bbre_u32 idx, size_t v,
+    bbre_exec *exec, bbre_save_slots *s, bbre_u32 ref, bbre_u32 idx, size_t v,
     bbre_u32 *out)
 {
   assert(idx < bbre_save_slots_per_thrd(s));
-  return bbre_save_slots_set_internal(r, s, ref, idx, v, out);
+  return bbre_save_slots_set_internal(exec, s, ref, idx, v, out);
 }
 
 static bbre_u32
@@ -3005,48 +3087,6 @@ bbre_save_slots_get(bbre_save_slots *s, bbre_u32 ref, bbre_u32 idx)
   assert(idx < bbre_save_slots_per_thrd(s));
   return s->slots[ref * s->per_thrd + idx];
 }
-
-typedef struct bbre_nfa {
-  bbre_sset a, b, c;
-  bbre_buf(bbre_nfa_thrd) thrd_stk;
-  bbre_save_slots slots;
-  bbre_buf(bbre_u32) pri_stk;
-  bbre_buf(bbre_u32) pri_bmp_tmp;
-  int reversed, pri;
-} bbre_nfa;
-
-#define BBRE_DFA_MAX_NUM_STATES 256
-
-typedef enum bbre_dfa_state_flag {
-  BBRE_DFA_STATE_FLAG_FROM_TEXT_BEGIN = 1,
-  BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN = 2,
-  BBRE_DFA_STATE_FLAG_FROM_WORD = 4,
-  BBRE_DFA_STATE_FLAG_PRIORITY_EXHAUST = 8,
-  BBRE_DFA_STATE_FLAG_MAX = 16,
-  BBRE_DFA_STATE_FLAG_DIRTY = 16
-} bbre_dfa_state_flag;
-
-typedef struct bbre_dfa_state {
-  struct bbre_dfa_state *ptrs[256 + 1];
-  bbre_u32 flags, nstate, nset, alloc;
-} bbre_dfa_state;
-
-typedef struct bbre_dfa {
-  bbre_dfa_state **states;
-  size_t states_size, num_active_states;
-  bbre_dfa_state *entry[BBRE_PROG_ENTRY_MAX]
-                       [BBRE_DFA_STATE_FLAG_MAX]; /* program entry type
-                                                   * dfa_state_flag */
-  bbre_buf(bbre_u32) set_buf;
-  bbre_buf(size_t) loc_buf;
-  bbre_buf(bbre_u32) set_bmp;
-} bbre_dfa;
-
-struct bbre_exec {
-  const bbre *r;
-  bbre_nfa nfa;
-  bbre_dfa dfa;
-};
 
 static void bbre_nfa_init(bbre_nfa *n)
 {
@@ -3058,26 +3098,27 @@ static void bbre_nfa_init(bbre_nfa *n)
   n->reversed = 0;
 }
 
-static void bbre_nfa_destroy(const bbre *r, bbre_nfa *n)
+static void bbre_nfa_destroy(bbre_exec *exec, bbre_nfa *n)
 {
-  bbre_sset_destroy(r, &n->a), bbre_sset_destroy(r, &n->b),
-      bbre_sset_destroy(r, &n->c);
-  bbre_buf_destroy(r->alloc, &n->thrd_stk);
-  bbre_save_slots_destroy(r, &n->slots);
-  bbre_buf_destroy(r->alloc, &n->pri_stk),
-      bbre_buf_destroy(r->alloc, &n->pri_bmp_tmp);
+  bbre_sset_destroy(exec, &n->a), bbre_sset_destroy(exec, &n->b),
+      bbre_sset_destroy(exec, &n->c);
+  bbre_buf_destroy(exec->alloc, &n->thrd_stk);
+  bbre_save_slots_destroy(exec, &n->slots);
+  bbre_buf_destroy(exec->alloc, &n->pri_stk),
+      bbre_buf_destroy(exec->alloc, &n->pri_bmp_tmp);
 }
 
 #define BBRE_BITS_PER_U32 (sizeof(bbre_u32) * CHAR_BIT)
 
-static int bbre_bmp_init(const bbre *r, bbre_buf(bbre_u32) * b, bbre_u32 size)
+static int
+bbre_bmp_init(bbre_alloc alloc, bbre_buf(bbre_u32) * b, bbre_u32 size)
 {
   bbre_u32 i;
   int err = 0;
   bbre_buf_clear(b);
   for (i = 0; i < (size + BBRE_BITS_PER_U32) / BBRE_BITS_PER_U32; i++)
     if ((err = bbre_buf_push(
-             r->alloc, b, 0))) /* TODO: change this to a bulk allocation */
+             alloc, b, 0))) /* TODO: change this to a bulk allocation */
       return err;
   return err;
 }
@@ -3100,27 +3141,27 @@ static bbre_u32 bbre_bmp_get(bbre_buf(bbre_u32) b, bbre_u32 idx)
 }
 
 static int bbre_nfa_start(
-    const bbre *r, bbre_nfa *n, bbre_u32 pc, bbre_u32 noff, int reversed,
+    bbre_exec *exec, bbre_nfa *n, bbre_u32 pc, bbre_u32 noff, int reversed,
     int pri)
 {
   bbre_nfa_thrd initial_thrd;
   bbre_u32 i;
   int err = 0;
-  if ((err = bbre_sset_reset(r, &n->a, bbre_prog_size(r))) ||
-      (err = bbre_sset_reset(r, &n->b, bbre_prog_size(r))) ||
-      (err = bbre_sset_reset(r, &n->c, bbre_prog_size(r))))
+  if ((err = bbre_sset_reset(exec, &n->a, bbre_buf_size(*exec->prog))) ||
+      (err = bbre_sset_reset(exec, &n->b, bbre_buf_size(*exec->prog))) ||
+      (err = bbre_sset_reset(exec, &n->c, bbre_buf_size(*exec->prog))))
     return err;
   bbre_buf_clear(&n->thrd_stk), bbre_buf_clear(&n->pri_stk);
   bbre_save_slots_clear(&n->slots, noff);
   initial_thrd.pc = pc;
-  if ((err = bbre_save_slots_new(r, &n->slots, &initial_thrd.slot)))
+  if ((err = bbre_save_slots_new(exec, &n->slots, &initial_thrd.slot)))
     return err;
   bbre_sset_add(&n->a, initial_thrd);
   initial_thrd.pc = initial_thrd.slot = 0;
-  for (i = 0; i < r->ast_sets; i++)
-    if ((err = bbre_buf_push(r->alloc, &n->pri_stk, 0)))
+  for (i = 0; i < exec->npat; i++)
+    if ((err = bbre_buf_push(exec->alloc, &n->pri_stk, 0)))
       return err;
-  if ((err = bbre_bmp_init(r, &n->pri_bmp_tmp, r->ast_sets)))
+  if ((err = bbre_bmp_init(exec->alloc, &n->pri_bmp_tmp, exec->npat)))
     return err;
   n->reversed = reversed;
   n->pri = pri;
@@ -3128,19 +3169,19 @@ static int bbre_nfa_start(
 }
 
 static int
-bbre_nfa_eps(const bbre *r, bbre_nfa *n, size_t pos, bbre_assert_flag ass)
+bbre_nfa_eps(bbre_exec *exec, bbre_nfa *n, size_t pos, bbre_assert_flag ass)
 {
   int err;
   size_t i;
   bbre_sset_clear(&n->b);
   for (i = 0; i < n->a.dense_size; i++) {
     bbre_nfa_thrd dense_thrd = n->a.dense[i];
-    if ((err = bbre_buf_push(r->alloc, &n->thrd_stk, dense_thrd)))
+    if ((err = bbre_buf_push(exec->alloc, &n->thrd_stk, dense_thrd)))
       return err;
     bbre_sset_clear(&n->c);
     while (bbre_buf_size(n->thrd_stk)) {
       bbre_nfa_thrd thrd = *bbre_buf_peek(&n->thrd_stk, 0);
-      bbre_inst op = bbre_prog_get(r, thrd.pc);
+      bbre_inst op = bbre_prog_get(*exec->prog, thrd.pc);
       assert(thrd.pc);
       if (bbre_sset_is_memb(&n->c, thrd.pc)) {
         /* we already processed this thread */
@@ -3148,17 +3189,17 @@ bbre_nfa_eps(const bbre *r, bbre_nfa *n, size_t pos, bbre_assert_flag ass)
         continue;
       }
       bbre_sset_add(&n->c, thrd);
-      switch (bbre_inst_opcode(bbre_prog_get(r, thrd.pc))) {
+      switch (bbre_inst_opcode(bbre_prog_get(*exec->prog, thrd.pc))) {
       case BBRE_OPCODE_MATCH: {
         bbre_u32 idx = bbre_inst_match_param_idx(bbre_inst_param(op)) * 2 +
                        bbre_inst_match_param_end(bbre_inst_param(op));
         if (idx < bbre_save_slots_per_thrd(&n->slots) &&
             (err = bbre_save_slots_set(
-                 r, &n->slots, thrd.slot, idx, pos, &thrd.slot)))
+                 exec, &n->slots, thrd.slot, idx, pos, &thrd.slot)))
           return err;
         if (bbre_inst_next(op)) {
           if (bbre_inst_match_param_idx(bbre_inst_param(op)) > 0 ||
-              !n->pri_stk[r->prog_set_idxs[thrd.pc - 1]]) {
+              !n->pri_stk[(*exec->prog_set_idxs)[thrd.pc - 1]]) {
             thrd.pc = bbre_inst_next(op);
             *bbre_buf_peek(&n->thrd_stk, 0) = thrd;
           } else
@@ -3177,7 +3218,7 @@ bbre_nfa_eps(const bbre *r, bbre_nfa *n, size_t pos, bbre_assert_flag ass)
         sec.pc = bbre_inst_param(op),
         sec.slot = bbre_save_slots_fork(&n->slots, thrd.slot);
         *bbre_buf_peek(&n->thrd_stk, 0) = sec;
-        if ((err = bbre_buf_push(r->alloc, &n->thrd_stk, pri)))
+        if ((err = bbre_buf_push(exec->alloc, &n->thrd_stk, pri)))
           /* sec is pushed first because it needs to be processed after pri.
            * pri comes off the stack first because it's FIFO. */
           return err;
@@ -3185,7 +3226,8 @@ bbre_nfa_eps(const bbre *r, bbre_nfa *n, size_t pos, bbre_assert_flag ass)
       }
       default: /* ASSERT */ {
         assert(
-            bbre_inst_opcode(bbre_prog_get(r, thrd.pc)) == BBRE_OPCODE_ASSERT);
+            bbre_inst_opcode(bbre_prog_get(*exec->prog, thrd.pc)) ==
+            BBRE_OPCODE_ASSERT);
         assert(!!(ass & BBRE_ASSERT_WORD) ^ !!(ass & BBRE_ASSERT_NOT_WORD));
         if ((bbre_inst_param(op) & ass) == bbre_inst_param(op)) {
           thrd.pc = bbre_inst_next(op);
@@ -3204,10 +3246,11 @@ bbre_nfa_eps(const bbre *r, bbre_nfa *n, size_t pos, bbre_assert_flag ass)
 }
 
 static int bbre_nfa_match_end(
-    const bbre *r, bbre_nfa *n, bbre_nfa_thrd thrd, size_t pos, unsigned int ch)
+    bbre_exec *exec, bbre_nfa *n, bbre_nfa_thrd thrd, size_t pos,
+    unsigned int ch)
 {
   int err = 0;
-  bbre_u32 idx = r->prog_set_idxs[thrd.pc];
+  bbre_u32 idx = (*exec->prog_set_idxs)[thrd.pc];
   bbre_u32 *memo = n->pri_stk + idx - 1;
   assert(idx > 0);
   assert(idx - 1 < bbre_buf_size(n->pri_stk));
@@ -3219,8 +3262,8 @@ static int bbre_nfa_match_end(
       bbre_save_slots_kill(&n->slots, *memo);
     *memo = thrd.slot;
     if (slot_idx < bbre_save_slots_per_thrd(&n->slots) &&
-        (err =
-             bbre_save_slots_set(r, &n->slots, thrd.slot, slot_idx, pos, memo)))
+        (err = bbre_save_slots_set(
+             exec, &n->slots, thrd.slot, slot_idx, pos, memo)))
       return err;
     goto out_survive;
   } else {
@@ -3234,15 +3277,17 @@ out_kill:
   return err;
 }
 
-static int bbre_nfa_chr(const bbre *r, bbre_nfa *n, unsigned int ch, size_t pos)
+static int
+bbre_nfa_chr(bbre_exec *exec, bbre_nfa *n, unsigned int ch, size_t pos)
 {
   int err;
   size_t i;
   bbre_bmp_clear(&n->pri_bmp_tmp);
   for (i = 0; i < n->b.dense_size; i++) {
     bbre_nfa_thrd thrd = n->b.dense[i];
-    bbre_inst op = bbre_prog_get(r, thrd.pc);
-    bbre_u32 pri = bbre_bmp_get(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]),
+    bbre_inst op = bbre_prog_get(*exec->prog, thrd.pc);
+    bbre_u32 pri =
+                 bbre_bmp_get(n->pri_bmp_tmp, (*exec->prog_set_idxs)[thrd.pc]),
              opcode = bbre_inst_opcode(op);
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
@@ -3256,10 +3301,10 @@ static int bbre_nfa_chr(const bbre *r, bbre_nfa *n, unsigned int ch, size_t pos)
         bbre_save_slots_kill(&n->slots, thrd.slot);
     } else /* if opcode == MATCH */ {
       assert(!bbre_inst_next(op));
-      if ((err = bbre_nfa_match_end(r, n, thrd, pos, ch)))
+      if ((err = bbre_nfa_match_end(exec, n, thrd, pos, ch)))
         return err;
       if (n->pri)
-        bbre_bmp_set(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
+        bbre_bmp_set(n->pri_bmp_tmp, (*exec->prog_set_idxs)[thrd.pc]);
       bbre_save_slots_kill(&n->slots, thrd.slot);
     }
   }
@@ -3303,16 +3348,16 @@ bbre_make_assert_flag(bbre_u32 prev_ch, bbre_u32 next_ch)
 /* if max_set == 0 and max_span != 0 */
 /* if max_set != 0 and max_span != 0 */
 static int bbre_nfa_end(
-    const bbre *r, size_t pos, bbre_nfa *n, bbre_u32 max_span, bbre_u32 max_set,
-    span *out_span, bbre_u32 *out_set, bbre_u32 prev_ch)
+    bbre_exec *exec, size_t pos, bbre_nfa *n, bbre_u32 max_span,
+    bbre_u32 max_set, span *out_span, bbre_u32 *out_set, bbre_u32 prev_ch)
 {
   int err;
   size_t j, sets = 0, nset = 0;
   if ((err = bbre_nfa_eps(
-           r, n, pos, bbre_make_assert_flag(prev_ch, BBRE_SENTINEL_CH))) ||
-      (err = bbre_nfa_chr(r, n, 256, pos)))
+           exec, n, pos, bbre_make_assert_flag(prev_ch, BBRE_SENTINEL_CH))) ||
+      (err = bbre_nfa_chr(exec, n, 256, pos)))
     return err;
-  for (sets = 0; sets < r->ast_sets && (max_set ? nset < max_set : nset < 1);
+  for (sets = 0; sets < exec->npat && (max_set ? nset < max_set : nset < 1);
        sets++) {
     bbre_u32 slot = n->pri_stk[sets];
     if (!slot)
@@ -3331,12 +3376,12 @@ static int bbre_nfa_end(
 }
 
 static int bbre_nfa_run(
-    const bbre *r, bbre_nfa *n, bbre_u32 ch, size_t pos, bbre_u32 prev_ch)
+    bbre_exec *exec, bbre_nfa *n, bbre_u32 ch, size_t pos, bbre_u32 prev_ch)
 {
   int err;
-  if ((err = bbre_nfa_eps(r, n, pos, bbre_make_assert_flag(prev_ch, ch))))
+  if ((err = bbre_nfa_eps(exec, n, pos, bbre_make_assert_flag(prev_ch, ch))))
     return err;
-  if ((err = bbre_nfa_chr(r, n, ch, pos)))
+  if ((err = bbre_nfa_chr(exec, n, ch, pos)))
     return err;
   return err;
 }
@@ -3362,16 +3407,16 @@ static void bbre_dfa_reset(bbre_dfa *d)
   memset(d->entry, 0, sizeof(d->entry));
 }
 
-static void bbre_dfa_destroy(const bbre *r, bbre_dfa *d)
+static void bbre_dfa_destroy(bbre_exec *exec, bbre_dfa *d)
 {
   size_t i;
   for (i = 0; i < d->states_size; i++)
     if (d->states[i])
-      bbre_ialloc(r, d->states[i]->alloc, 0, d->states[i]);
-  bbre_ialloc(r, d->states_size * sizeof(bbre_dfa_state *), 0, d->states);
-  bbre_buf_destroy(r->alloc, &d->set_buf),
-      bbre_buf_destroy(r->alloc, &d->loc_buf),
-      bbre_buf_destroy(r->alloc, &d->set_bmp);
+      exec->alloc(d->states[i]->alloc, 0, d->states[i]);
+  exec->alloc(d->states_size * sizeof(bbre_dfa_state *), 0, d->states);
+  bbre_buf_destroy(exec->alloc, &d->set_buf),
+      bbre_buf_destroy(exec->alloc, &d->loc_buf),
+      bbre_buf_destroy(exec->alloc, &d->set_bmp);
 }
 
 static bbre_u32 bbre_dfa_state_alloc(bbre_u32 nstate, bbre_u32 nset)
@@ -3390,7 +3435,7 @@ static bbre_u32 *bbre_dfa_state_data(bbre_dfa_state *state)
 
 /* need: current state, but ALSO the previous state's matches */
 static int bbre_dfa_construct(
-    const bbre *r, bbre_dfa *d, bbre_dfa_state *prev_state, unsigned int ch,
+    bbre_exec *exec, bbre_dfa *d, bbre_dfa_state *prev_state, unsigned int ch,
     bbre_u32 prev_flag, bbre_nfa *n, bbre_dfa_state **out_next_state)
 {
   size_t i;
@@ -3408,8 +3453,8 @@ static int bbre_dfa_construct(
     hash = bbre_hashington(hash + d->set_buf[i]);
   if (!d->states_size) {
     /* need to allocate initial cache */
-    bbre_dfa_state **next_cache = bbre_ialloc(
-        r, 0, sizeof(bbre_dfa_state *) * BBRE_DFA_MAX_NUM_STATES, NULL);
+    bbre_dfa_state **next_cache = exec->alloc(
+        0, sizeof(bbre_dfa_state *) * BBRE_DFA_MAX_NUM_STATES, NULL);
     if (!next_cache)
       return BBRE_ERR_MEM;
     memset(next_cache, 0, sizeof(bbre_dfa_state *) * BBRE_DFA_MAX_NUM_STATES);
@@ -3472,8 +3517,7 @@ static int bbre_dfa_construct(
       next_alloc =
           bbre_dfa_state_alloc(n->a.dense_size, bbre_buf_size(d->set_buf));
       if (prev_alloc < next_alloc) {
-        next_state =
-            bbre_ialloc(r, prev_alloc, next_alloc, d->states[table_pos]);
+        next_state = exec->alloc(prev_alloc, next_alloc, d->states[table_pos]);
         if (!next_state)
           return BBRE_ERR_MEM;
         d->states[table_pos] = next_state;
@@ -3504,8 +3548,8 @@ static int bbre_dfa_construct(
 }
 
 static int bbre_dfa_construct_start(
-    const bbre *r, bbre_dfa *d, bbre_nfa *n, bbre_u32 entry, bbre_u32 prev_flag,
-    bbre_dfa_state **out_next_state)
+    bbre_exec *exec, bbre_dfa *d, bbre_nfa *n, bbre_u32 entry,
+    bbre_u32 prev_flag, bbre_dfa_state **out_next_state)
 {
   int err = 0;
   /* clear the set buffer so that it can be used to compare dfa states later */
@@ -3513,11 +3557,12 @@ static int bbre_dfa_construct_start(
   *out_next_state = d->entry[entry][prev_flag];
   if (!*out_next_state) {
     bbre_nfa_thrd spec;
-    spec.pc = r->entry[entry];
+    spec.pc = exec->entry[entry];
     spec.slot = 0;
     bbre_sset_clear(&n->a);
     bbre_sset_add(&n->a, spec);
-    if ((err = bbre_dfa_construct(r, d, NULL, 0, prev_flag, n, out_next_state)))
+    if ((err = bbre_dfa_construct(
+             exec, d, NULL, 0, prev_flag, n, out_next_state)))
       return err;
     d->entry[entry][prev_flag] = *out_next_state;
   }
@@ -3525,7 +3570,7 @@ static int bbre_dfa_construct_start(
 }
 
 static int bbre_dfa_construct_chr(
-    const bbre *r, bbre_dfa *d, bbre_nfa *n, bbre_dfa_state *prev_state,
+    bbre_exec *exec, bbre_dfa *d, bbre_nfa *n, bbre_dfa_state *prev_state,
     unsigned int ch, bbre_dfa_state **out_next_state)
 {
   int err;
@@ -3544,7 +3589,7 @@ static int bbre_dfa_construct_chr(
   }
   /* run eps on n */
   if ((err = bbre_nfa_eps(
-           r, n, 0,
+           exec, n, 0,
            bbre_make_assert_flag_raw(
                prev_state->flags & BBRE_DFA_STATE_FLAG_FROM_TEXT_BEGIN,
                prev_state->flags & BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN,
@@ -3554,8 +3599,8 @@ static int bbre_dfa_construct_chr(
   bbre_bmp_clear(&n->pri_bmp_tmp);
   for (i = 0; i < n->b.dense_size; i++) {
     bbre_nfa_thrd thrd = n->b.dense[i];
-    bbre_inst op = bbre_prog_get(r, thrd.pc);
-    int pri = bbre_bmp_get(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
+    bbre_inst op = bbre_prog_get(*exec->prog, thrd.pc);
+    int pri = bbre_bmp_get(n->pri_bmp_tmp, (*exec->prog_set_idxs)[thrd.pc]);
     if (pri && n->pri)
       continue; /* priority exhaustion: disregard this thread */
     switch (bbre_inst_opcode(op)) {
@@ -3573,10 +3618,10 @@ static int bbre_dfa_construct_chr(
       /* NOTE: since there only exists one match instruction for a set n, we
        * don't need to check if we've already pushed the match instruction. */
       if ((err = bbre_buf_push(
-               r->alloc, &d->set_buf, r->prog_set_idxs[thrd.pc] - 1)))
+               exec->alloc, &d->set_buf, (*exec->prog_set_idxs)[thrd.pc] - 1)))
         return err;
       if (n->pri)
-        bbre_bmp_set(n->pri_bmp_tmp, r->prog_set_idxs[thrd.pc]);
+        bbre_bmp_set(n->pri_bmp_tmp, (*exec->prog_set_idxs)[thrd.pc]);
       break;
     }
     default:
@@ -3585,7 +3630,7 @@ static int bbre_dfa_construct_chr(
   }
   /* feed ch to n -> this was accomplished by the above code */
   return bbre_dfa_construct(
-      r, d, prev_state, ch,
+      exec, d, prev_state, ch,
       (ch == BBRE_SENTINEL_CH) * BBRE_DFA_STATE_FLAG_FROM_TEXT_BEGIN |
           (ch == BBRE_SENTINEL_CH || ch == '\n') *
               BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN |
@@ -3623,22 +3668,22 @@ static int bbre_dfa_match(
       anchor == BBRE_ANCHOR_END);
   bbre_dfa_reset(&exec->dfa);
   if ((err = bbre_nfa_start(
-           exec->r, &exec->nfa, exec->r->entry[entry], 0, reversed, pri)))
+           exec, &exec->nfa, exec->entry[entry], 0, reversed, pri)))
     return err;
   if (pri) {
     bbre_buf_clear(&exec->dfa.loc_buf);
-    if ((err = bbre_bmp_init(exec->r, &exec->dfa.set_bmp, exec->r->ast_sets)))
+    if ((err = bbre_bmp_init(exec->alloc, &exec->dfa.set_bmp, exec->npat)))
       return err;
-    for (i = 0; i < exec->r->ast_sets; i++) {
+    for (i = 0; i < exec->npat; i++) {
       size_t p = 0;
-      if ((err = bbre_buf_push(exec->r->alloc, &exec->dfa.loc_buf, p)))
+      if ((err = bbre_buf_push(exec->alloc, &exec->dfa.loc_buf, p)))
         return err;
     }
   }
   i = reversed ? n : 0;
   if (!(state = exec->dfa.entry[entry][incoming_assert_flag]) &&
       (err = bbre_dfa_construct_start(
-           exec->r, &exec->dfa, nfa, entry, incoming_assert_flag, &state)))
+           exec, &exec->dfa, nfa, entry, incoming_assert_flag, &state)))
     return err;
   if (pri)
     bbre_dfa_save_matches(&exec->dfa, state, i);
@@ -3658,7 +3703,7 @@ static int bbre_dfa_match(
       bbre_dfa_state *next = state->ptrs[ch];
       if (!next) {
         if ((err = bbre_dfa_construct_chr(
-                 exec->r, &exec->dfa, nfa, state, ch, &next)))
+                 exec, &exec->dfa, nfa, state, ch, &next)))
           return err;
       }
       state = next;
@@ -3669,14 +3714,14 @@ static int bbre_dfa_match(
   }
   if (!state->ptrs[BBRE_SENTINEL_CH]) {
     if ((err = bbre_dfa_construct_chr(
-             exec->r, &exec->dfa, nfa, state, BBRE_SENTINEL_CH, &state)))
+             exec, &exec->dfa, nfa, state, BBRE_SENTINEL_CH, &state)))
       return err;
   } else
     state = state->ptrs[s[i]];
   if (pri) {
     bbre_dfa_save_matches(&exec->dfa, state, i);
     assert(!err);
-    for (i = 0; i < exec->r->ast_sets; i++) {
+    for (i = 0; i < exec->npat; i++) {
       assert(err >= 0 && err <= (signed)i);
       if (!bbre_bmp_get(exec->dfa.set_bmp, i))
         continue;
@@ -3718,7 +3763,11 @@ int bbre_exec_init(const bbre *r, bbre_exec **pexec)
   if (!exec)
     return BBRE_ERR_MEM;
   memset(exec, 0, sizeof(bbre_exec));
-  exec->r = r;
+  exec->alloc = r->alloc;
+  exec->prog = &r->prog;
+  exec->prog_set_idxs = &r->prog_set_idxs;
+  memcpy(exec->entry, r->entry, sizeof(r->entry));
+  exec->npat = r->ast_sets;
   bbre_nfa_init(&exec->nfa);
   bbre_dfa_init(&exec->dfa);
   return err;
@@ -3728,9 +3777,9 @@ void bbre_exec_destroy(bbre_exec *exec)
 {
   if (!exec)
     return;
-  bbre_nfa_destroy(exec->r, &exec->nfa);
-  bbre_dfa_destroy(exec->r, &exec->dfa);
-  bbre_ialloc(exec->r, sizeof(bbre_exec), 0, exec);
+  bbre_nfa_destroy(exec, &exec->nfa);
+  bbre_dfa_destroy(exec, &exec->dfa);
+  exec->alloc(sizeof(bbre_exec), 0, exec);
 }
 
 int bbre_compile(bbre *r)
@@ -3761,29 +3810,29 @@ int bbre_exec_match(
     return err;
   }
   if ((err = bbre_nfa_start(
-           exec->r, &exec->nfa, exec->r->entry[entry], max_span * 2,
+           exec, &exec->nfa, exec->entry[entry], max_span * 2,
            entry & BBRE_PROG_ENTRY_REVERSE, entry != BBRE_ANCHOR_BOTH)))
     return err;
   if (entry & BBRE_PROG_ENTRY_REVERSE) {
     for (i = n; i > 0; i--) {
       if ((err = bbre_nfa_run(
-               exec->r, &exec->nfa, ((const bbre_u8 *)s)[i - 1], i, prev_ch)))
+               exec, &exec->nfa, ((const bbre_u8 *)s)[i - 1], i, prev_ch)))
         return err;
       prev_ch = ((const bbre_u8 *)s)[i - 1];
     }
     if ((err = bbre_nfa_end(
-             exec->r, 0, &exec->nfa, max_span, max_set, out_span, out_set,
+             exec, 0, &exec->nfa, max_span, max_set, out_span, out_set,
              prev_ch)))
       return err;
   } else {
     for (i = 0; i < n; i++) {
       if ((err = bbre_nfa_run(
-               exec->r, &exec->nfa, ((const bbre_u8 *)s)[i], i, prev_ch)))
+               exec, &exec->nfa, ((const bbre_u8 *)s)[i], i, prev_ch)))
         return err;
       prev_ch = ((const bbre_u8 *)s)[i];
     }
     if ((err = bbre_nfa_end(
-             exec->r, n, &exec->nfa, max_span, max_set, out_span, out_set,
+             exec, n, &exec->nfa, max_span, max_set, out_span, out_set,
              prev_ch)))
       return err;
   }
@@ -4624,7 +4673,7 @@ void d_prog_range(const bbre *r, bbre_u32 start, bbre_u32 end, int format)
   if (format == GRAPHVIZ)
     printf("node [colorscheme=pastel16]\n");
   for (; start < end; start++) {
-    bbre_inst ins = bbre_prog_get(r, start);
+    bbre_inst ins = bbre_prog_get(r->prog, start);
     static const char *ops[] = {"RANGE", "SPLIT", "MATCH", "ASSRT"};
     static const char *labels[] = {"F  ", "R  ", "F.*", "R.*", "   ", "+  "};
     char start_buf[10] = {0}, end_buf[10] = {0}, assert_buf[32] = {0};
