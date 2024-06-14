@@ -61,7 +61,7 @@ typedef enum bbre_ast_type {
   /* Matches any byte: /\C/ */
   BBRE_AST_TYPE_ANYBYTE,
   /* Empty assertion: /\b/
-   *   Argument 0: assertion flags, bitset of `enum assert_flag` (number) */
+   *   Argument 0: assertion flags, bitset of `bbre_assert_flag` (number) */
   BBRE_AST_TYPE_ASSERT
 } bbre_ast_type;
 
@@ -75,8 +75,8 @@ static const unsigned int bbre_ast_type_lens[] = {
     3, /* UQUANT */
     3, /* GROUP */
     3, /* IGROUP */
-    3, /* CLS */
-    3, /* ICLS */
+    3, /* CC */
+    3, /* */
     0, /* ANYBYTE */
     1, /* AASSERT */
 };
@@ -226,7 +226,7 @@ typedef enum bbre_prog_entry {
 } bbre_prog_entry;
 
 /* A set of regular expressions. */
-struct re {
+struct bbre {
   bbre_alloc alloc;           /* allocator function */
   bbre_buf(bbre_u32) ast;     /* AST arena */
   bbre_u32 ast_root,          /* AST root node reference */

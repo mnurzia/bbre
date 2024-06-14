@@ -34,7 +34,8 @@ typedef BBRE_S32_TYPE bbre_s32;
 typedef BBRE_U32_TYPE bbre_u32;
 
 /* These are purposefully opaque. */
-typedef struct re bbre;
+typedef struct bbre bbre;
+typedef struct bbre_prog bbre_prog;
 typedef struct bbre_exec bbre_exec;
 
 /* Allocator callback.
