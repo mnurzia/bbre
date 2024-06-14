@@ -14,7 +14,7 @@
 #define BBRE_UTF_MAX  0x10FFFF
 
 /* Macro for declaring a buffer. Serves mostly for readability. */
-#define bbre_buf(x) x *
+#define bbre_buf(T) T *
 
 /* Enumeration of AST types. */
 typedef enum bbre_ast_type {
@@ -154,6 +154,8 @@ typedef enum bbre_assert_flag {
  * but it could be increased later if we wish to add more */
 #define BBRE_INST_OPCODE_BITS 2
 
+/* The number of distinct opcodes was deliberately kept as low as possible. This
+ * makes the compiled programs easy to reason about. */
 typedef enum bbre_opcode {
   BBRE_OPCODE_RANGE, /* matches a range of bytes */
   BBRE_OPCODE_SPLIT, /* forks execution into two paths */
@@ -630,11 +632,11 @@ int bbre_union(bbre *r, const char *regex, size_t n)
  * inspired by Bjoern Hoehrmann's ubiquitous "Flexible and Economical UTF-8
  * Decoder" (https://bjoern.hoehrmann.de/utf-8/decoder/dfa/). I chose to write a
  * script that would generate this DFA for me. The first table,
- * utf8_dfa_class[], encodes equivalence classes for every byte. This helps cut
- * down on the amount of transitions in the DFA-- rather than having 256 for
+ * bbre_utf8_dfa_class[], encodes equivalence classes for every byte. This helps
+ * cut down on the amount of transitions in the DFA-- rather than having 256 for
  * each state, we only need the number of equivalence classes, typically in the
- * tens. The second table, utf8_dfa_trans[], encodes, for each state, the next
- * state for each equivalence class. This encoding allows the DFA to be
+ * tens. The second table, bbre_utf8_dfa_trans[], encodes, for each state, the
+ * next state for each equivalence class. This encoding allows the DFA to be
  * reasonably compact while still fairly fast. The third table,
  * bbre_utf8_dfa_shift[], encodes the amount of significant bits to ignore for
  * each input byte when accumulating the 32-bit rune. */
@@ -1844,7 +1846,7 @@ static int bbre_compcc_tree_build(
 /* Recursively check if two subtrees are equal.
  * I usually avoid recursion in C. However, this function will only recur a
  * maximum of 4 times, since the maximum depth of a tree (child-wise) is 4,
- * which is the maximum length of a UTF-8 sequence.*/
+ * which is the maximum length of a UTF-8 sequence. */
 static int bbre_compcc_tree_eq(
     const bbre_buf(bbre_compcc_tree) cc_tree_in, bbre_u32 a_ref, bbre_u32 b_ref)
 {
