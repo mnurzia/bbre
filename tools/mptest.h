@@ -475,66 +475,66 @@ typedef mptest__result (*mptest__test_func)(void);
 typedef void (*mptest__suite_func)(void);
 
 /* Internal functions that API macros call */
-MPTEST_API void mptest__state_init(struct mptest__state *state);
-MPTEST_API void mptest__state_destroy(struct mptest__state *state);
-MPTEST_API void mptest__state_report(struct mptest__state *state);
-MPTEST_API void mptest__run_test(struct mptest__state *state,
-                             mptest__test_func test_func,
-                             const char *test_name);
-MPTEST_API void mptest__run_suite(struct mptest__state *state,
-                              mptest__suite_func suite_func,
-                              const char *suite_name);
+MPTEST_API void mptest__state_init(struct mptest__state* state);
+MPTEST_API void mptest__state_destroy(struct mptest__state* state);
+MPTEST_API void mptest__state_report(struct mptest__state* state);
+MPTEST_API int mptest__state_finish(struct mptest__state* state);
+MPTEST_API void mptest__run_test(
+    struct mptest__state* state, mptest__test_func test_func,
+    const char* test_name);
+MPTEST_API void mptest__run_suite(
+    struct mptest__state* state, mptest__suite_func suite_func,
+    const char* suite_name);
 
-MPTEST_API void mptest__assert_fail(struct mptest__state *state, const char *msg,
-                                const char *assert_expr, const char *file,
-                                int line);
-MPTEST_API void mptest__assert_pass(struct mptest__state *state, const char *msg,
-                                const char *assert_expr, const char *file,
-                                int line);
+MPTEST_API void mptest__assert_fail(
+    struct mptest__state* state, const char* msg, const char* assert_expr,
+    const char* file, int line);
+MPTEST_API void mptest__assert_pass(
+    struct mptest__state* state, const char* msg, const char* assert_expr,
+    const char* file, int line);
 
 MPTEST_API void mptest_ex(void);
 
 MPTEST_API void mptest_ex_assert_fail(void);
 MPTEST_API void mptest_ex_uncaught_assert_fail(void);
 
-MPTEST_API MPTEST_JMP_BUF *mptest__catch_assert_begin(struct mptest__state *state);
-MPTEST_API void mptest__catch_assert_end(struct mptest__state *state);
-MPTEST_API void mptest__catch_assert_fail(struct mptest__state *state,
-                                      const char *msg, const char *assert_expr,
-                                      const char *file, int line);
+MPTEST_API MPTEST_JMP_BUF* mptest__catch_assert_begin(struct mptest__state* state);
+MPTEST_API void mptest__catch_assert_end(struct mptest__state* state);
+MPTEST_API void mptest__catch_assert_fail(
+    struct mptest__state* state, const char* msg, const char* assert_expr,
+    const char* file, int line);
 
-MPTEST_API void mptest__fault_set(struct mptest__state *state, int on);
+MPTEST_API void mptest__fault_set(struct mptest__state* state, int on);
 
 #if MPTEST_USE_LEAKCHECK
-MPTEST_API void *mptest__leakcheck_hook_malloc(struct mptest__state *state,
-                                           const char *file, int line,
-                                           size_t size);
-MPTEST_API void mptest__leakcheck_hook_free(struct mptest__state *state,
-                                        const char *file, int line, void *ptr);
-MPTEST_API void *mptest__leakcheck_hook_realloc(struct mptest__state *state,
-                                            const char *file, int line,
-                                            void *old_ptr, size_t new_size);
-MPTEST_API void mptest__leakcheck_set(struct mptest__state *state, int on);
+MPTEST_API void* mptest__leakcheck_hook_malloc(
+    struct mptest__state* state, const char* file, int line, size_t size);
+MPTEST_API void mptest__leakcheck_hook_free(
+    struct mptest__state* state, const char* file, int line, void* ptr);
+MPTEST_API void* mptest__leakcheck_hook_realloc(
+    struct mptest__state* state, const char* file, int line, void* old_ptr,
+    size_t new_size);
+MPTEST_API void mptest__leakcheck_set(struct mptest__state* state, int on);
 
 MPTEST_API void mptest_ex_nomem(void);
 MPTEST_API void mptest_ex_fault(void);
 MPTEST_API void mptest_ex_oom_inject(void);
 MPTEST_API void mptest_ex_bad_alloc(void);
 MPTEST_API void mptest_malloc_dump(void);
-MPTEST_API int mptest_fault(const char *cls);
+MPTEST_API int mptest_fault(const char* cls);
 #endif
 
 #if MPTEST_USE_APARSE
 /* declare argv as pointer to const pointer to const char */
 /* can change argv, can't change *argv, can't change **argv */
-MPTEST_API int mptest__state_init_argv(struct mptest__state *state, int argc,
-                                   const char *const *argv);
+MPTEST_API int mptest__state_init_argv(
+    struct mptest__state* state, int argc, const char* const* argv);
 #endif
 
 #if MPTEST_USE_FUZZ
 typedef unsigned long mptest_rand;
-MPTEST_API void mptest__fuzz_next_test(struct mptest__state *state, int iterations);
-MPTEST_API mptest_rand mptest__fuzz_rand(struct mptest__state *state);
+MPTEST_API void mptest__fuzz_next_test(struct mptest__state* state, int iterations);
+MPTEST_API mptest_rand mptest__fuzz_rand(struct mptest__state* state);
 #endif
 
 #define _ASSERT_PASS_BEHAVIOR(expr, msg)                                       \
@@ -682,8 +682,8 @@ MPTEST_API mptest_rand mptest__fuzz_rand(struct mptest__state *state);
   do {                                                                         \
     if (!(expr)) {                                                             \
       mptest_ex_uncaught_assert_fail();                                        \
-      mptest__catch_assert_fail(&mptest__state_g, msg, #expr, __FILE__,        \
-                                __LINE__);                                     \
+      mptest__catch_assert_fail(                                               \
+          &mptest__state_g, msg, #expr, __FILE__, __LINE__);                   \
     }                                                                          \
   } while (0)
 
@@ -695,8 +695,8 @@ MPTEST_API mptest_rand mptest__fuzz_rand(struct mptest__state *state);
         MPTEST__LONGJMP_REASON_ASSERT_FAIL) {                                  \
       if (!(expr)) {                                                           \
         mptest_ex_uncaught_assert_fail();                                      \
-        mptest__catch_assert_fail(&mptest__state_g, msg, #expr, __FILE__,      \
-                                  __LINE__);                                   \
+        mptest__catch_assert_fail(                                             \
+            &mptest__state_g, msg, #expr, __FILE__, __LINE__);                 \
       }                                                                        \
     } else {                                                                   \
       MPTEST_ASSERT(expr);                                                         \
@@ -715,16 +715,18 @@ MPTEST_API mptest_rand mptest__fuzz_rand(struct mptest__state *state);
 
 #if MPTEST_USE_LEAKCHECK
 
-#define MPTEST_INJECT_MALLOC_FL(size, file, line)                                             \
+#define MPTEST_INJECT_MALLOC_FL(size, file, line)                              \
   mptest__leakcheck_hook_malloc(&mptest__state_g, file, line, (size))
-#define MPTEST_INJECT_MALLOC(size) MPTEST_INJECT_MALLOC_FL(size, __FILE__, __LINE__)
-#define MPTEST_INJECT_FREE_FL(ptr, file, line)                                                \
+#define MPTEST_INJECT_MALLOC(size)                                             \
+  MPTEST_INJECT_MALLOC_FL(size, __FILE__, __LINE__)
+#define MPTEST_INJECT_FREE_FL(ptr, file, line)                                 \
   mptest__leakcheck_hook_free(&mptest__state_g, file, line, (ptr))
 #define MPTEST_INJECT_FREE(ptr) MPTEST_INJECT_FREE_FL(ptr, __FILE__, __LINE__)
-#define MPTEST_INJECT_REALLOC_FL(old_ptr, new_size, file, line)                               \
-  mptest__leakcheck_hook_realloc(&mptest__state_g, file, line,         \
-                                 (old_ptr), (new_size))
-#define MPTEST_INJECT_REALLOC(old_ptr, new_size) MPTEST_INJECT_REALLOC_FL(old_ptr, new_size, __FILE__, __LINE__)
+#define MPTEST_INJECT_REALLOC_FL(old_ptr, new_size, file, line)                \
+  mptest__leakcheck_hook_realloc(                                              \
+      &mptest__state_g, file, line, (old_ptr), (new_size))
+#define MPTEST_INJECT_REALLOC(old_ptr, new_size)                               \
+  MPTEST_INJECT_REALLOC_FL(old_ptr, new_size, __FILE__, __LINE__)
 #define MPTEST_ENABLE_LEAK_CHECKING()                                          \
   mptest__leakcheck_set(&mptest__state_g, MPTEST__LEAKCHECK_MODE_ON)
 
@@ -755,8 +757,8 @@ MPTEST_API mptest_rand mptest__fuzz_rand(struct mptest__state *state);
 
 #define MPTEST_MAIN_BEGIN_ARGS(argc, argv)                                     \
   do {                                                                         \
-    int res = mptest__state_init_argv(&mptest__state_g, argc,                  \
-                                      (char const *const *)(argv));            \
+    int res = mptest__state_init_argv(                                         \
+        &mptest__state_g, argc, (char const* const*)(argv));                   \
     if (res == AP_ERR_EXIT) {                                                  \
       return 1;                                                                \
     } else if (res != 0) {                                                     \
@@ -764,11 +766,7 @@ MPTEST_API mptest_rand mptest__fuzz_rand(struct mptest__state *state);
     }                                                                          \
   } while (0)
 
-#define MPTEST_MAIN_END()                                                      \
-  do {                                                                         \
-    mptest__state_report(&mptest__state_g);                                    \
-    mptest__state_destroy(&mptest__state_g);                                   \
-  } while (0)
+#define MPTEST_MAIN_END() mptest__state_finish(&mptest__state_g)
 
 #define MPTEST_ENABLE_FAULT_CHECKING()                                         \
   mptest__fault_set(&mptest__state_g, MPTEST__FAULT_MODE_ONE)
@@ -787,13 +785,13 @@ MPTEST_API mptest_rand mptest__fuzz_rand(struct mptest__state *state);
 typedef struct mptest_sym mptest_sym;
 
 typedef struct mptest_sym_build {
-  mptest_sym *sym;
+  mptest_sym* sym;
   mptest_int32 parent_ref;
   mptest_int32 prev_child_ref;
 } mptest_sym_build;
 
 typedef struct mptest_sym_walk {
-  const mptest_sym *sym;
+  const mptest_sym* sym;
   mptest_int32 parent_ref;
   mptest_int32 prev_child_ref;
 } mptest_sym_walk;
@@ -801,45 +799,48 @@ typedef struct mptest_sym_walk {
 typedef mptest_sym_build sym_build;
 typedef mptest_sym_walk sym_walk;
 
-MPTEST_API void mptest_sym_build_init(mptest_sym_build *build, mptest_sym *sym,
-                                  mptest_int32 parent_ref, mptest_int32 prev_child_ref);
-MPTEST_API int mptest_sym_build_expr(mptest_sym_build *build,
-                                 mptest_sym_build *sub);
-MPTEST_API int mptest_sym_build_str(mptest_sym_build *build, const char *str,
-                                mptest_size str_size);
-MPTEST_API int mptest_sym_build_cstr(mptest_sym_build *build, const char *cstr);
-MPTEST_API int mptest_sym_build_num(mptest_sym_build *build, mptest_int32 num);
-MPTEST_API int mptest_sym_build_type(mptest_sym_build *build, const char *type);
+MPTEST_API void mptest_sym_build_init(
+    mptest_sym_build* build, mptest_sym* sym, mptest_int32 parent_ref,
+    mptest_int32 prev_child_ref);
+MPTEST_API int
+mptest_sym_build_expr(mptest_sym_build* build, mptest_sym_build* sub);
+MPTEST_API int mptest_sym_build_str(
+    mptest_sym_build* build, const char* str, mptest_size str_size);
+MPTEST_API int mptest_sym_build_cstr(mptest_sym_build* build, const char* cstr);
+MPTEST_API int mptest_sym_build_num(mptest_sym_build* build, mptest_int32 num);
+MPTEST_API int mptest_sym_build_type(mptest_sym_build* build, const char* type);
 
-MPTEST_API void mptest_sym_walk_init(mptest_sym_walk *walk, const mptest_sym *sym,
-                                 mptest_int32 parent_ref, mptest_int32 prev_child_ref);
-MPTEST_API int mptest_sym_walk_getexpr(mptest_sym_walk *walk, mptest_sym_walk *sub);
-MPTEST_API int mptest_sym_walk_getstr(mptest_sym_walk *walk, const char **str,
-                                  mptest_size *str_size);
-MPTEST_API int mptest_sym_walk_getnum(mptest_sym_walk *walk, mptest_int32 *num);
-MPTEST_API int mptest_sym_walk_checktype(mptest_sym_walk *walk,
-                                     const char *expected_type);
-MPTEST_API int mptest_sym_walk_hasmore(mptest_sym_walk *walk);
-MPTEST_API int mptest_sym_walk_peekstr(mptest_sym_walk *walk);
-MPTEST_API int mptest_sym_walk_peeknum(mptest_sym_walk *walk);
-MPTEST_API int mptest_sym_walk_peekexpr(mptest_sym_walk *walk);
+MPTEST_API void mptest_sym_walk_init(
+    mptest_sym_walk* walk, const mptest_sym* sym, mptest_int32 parent_ref,
+    mptest_int32 prev_child_ref);
+MPTEST_API int mptest_sym_walk_getexpr(mptest_sym_walk* walk, mptest_sym_walk* sub);
+MPTEST_API int mptest_sym_walk_getstr(
+    mptest_sym_walk* walk, const char** str, mptest_size* str_size);
+MPTEST_API int mptest_sym_walk_getnum(mptest_sym_walk* walk, mptest_int32* num);
+MPTEST_API int
+mptest_sym_walk_checktype(mptest_sym_walk* walk, const char* expected_type);
+MPTEST_API int mptest_sym_walk_hasmore(mptest_sym_walk* walk);
+MPTEST_API int mptest_sym_walk_peekstr(mptest_sym_walk* walk);
+MPTEST_API int mptest_sym_walk_peeknum(mptest_sym_walk* walk);
+MPTEST_API int mptest_sym_walk_peekexpr(mptest_sym_walk* walk);
 
-MPTEST_API int mptest__sym_check_init(mptest_sym_build *build_out, const char *str,
-                                  const char *file, int line, const char *msg);
-MPTEST_API int mptest__sym_check(const char *file, int line, const char *msg);
+MPTEST_API int mptest__sym_check_init(
+    mptest_sym_build* build_out, const char* str, const char* file, int line,
+    const char* msg);
+MPTEST_API int mptest__sym_check(const char* file, int line, const char* msg);
 MPTEST_API void mptest__sym_check_destroy(void);
-MPTEST_API int mptest__sym_make_init(mptest_sym_build *build_out,
-                                 mptest_sym_walk *walk_out, const char *str,
-                                 const char *file, int line, const char *msg);
-MPTEST_API void mptest__sym_make_destroy(mptest_sym_build *build_out);
+MPTEST_API int mptest__sym_make_init(
+    mptest_sym_build* build_out, mptest_sym_walk* walk_out, const char* str,
+    const char* file, int line, const char* msg);
+MPTEST_API void mptest__sym_make_destroy(mptest_sym_build* build_out);
 
 #define MPTEST__SYM_NONE (-1)
 
 #define ASSERT_SYMEQm(type, in_var, chexpr, msg)                               \
   do {                                                                         \
     mptest_sym_build temp_build;                                               \
-    if (mptest__sym_check_init(&temp_build, chexpr, __FILE__, __LINE__,        \
-                               msg)) {                                         \
+    if (mptest__sym_check_init(                                                \
+            &temp_build, chexpr, __FILE__, __LINE__, msg)) {                   \
       return MPTEST__RESULT_ERROR;                                             \
     }                                                                          \
     if (type##_to_sym(&temp_build, in_var)) {                                  \
@@ -907,8 +908,8 @@ MPTEST_API void mptest__sym_make_destroy(mptest_sym_build *build_out);
     mptest_sym_build temp_build;                                               \
     mptest_sym_walk temp_walk;                                                 \
     int _sym_err;                                                              \
-    if (mptest__sym_make_init(&temp_build, &temp_walk, str, __FILE__,          \
-                              __LINE__, MPTEST_NULL)) {                            \
+    if (mptest__sym_make_init(                                                 \
+            &temp_build, &temp_walk, str, __FILE__, __LINE__, MPTEST_NULL)) {      \
       return MPTEST__RESULT_ERROR;                                             \
     }                                                                          \
     if ((_sym_err = type##_from_sym(&temp_walk, out_var))) {                   \

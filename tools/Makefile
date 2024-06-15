@@ -205,3 +205,6 @@ port: build $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h test_config.
 	mkdir -p build/port
 	cp -f scripts/port/* build/port
 	cp -f $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h test_config.h build/port
+
+## run sanity tests before committing
+precommit: test testoom

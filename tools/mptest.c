@@ -52,8 +52,8 @@ mptest_size mptest__str_slen(const mptest_char* chars);
 void mptest__str_clear(mptest__str* str);
 void mptest__str_cut_end(mptest__str* str, mptest_size new_size);
 
-#if MPTEST_USE_DYN_ALLOC
 #if MPTEST_USE_SYM
+#if MPTEST_USE_DYN_ALLOC
 /* bits/container/str_view */
 typedef struct mptest__str_view {
     const mptest_char* _data;
@@ -67,14 +67,14 @@ void mptest__str_view_init_null(mptest__str_view* view);
 mptest_size mptest__str_view_size(const mptest__str_view* view);
 const mptest_char* mptest__str_view_get_data(const mptest__str_view* view);
 int mptest__str_view_cmp(const mptest__str_view* a, const mptest__str_view* b);
-#endif /* MPTEST_USE_DYN_ALLOC */
 #endif /* MPTEST_USE_SYM */
+#endif /* MPTEST_USE_DYN_ALLOC */
 
 /* bits/util/unused */
 #define MPTEST__UNUSED(x) ((void)(x))
 
-#if MPTEST_USE_DYN_ALLOC
 #if MPTEST_USE_SYM
+#if MPTEST_USE_DYN_ALLOC
 /* bits/container/vec */
 #define MPTEST__VEC_TYPE(T) \
     MPTEST__PASTE(T, _vec)
@@ -390,8 +390,8 @@ int mptest__str_view_cmp(const mptest__str_view* a, const mptest__str_view* b);
         MPTEST__VEC_SETSIZE(T, vec, cap); \
         return 0; \
     }
-#endif /* MPTEST_USE_DYN_ALLOC */
 #endif /* MPTEST_USE_SYM */
+#endif /* MPTEST_USE_DYN_ALLOC */
 
 /* mptest */
 #ifndef MPTEST_INTERNAL_H
@@ -1897,8 +1897,8 @@ void mptest__str_cut_end(mptest__str* str, mptest_size new_size) {
     MPTEST__STR_DATA(str)[new_size] = '\0';
 }
 
-#if MPTEST_USE_DYN_ALLOC
 #if MPTEST_USE_SYM
+#if MPTEST_USE_DYN_ALLOC
 /* bits/container/str_view */
 void mptest__str_view_init(mptest__str_view* view, const mptest__str* other) {
     view->_size = mptest__str_size(other);
@@ -1950,8 +1950,8 @@ int mptest__str_view_cmp(const mptest__str_view* view_a, const mptest__str_view*
     }
     return 0;
 }
-#endif /* MPTEST_USE_DYN_ALLOC */
 #endif /* MPTEST_USE_SYM */
+#endif /* MPTEST_USE_DYN_ALLOC */
 
 #if MPTEST_USE_SYM
 /* bits/types/fixed/int32 */
@@ -2796,6 +2796,13 @@ MPTEST_API void mptest__state_report(struct mptest__state* state)
   printf("\n");
 }
 
+MPTEST_API int mptest__state_finish(struct mptest__state* state)
+{
+  int err = state->fails > 0;
+  mptest__state_report(state);
+  mptest__state_destroy(state);
+  return err;
+}
 /* Helper to indent to the current level if nested suites/tests are used. */
 MPTEST_INTERNAL void mptest__state_print_indent(struct mptest__state* state)
 {

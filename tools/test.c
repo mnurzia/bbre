@@ -58,8 +58,7 @@ int check_match_results(
   span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
   bbre_u32 i;
   /* perform the match */
-  if ((err = bbre_match(r, s, n, max_span, 0, found_span, NULL)) ==
-      BBRE_ERR_MEM)
+  if ((err = bbre_captures(r, s, n, max_span, found_span)) == BBRE_ERR_MEM)
     goto oom_re;
   ASSERT_GTEm(err, 0, "bbre_match() returned an error");
   ASSERT_EQm(
@@ -196,7 +195,7 @@ int check_compiles_n(const char *regex, size_t n)
   if ((err = bbre_init_full(&r, regex, n, NULL)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, 0);
-  if ((err = bbre_match(r, "", 0, 0, 0, NULL, NULL)) == BBRE_ERR_MEM)
+  if ((err = bbre_is_match(r, "", 0)) == BBRE_ERR_MEM)
     goto oom;
   bbre_destroy(r);
   PASS();
@@ -265,7 +264,7 @@ int assert_cc_match_raw(
   ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
     size_t sz = utf_encode(utf8, codep);
-    if ((err = bbre_match(r, utf8, sz, 0, 0, NULL, NULL)) == BBRE_ERR_MEM)
+    if ((err = bbre_is_match(r, utf8, sz)) == BBRE_ERR_MEM)
       goto oom;
     for (range_idx = 0; range_idx < num_ranges; range_idx++) {
       if (codep >= ranges[range_idx * 2] &&
@@ -275,7 +274,7 @@ int assert_cc_match_raw(
       }
     }
     if (range_idx == num_ranges) {
-      if ((err = bbre_match(r, utf8, sz, 0, 0, NULL, NULL)) == BBRE_ERR_MEM)
+      if ((err = bbre_is_match(r, utf8, sz)) == BBRE_ERR_MEM)
         goto oom;
       ASSERT_EQ(err, invert);
     }
@@ -2797,6 +2796,5 @@ int main(int argc, const char *const *argv)
    * potentially cryptic regression tests. */
   RUN_SUITE(fuzz_regression);
 #endif
-  MPTEST_MAIN_END();
-  return 0;
+  return MPTEST_MAIN_END();
 }
