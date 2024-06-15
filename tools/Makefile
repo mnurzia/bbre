@@ -109,6 +109,8 @@ build/compile_commands.json: build
 
 ## generate build/compile_commands.json for language servers 
 compile_commands: build/compile_commands.json
+	mkdir -p ../build # because compile commands needs to be at project root
+	cp build/compile_commands.json ../build/compile_commands.json
 
 build/cov/lcov.info: build/$(PROFILE)/re_test
 	$(MAKE) PROFILE=cov build/cov/re_test
