@@ -250,73 +250,64 @@ class MatchTest(Test):
         self,
         stamp: TestStamp | None,
         extra: Any | None,
-        regexes: tuple[bytes, ...],
+        regex: bytes,
         num_spans: int,
-        num_sets: int,
         match_string: bytes,
+        match: bool,
         match_spans: tuple[tuple[int, int], ...],
-        match_sets: tuple[int],
     ):
         super().__init__(stamp, extra)
-        self.regexes = regexes
+        self.regex = regex
         self.num_spans = num_spans
-        self.num_sets = num_sets
         self.match_string = match_string
+        self.match = match
         self.match_spans = match_spans
-        self.match_sets = match_sets
 
     @classmethod
     def from_dict(cls, obj: dict) -> Self:
         return cls(
             TestStamp.from_dict(obj),
             obj.get("extra", None),
-            tuple(map(deserialize_bytes, obj["regexes"])),
+            deserialize_bytes(obj["regex"]),
             obj["num_spans"],
-            obj["num_sets"],
             deserialize_bytes(obj["match_string"]),
+            obj["match"],
             obj["match_spans"],
-            obj["match_sets"],
         )
 
     def to_dict(self) -> dict:
         return super().to_dict() | {
-            "regexes": [serialize_bytes(b) for b in self.regexes],
+            "regex": serialize_bytes(self.regex),
+            "match": self.match,
             "num_spans": self.num_spans,
-            "num_sets": self.num_sets,
             "match_string": serialize_bytes(self.match_string),
+            "match": self.match,
             "match_spans": self.match_spans,
-            "match_sets": self.match_sets,
         }
 
     def to_c_code(self) -> list[str]:
         output, out = make_appender_func()
-        out("const char *regexes[] = {")
-        out(*[_escape_cstr(r) + "," for r in self.regexes])
-        out("};")
+        out("const char *regex = ")
+        out(_escape_cstr(self.regex))
+        out(";")
         out(_declare_cstr("text", self.match_string))
-        out("size_t regexes_n[] = {")
-        out(*[str(len(r)) + "," for r in self.regexes])
-        out("};")
+        out("size_t regex_n  = ")
+        out(str(len(self.regex)))
+        out(";")
         if self.num_spans != 0:
             out("span spans[] = {")
             out(",".join(f"{{{s[0]}, {s[1]}}}" for s in self.match_spans) + "};")
-        if self.num_sets != 0:
-            out("bbre_u32 sets[] = {")
-            out(",".join([str(s) for s in self.match_sets]) + ";")
         out("PROPAGATE(check_matches_n(")
         out(
             ",".join(
                 [
-                    "regexes",
-                    "regexes_n",
-                    f"{len(self.regexes)}",
+                    "regex",
+                    "regex_n",
                     "(const char*)text",
                     f"{len(self.match_string)}",
                     f"{self.num_spans}",
-                    f"{self.num_sets}",
                     "spans" if self.num_spans != 0 else "NULL",
-                    "sets" if self.num_sets != 0 else "NULL",
-                    f"{len(self.match_sets) if len(self.match_sets) != 0 else 1}",
+                    f"{1 if self.match else 0}",
                 ]
             ),
         )
