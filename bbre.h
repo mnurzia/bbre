@@ -108,17 +108,10 @@ int bbre_set_matches(
     bbre_set *set, const char *s, size_t n, bbre_u32 out_size, bbre_u32 *nmatch,
     bbre_u32 *out);
 
-typedef enum anchor_type {
-  BBRE_ANCHOR_BOTH = 'B',
-  BBRE_ANCHOR_START = 'S',
-  BBRE_ANCHOR_END = 'E',
-  BBRE_UNANCHORED = 'U'
-} anchor_type;
-
 /* max_span: 1 means match bounds, 2+ means match group n */
 int bbre_match(
     bbre *r, const char *s, size_t n, bbre_u32 max_span, bbre_u32 max_set,
-    span *out_span, bbre_u32 *out_set, anchor_type anchor);
+    span *out_span, bbre_u32 *out_set);
 
 int bbre_fork(bbre *r, bbre **out);
 int bbre_set_fork(bbre_set *s, bbre_set **out);

@@ -51,8 +51,7 @@ size_t utf_encode(char *out_buf, bbre_u32 codep)
 
 int check_match_results(
     bbre *r, const char *s, size_t n, bbre_u32 max_span, bbre_u32 max_set,
-    anchor_type anchor, span *check_span, bbre_u32 *check_set,
-    bbre_u32 check_nsets)
+    span *check_span, bbre_u32 *check_set, bbre_u32 check_nsets)
 {
   int err;
   /* memory for found spans and found sets */
@@ -60,15 +59,14 @@ int check_match_results(
   bbre_u32 found_set[TEST_MAX_SET], sets_to_check;
   bbre_u32 i, j;
   /* perform the match */
-  if ((err = bbre_match(
-           r, s, n, max_span, max_set, found_span, found_set, anchor)) ==
+  if ((err = bbre_match(r, s, n, max_span, max_set, found_span, found_set)) ==
       BBRE_ERR_MEM)
     goto oom_re;
   ASSERT_GTEm(err, 0, "bbre_match() returned an error");
   ASSERT_EQm(
       (bbre_u32)err, check_nsets,
       "bbre_match() didn't match the correct number of sets");
-  /* we only actually need to check a subset of the sets matched, according to
+  /* we only actpally need to check a subset of the sets matched, according to
    * the `check_nsets` parameter. also, in the case of boolean matches, max_set
    * will be zero and check_nsets will be 1. */
   sets_to_check = (check_nsets > max_set ? max_set : check_nsets);
@@ -94,8 +92,8 @@ oom_re:
 
 int check_matches_n(
     const char **regexes, size_t *regex_n, bbre_u32 nregex, const char *s,
-    size_t n, bbre_u32 max_span, bbre_u32 max_set, anchor_type anchor,
-    span *check_span, bbre_u32 *check_set, bbre_u32 check_nsets)
+    size_t n, bbre_u32 max_span, bbre_u32 max_set, span *check_span,
+    bbre_u32 *check_set, bbre_u32 check_nsets)
 {
   bbre *r = NULL;
   int err;
@@ -120,103 +118,11 @@ int check_matches_n(
   ASSERT_EQm(err, 0, "bbre_compile() returned a nonzero value");
   ASSERT_EQm(err, 0, "bbre_exec_init() returned a nonzero value");
   PROPAGATE(check_match_results(
-      r, s, n, max_span, max_set, anchor, check_span, check_set, check_nsets));
+      r, s, n, max_span, max_set, check_span, check_set, check_nsets));
   /* check to make sure that all match modes agree */
   /* if `check_nsets` > 0, then a boolean match *must* return 1.
    * if `check_nsets` == 0, then a boolean match *must* return 0. */
-  PROPAGATE(
-      check_match_results(r, s, n, 0, 0, anchor, NULL, NULL, !!check_nsets));
-  if (anchor == 'B' && !max_span) {
-    /* if we're fully anchored, group 0 *must* be the bounds of the match */
-    span check_span_anchored[TEST_MAX_SET];
-    for (i = 0; i < check_nsets; i++)
-      check_span_anchored[i].begin = 0, check_span_anchored[i].end = n;
-    PROPAGATE(check_match_results(
-        r, s, n, 1, max_set, anchor, check_span_anchored, check_set,
-        check_nsets));
-  }
-  if (1) {
-    /* start with just bounds */
-    span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
-    bbre_u32 found_set[TEST_MAX_SET], idx;
-    err = bbre_match(r, s, n, 1, TEST_MAX_SET, found_span, found_set, anchor);
-    if (err == BBRE_ERR_MEM)
-      goto oom_re;
-    ASSERT_GTE(err, 0);
-    for (idx = 0; idx < (unsigned)err; idx++) {
-      bbre *r2;
-      int err2;
-      span found_span_2[1];
-      bbre_u32 found_set_2[1];
-      if ((err2 = bbre_init_full(
-               &r2, regexes[found_set[idx]], regex_n[found_set[idx]], NULL)) ==
-          BBRE_ERR_MEM)
-        goto oom_re2;
-      ASSERT_EQm(err2, 0, "bbre_init_full() returned nonzero value");
-      if ((err2 = bbre_compile(r2)) == BBRE_ERR_MEM)
-        goto oom_re2;
-      ASSERT_EQm(err2, 0, "bbre_compile() returned nonzero value");
-      /* both anchors */
-      if ((err2 = bbre_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'B')) ==
-          BBRE_ERR_MEM)
-        goto oom_re2;
-      ASSERT_GTE(err2, 0);
-      if (err2 == 1) {
-        ASSERT_EQ(found_set_2[0], 0);
-        ASSERT_EQ(found_span_2[0].begin, 0);
-        ASSERT_EQ(found_span_2[0].end, n);
-      }
-      if (anchor == 'B') {
-        ASSERT_EQ(err2, 1);
-        ASSERT_EQ(found_span_2[0].begin, found_span[idx].begin);
-        ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
-      }
-      /* start anchored */
-      if ((err2 = bbre_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'S')) ==
-          BBRE_ERR_MEM)
-        goto oom_re2;
-      if (err2 == 1) {
-        ASSERT_EQ(found_span_2[0].begin, 0);
-        ASSERT_EQ(found_set_2[0], 0);
-      }
-      if (anchor == 'S') {
-        ASSERT_EQ(err2, 1);
-        ASSERT_EQ(found_span_2[0].begin, found_span[idx].begin);
-        ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
-        ASSERT_EQ(found_set_2[0], 0);
-      }
-      /* end anchored */
-      if ((err2 = bbre_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'E')) ==
-          BBRE_ERR_MEM)
-        goto oom_re2;
-      if (err2 == 1) {
-        ASSERT_EQ(found_span_2[0].end, n);
-        ASSERT_EQ(found_set_2[0], 0);
-      }
-      if (anchor == 'E') {
-        ASSERT_EQ(err2, 1);
-        ASSERT_EQ(found_span_2[0].begin, found_span[idx].begin);
-        ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
-      }
-      /* unanchored */
-      if ((err2 = bbre_match(r2, s, n, 1, 1, found_span_2, found_set_2, 'U')) ==
-          BBRE_ERR_MEM)
-        goto oom_re2;
-      if (err2 == 1) {
-        ASSERT_EQ(found_set_2[0], 0);
-      }
-      if (anchor == 'U') {
-        ASSERT_EQ(err2, 1);
-        ASSERT_EQ(found_span_2[0].begin, found_span[idx].begin);
-        ASSERT_EQ(found_span_2[0].end, found_span[idx].end);
-      }
-      bbre_destroy(r2);
-      continue;
-    oom_re2:
-      bbre_destroy(r2);
-      goto oom_re;
-    }
-  }
+  PROPAGATE(check_match_results(r, s, n, 0, 0, NULL, NULL, !!check_nsets));
   bbre_destroy(r);
   PASS();
 oom_re:
@@ -226,23 +132,23 @@ oom_re:
 
 int check_match(
     const char *regex, const char *s, size_t n, bbre_u32 max_span,
-    bbre_u32 max_set, anchor_type anchor, span *check_span, bbre_u32 *check_set,
+    bbre_u32 max_set, span *check_span, bbre_u32 *check_set,
     bbre_u32 check_nsets)
 {
   size_t regex_n = strlen(regex);
   return check_matches_n(
-      &regex, &regex_n, 1, s, n, max_span, max_set, anchor, check_span,
-      check_set, check_nsets);
+      &regex, &regex_n, 1, s, n, max_span, max_set, check_span, check_set,
+      check_nsets);
 }
 
 int check_fullmatch_n(const char *regex, const char *s, size_t n)
 {
-  return check_match(regex, s, n, 0, 0, BBRE_ANCHOR_BOTH, NULL, NULL, 1);
+  return check_match(regex, s, n, 0, 0, NULL, NULL, 1);
 }
 
 int check_not_fullmatch_n(const char *regex, const char *s, size_t n)
 {
-  return check_match(regex, s, n, 0, 0, BBRE_ANCHOR_BOTH, NULL, NULL, 0);
+  return check_match(regex, s, n, 0, 0, NULL, NULL, 0);
 }
 
 int check_fullmatch(const char *regex, const char *s)
@@ -255,26 +161,23 @@ int check_not_fullmatch(const char *regex, const char *s)
   return check_not_fullmatch_n(regex, s, strlen(s));
 }
 
-int check_match_g1_a(
-    const char *regex, const char *s, size_t b, size_t e, anchor_type anchor)
+int check_match_g1(const char *regex, const char *s, size_t b, size_t e)
 {
   span g;
   g.begin = b, g.end = e;
-  return check_match(regex, s, strlen(s), 1, 1, anchor, &g, NULL, 1);
+  return check_match(regex, s, strlen(s), 1, 1, &g, NULL, 1);
 }
 
-int check_match_g2_a(
-    const char *regex, const char *s, size_t b, size_t e, size_t b2, size_t e2,
-    anchor_type anchor)
+int check_match_g2(
+    const char *regex, const char *s, size_t b, size_t e, size_t b2, size_t e2)
 {
   span g[2];
   g[0].begin = b, g[0].end = e;
   g[1].begin = b2, g[1].end = e2;
-  return check_match(regex, s, strlen(s), 2, 1, anchor, g, NULL, 1);
+  return check_match(regex, s, strlen(s), 2, 1, g, NULL, 1);
 }
 
-int check_match_s2_a(
-    const char *r1, const char *r2, const char *s, anchor_type anchor)
+int check_match_s2(const char *r1, const char *r2, const char *s)
 {
   bbre_u32 set[2] = {0, 1};
   const char *regexes[2];
@@ -282,12 +185,12 @@ int check_match_s2_a(
   regexes[0] = r1, regexes[1] = r2;
   regexes_n[0] = strlen(r1), regexes_n[1] = strlen(r2);
   return check_matches_n(
-      regexes, regexes_n, 2, s, strlen(s), 0, 2, anchor, NULL, set, 2);
+      regexes, regexes_n, 2, s, strlen(s), 0, 2, NULL, set, 2);
 }
 
-int check_match_s2_g1_a(
+int check_match_s2_g1(
     const char *r1, const char *r2, const char *s, size_t b11, size_t e11,
-    size_t b21, size_t e21, anchor_type anchor)
+    size_t b21, size_t e21)
 {
   bbre_u32 set[2] = {0, 1};
   span g[2];
@@ -297,14 +200,12 @@ int check_match_s2_g1_a(
   regexes_n[0] = strlen(r1), regexes_n[1] = strlen(r2);
   g[0].begin = b11, g[0].end = e11;
   g[1].begin = b21, g[1].end = e21;
-  return check_matches_n(
-      regexes, regexes_n, 2, s, strlen(s), 1, 2, anchor, g, set, 2);
+  return check_matches_n(regexes, regexes_n, 2, s, strlen(s), 1, 2, g, set, 2);
 }
 
-int check_match_s2_g2_a(
+int check_match_s2_g2(
     const char *r1, const char *r2, const char *s, size_t b11, size_t e11,
-    size_t b12, size_t e12, size_t b21, size_t e21, size_t b22, size_t e22,
-    anchor_type anchor)
+    size_t b12, size_t e12, size_t b21, size_t e21, size_t b22, size_t e22)
 {
   bbre_u32 set[2] = {0, 1};
   span g[4];
@@ -316,8 +217,7 @@ int check_match_s2_g2_a(
   g[1].begin = b12, g[1].end = e12;
   g[2].begin = b21, g[2].end = e21;
   g[3].begin = b22, g[3].end = e22;
-  return check_matches_n(
-      regexes, regexes_n, 2, s, strlen(s), 2, 2, anchor, g, set, 2);
+  return check_matches_n(regexes, regexes_n, 2, s, strlen(s), 2, 2, g, set, 2);
 }
 
 #define ASSERT_MATCH(regex, str)  PROPAGATE(check_fullmatch(regex, str))
@@ -326,23 +226,17 @@ int check_match_s2_g2_a(
   PROPAGATE(check_fullmatch_n(regex, str, sz));
 #define ASSERT_NMATCH_N(regex, str, sz)                                        \
   PROPAGATE(check_not_fullmatch_n(regex, str, sz));
-#define ASSERT_MATCH_G1_A(regex, str, b, e, anchor)                            \
-  PROPAGATE(check_match_g1_a(regex, str, b, e, anchor))
 #define ASSERT_MATCH_G1(regex, str, b, e)                                      \
-  ASSERT_MATCH_G1_A(regex, str, b, e, BBRE_ANCHOR_BOTH)
-#define ASSERT_MATCH_G2_A(regex, str, b, e, b2, e2, anchor)                    \
-  PROPAGATE(check_match_g2_a(regex, str, b, e, b2, e2, anchor))
+  PROPAGATE(check_match_g1(regex, str, b, e))
 #define ASSERT_MATCH_G2(regex, str, b, e, b2, e2)                              \
-  ASSERT_MATCH_G2_A(regex, str, b, e, b2, e2, BBRE_ANCHOR_BOTH)
-#define ASSERT_MATCH_S2(r1, r2, str)                                           \
-  PROPAGATE(check_match_s2_a(r1, r2, str, BBRE_ANCHOR_BOTH))
+  PROPAGATE(check_match_g2(regex, str, b, e, b2, e2))
+#define ASSERT_MATCH_S2(r1, r2, str) PROPAGATE(check_match_s2(r1, r2, str))
 #define ASSERT_MATCH_S2_G1(r1, r2, str, b11, e11, b21, e21)                    \
-  PROPAGATE(                                                                   \
-      check_match_s2_g1_a(r1, r2, str, b11, e11, b21, e21, BBRE_ANCHOR_BOTH))
+  PROPAGATE(check_match_s2_g1(r1, r2, str, b11, e11, b21, e21))
 #define ASSERT_MATCH_S2_G2(                                                    \
     r1, r2, str, b11, e11, b12, e12, b21, e21, b22, e22)                       \
-  PROPAGATE(check_match_s2_g2_a(                                               \
-      r1, r2, str, b11, e11, b12, e12, b21, e21, b22, e22, BBRE_ANCHOR_BOTH))
+  PROPAGATE(                                                                   \
+      check_match_s2_g2(r1, r2, str, b11, e11, b12, e12, b21, e21, b22, e22))
 
 #define ASSERT_MATCH_ONLY(regex, str) ASSERT_MATCH(regex, str)
 
@@ -383,7 +277,7 @@ int check_compiles_n(const char *regex, size_t n)
   if ((err = bbre_init_full(&r, regex, n, NULL)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, 0);
-  if ((err = bbre_match(r, "", 0, 0, 0, NULL, NULL, 'U')) == BBRE_ERR_MEM)
+  if ((err = bbre_match(r, "", 0, 0, 0, NULL, NULL)) == BBRE_ERR_MEM)
     goto oom;
   bbre_destroy(r);
   PASS();
@@ -452,8 +346,7 @@ int assert_cc_match_raw(
   ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
     size_t sz = utf_encode(utf8, codep);
-    if ((err = bbre_match(r, utf8, sz, 0, 0, NULL, NULL, BBRE_ANCHOR_BOTH)) ==
-        BBRE_ERR_MEM)
+    if ((err = bbre_match(r, utf8, sz, 0, 0, NULL, NULL)) == BBRE_ERR_MEM)
       goto oom;
     for (range_idx = 0; range_idx < num_ranges; range_idx++) {
       if (codep >= ranges[range_idx * 2] &&
@@ -463,8 +356,7 @@ int assert_cc_match_raw(
       }
     }
     if (range_idx == num_ranges) {
-      if ((err = bbre_match(r, utf8, sz, 0, 0, NULL, NULL, BBRE_ANCHOR_BOTH)) ==
-          BBRE_ERR_MEM)
+      if ((err = bbre_match(r, utf8, sz, 0, 0, NULL, NULL)) == BBRE_ERR_MEM)
         goto oom;
       ASSERT_EQ(err, invert);
     }
@@ -614,37 +506,37 @@ TEST(star_two)
 
 TEST(star_greedy)
 {
-  ASSERT_MATCH_G2_A("(a*)", "aa", 0, 2, 0, 2, 'U');
+  ASSERT_MATCH_G2("(a*)", "aa", 0, 2, 0, 2);
   PASS();
 }
 
 TEST(star_ungreedy)
 {
-  ASSERT_MATCH_G2_A("(a*?)", "aa", 0, 0, 0, 0, 'U');
+  ASSERT_MATCH_G2("(a*?)", "aa", 0, 0, 0, 0);
   PASS();
 }
 
 TEST(star_greedy_then_ungreedy)
 {
-  ASSERT_MATCH_G2_A("a*(a*?)", "aaaaaa", 0, 6, 6, 6, 'U');
+  ASSERT_MATCH_G2("a*(a*?)", "aaaaaa", 0, 6, 6, 6);
   PASS();
 }
 
 TEST(star_ungreedy_then_greedy)
 {
-  ASSERT_MATCH_G2_A("a*?(a*)", "aaaaaa", 0, 6, 0, 6, 'U');
+  ASSERT_MATCH_G2("a*?(a*)", "aaaaaa", 0, 6, 0, 6);
   PASS();
 }
 
 TEST(star_ungreedy_with_assert)
 {
-  ASSERT_MATCH_G2_A("(a*?)\\b a*", "a a b", 0, 3, 0, 1, BBRE_ANCHOR_START);
+  ASSERT_MATCH_G2("(a*?)\\b a*", "a a b", 0, 3, 0, 1);
   PASS();
 }
 
 TEST(star_ungreedy_with_assert_unanchored)
 {
-  ASSERT_MATCH_G2_A("(a*?)\\b a*", "lauaaa a", 3, 8, 3, 6, BBRE_UNANCHORED);
+  ASSERT_MATCH_G2("(a*?)\\b a*", "lauaaa a", 3, 8, 3, 6);
   PASS();
 }
 
@@ -675,7 +567,7 @@ TEST(quest_one)
 
 TEST(quest_two)
 {
-  ASSERT_NMATCH("a?", "aa");
+  ASSERT_NMATCH("^a?$", "aa");
   PASS();
 }
 
@@ -1759,19 +1651,19 @@ TEST(repetition_zero_empty)
 
 TEST(repetition_zero_one)
 {
-  ASSERT_NMATCH("a{0}", "a");
+  ASSERT_NMATCH("^a{0}$", "a");
   PASS();
 }
 
 TEST(repetition_zero_two)
 {
-  ASSERT_NMATCH("a{0}", "aa");
+  ASSERT_NMATCH("^a{0}$", "aa");
   PASS();
 }
 
 TEST(repetition_zero_nonmatch)
 {
-  ASSERT_NMATCH("a{0}", "b");
+  ASSERT_NMATCH("^a{0}$", "b");
   PASS();
 }
 
@@ -1789,7 +1681,7 @@ TEST(repetition_one_one)
 
 TEST(repetition_one_two)
 {
-  ASSERT_NMATCH("a{1}", "aa");
+  ASSERT_NMATCH("^a{1}$", "aa");
   PASS();
 }
 
@@ -1819,7 +1711,7 @@ TEST(repetition_two_two)
 
 TEST(repetition_two_three)
 {
-  ASSERT_NMATCH("a{2}", "aaa");
+  ASSERT_NMATCH("^a{2}$", "aaa");
   PASS();
 }
 
@@ -1849,7 +1741,7 @@ TEST(repetition_zero_infty_two)
 
 TEST(repetition_zero_infty_nonmatch)
 {
-  ASSERT_NMATCH("a{0,}", "b");
+  ASSERT_NMATCH("^a{0,}$$", "b");
   PASS();
 }
 
@@ -1933,7 +1825,7 @@ TEST(repetition_one_three_three)
 
 TEST(repetition_one_three_four)
 {
-  ASSERT_NMATCH("a{1,3}", "aaaa");
+  ASSERT_NMATCH("^a{1,3}$", "aaaa");
   PASS();
 }
 
@@ -1951,7 +1843,7 @@ TEST(repetition_zero_zero_match)
 
 TEST(repetition_zero_zero_nonmatch)
 {
-  ASSERT_NMATCH("a{0,0}", "aa");
+  ASSERT_NMATCH("^a{0,0}$", "aa");
   PASS();
 }
 
@@ -2212,7 +2104,7 @@ SUITE(grp_flag_m)
 
 TEST(grp_flag_u_match)
 {
-  ASSERT_MATCH_G1_A("(?u)a*", "aa", 0, 0, 'U');
+  ASSERT_MATCH_G1("(?u)a*", "aa", 0, 0);
   PASS();
 }
 
@@ -2224,13 +2116,13 @@ TEST(grp_flag_u_nmatch)
 
 TEST(grp_flag_u_off_match)
 {
-  ASSERT_MATCH_G1_A("(?u:(?-u:a*))", "aa", 0, 2, 'B');
+  ASSERT_MATCH_G1("(?u:(?-u:a*))", "aa", 0, 2);
   PASS();
 }
 
 TEST(grp_flag_u_off_nmatch)
 {
-  ASSERT_NMATCH("(?u:(?-u:a*))", "b");
+  ASSERT_NMATCH("^(?u:(?-u:a*))$", "b");
   PASS();
 }
 

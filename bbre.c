@@ -265,10 +265,9 @@ struct bbre {
 
 /* A set of compiled regular expressions. */
 struct bbre_set {
-  bbre_alloc alloc;                 /* allocator function */
-  bbre_buf(bbre_inst) prog;         /* compiled program */
-  bbre_buf(bbre_u32) prog_set_idxs; /* pattern index for each instruction */
-  bbre_exec *exec; /* local execution context, NULL until actually used */
+  bbre_alloc alloc; /* allocator function */
+  bbre_prog prog;   /* compiled program */
+  bbre_exec *exec;  /* local execution context, NULL until actually used */
 };
 
 typedef struct bbre_save_slots {
@@ -330,12 +329,6 @@ struct bbre_exec {
 
 /* Helper macro for assertions. */
 #define BBRE_IMPLIES(subject, predicate) (!(subject) || (predicate))
-
-/* Allocate memory for an instance of `re`. */
-static void *bbre_ialloc(const bbre *r, size_t prev, size_t next, void *ptr)
-{
-  return r->alloc(prev, next, ptr);
-}
 
 #ifndef BBRE_DEFAULT_ALLOC
 /* Default allocation function. Hooks stdlib malloc. */
@@ -2899,7 +2892,7 @@ int bbre_set_init(bbre_set **pset, const bbre **rs, size_t n, bbre_alloc alloc)
     return (err = BBRE_ERR_MEM);
   set = *pset;
   memset(set, 0, sizeof(*set));
-  bbre_buf_init(&set->prog), bbre_buf_init(&set->prog_set_idxs);
+  bbre_prog_init(&set->prog, set->alloc);
   set->exec = NULL;
   return bbre_set_compile(set, rs, n);
 }
@@ -2908,8 +2901,7 @@ void bbre_set_destroy(bbre_set *set)
 {
   if (!set)
     return;
-  bbre_buf_destroy(set->alloc, &set->prog),
-      bbre_buf_destroy(set->alloc, &set->prog_set_idxs);
+  bbre_prog_destroy(&set->prog);
   set->alloc(sizeof(*set), 0, set);
 }
 
@@ -2919,19 +2911,21 @@ int bbre_set_compile(bbre_set *set, const bbre **rs, size_t n)
   size_t i;
   /* add sentinel 0th instruction */
   if ((err = bbre_buf_push(
-           set->alloc, &set->prog, bbre_inst_make(BBRE_OPCODE_RANGE, 0, 0))))
+           set->alloc, &set->prog.prog,
+           bbre_inst_make(BBRE_OPCODE_RANGE, 0, 0))) ||
+      (err = bbre_buf_push(set->alloc, &set->prog.set_idxs, 0)))
     return err;
   for (i = 0; i < n; i++) {
     /* relocate all subpatterns */
     const bbre *r = rs[i];
-    bbre_u32 src_pc, dst_pc = bbre_buf_size(set->prog);
+    bbre_u32 src_pc, dst_pc = bbre_prog_size(&set->prog);
     for (src_pc = r->prog.entry[0];
          src_pc < r->prog.entry[BBRE_PROG_ENTRY_DOTSTAR]; src_pc++) {
       if ((err = bbre_buf_push(
-               set->alloc, &set->prog,
+               set->alloc, &set->prog.prog,
                bbre_inst_relocate(r->prog.prog[src_pc], src_pc, dst_pc))))
         return err;
-      if ((err = bbre_buf_push(set->alloc, &set->prog_set_idxs, i + 1)))
+      if ((err = bbre_buf_push(set->alloc, &set->prog.set_idxs, i + 1)))
         return err;
     }
   }
@@ -3659,22 +3653,17 @@ bbre_dfa_save_matches(bbre_dfa *dfa, bbre_dfa_state *state, size_t pos)
 
 static int bbre_dfa_match(
     bbre_exec *exec, bbre_nfa *nfa, bbre_u8 *s, size_t n, bbre_u32 max_span,
-    bbre_u32 max_set, span *out_span, bbre_u32 *out_set, anchor_type anchor)
+    bbre_u32 max_set, span *out_span, bbre_u32 *out_set)
 {
   int err;
   bbre_dfa_state *state = NULL;
   size_t i;
-  bbre_u32 entry = anchor == BBRE_ANCHOR_END   ? BBRE_PROG_ENTRY_REVERSE
-                   : anchor == BBRE_UNANCHORED ? BBRE_PROG_ENTRY_DOTSTAR
-                                               : 0;
+  bbre_u32 entry = BBRE_PROG_ENTRY_DOTSTAR;
   bbre_u32 incoming_assert_flag = BBRE_DFA_STATE_FLAG_FROM_TEXT_BEGIN |
                                   BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN,
            reversed = !!(entry & BBRE_PROG_ENTRY_REVERSE);
-  int pri = anchor != BBRE_ANCHOR_BOTH;
+  int pri = 1;
   assert(max_span == 0 || max_span == 1);
-  assert(
-      anchor == BBRE_ANCHOR_BOTH || anchor == BBRE_ANCHOR_START ||
-      anchor == BBRE_ANCHOR_END);
   bbre_dfa_reset(&exec->dfa);
   if ((err = bbre_nfa_start(
            exec, &exec->nfa, exec->prog->entry[entry], 0, reversed, pri)))
@@ -3764,17 +3753,17 @@ static int bbre_dfa_match(
   return err;
 }
 
-int bbre_exec_init(const bbre *r, bbre_exec **pexec)
+int bbre_exec_init(bbre_exec **pexec, const bbre_prog *prog, bbre_alloc alloc)
 {
   int err = 0;
-  bbre_exec *exec = bbre_ialloc(r, 0, sizeof(bbre_exec), NULL);
+  bbre_exec *exec = alloc(0, sizeof(bbre_exec), NULL);
   *pexec = exec;
-  assert(bbre_prog_size(&r->prog));
+  assert(bbre_prog_size(prog));
   if (!exec)
     return BBRE_ERR_MEM;
   memset(exec, 0, sizeof(bbre_exec));
-  exec->alloc = r->alloc;
-  exec->prog = &r->prog;
+  exec->alloc = alloc;
+  exec->prog = prog;
   bbre_nfa_init(&exec->nfa);
   bbre_dfa_init(&exec->dfa);
   return err;
@@ -3802,23 +3791,21 @@ int bbre_compile(bbre *r)
 
 int bbre_exec_match(
     bbre_exec *exec, const char *s, size_t n, bbre_u32 max_span,
-    bbre_u32 max_set, span *out_span, bbre_u32 *out_set, anchor_type anchor)
+    bbre_u32 max_set, span *out_span, bbre_u32 *out_set)
 {
   int err = 0;
-  bbre_u32 entry = anchor == BBRE_ANCHOR_END   ? BBRE_PROG_ENTRY_REVERSE
-                   : anchor == BBRE_UNANCHORED ? BBRE_PROG_ENTRY_DOTSTAR
-                                               : 0;
+  bbre_u32 entry = BBRE_PROG_ENTRY_DOTSTAR;
   size_t i;
   bbre_u32 prev_ch = BBRE_SENTINEL_CH;
   if (!(entry & BBRE_PROG_ENTRY_DOTSTAR) && (max_span == 0 || max_span == 1)) {
     err = bbre_dfa_match(
-        exec, &exec->nfa, (bbre_u8 *)s, n, max_span, max_set, out_span, out_set,
-        anchor);
+        exec, &exec->nfa, (bbre_u8 *)s, n, max_span, max_set, out_span,
+        out_set);
     return err;
   }
   if ((err = bbre_nfa_start(
            exec, &exec->nfa, exec->prog->entry[entry], max_span * 2,
-           entry & BBRE_PROG_ENTRY_REVERSE, entry != BBRE_ANCHOR_BOTH)))
+           entry & BBRE_PROG_ENTRY_REVERSE, 1)))
     return err;
   if (entry & BBRE_PROG_ENTRY_REVERSE) {
     for (i = n; i > 0; i--) {
@@ -3848,14 +3835,14 @@ int bbre_exec_match(
 
 int bbre_match(
     bbre *r, const char *s, size_t n, bbre_u32 max_span, bbre_u32 max_set,
-    span *out_span, bbre_u32 *out_set, anchor_type anchor)
+    span *out_span, bbre_u32 *out_set)
 {
   int err = 0;
   if (!r->exec)
-    if ((err = bbre_exec_init(r, &r->exec)))
+    if ((err = bbre_exec_init(&r->exec, &r->prog, r->alloc)))
       return err;
   if ((err = bbre_exec_match(
-           r->exec, s, n, max_span, max_set, out_span, out_set, anchor)))
+           r->exec, s, n, max_span, max_set, out_span, out_set)))
     goto done;
 done:
   return err;
@@ -3863,17 +3850,46 @@ done:
 
 int bbre_is_match(bbre *r, const char *s, size_t n)
 {
-  return bbre_match(r, s, n, 0, 0, NULL, NULL, 'U');
+  return bbre_match(r, s, n, 0, 0, NULL, NULL);
 }
 
 int bbre_find(bbre *r, const char *s, size_t n, span *out)
 {
-  return bbre_match(r, s, n, 1, 0, out, NULL, 'U');
+  return bbre_match(r, s, n, 1, 0, out, NULL);
 }
 
 int bbre_captures(bbre *r, const char *s, size_t n, bbre_u32 ngrp, span *out)
 {
-  return bbre_match(r, s, n, ngrp, 0, out, NULL, 'U');
+  return bbre_match(r, s, n, ngrp, 0, out, NULL);
+}
+
+int bbre_set_match(
+    bbre_set *set, const char *s, size_t n, bbre_u32 max_span, bbre_u32 max_set,
+    span *out_span, bbre_u32 *out_set)
+{
+  int err = 0;
+  if (!set->exec)
+    if ((err = bbre_exec_init(&set->exec, &set->prog, set->alloc)))
+      return err;
+  if ((err = bbre_exec_match(
+           set->exec, s, n, max_span, max_set, out_span, out_set)))
+    goto done;
+done:
+  return err;
+}
+
+int bbre_set_is_match(bbre_set *set, const char *s, size_t n)
+{
+  return bbre_set_match(set, s, n, 0, 0, NULL, NULL);
+}
+
+int bbre_set_matches(
+    bbre_set *set, const char *s, size_t n, bbre_u32 out_size, bbre_u32 *nmatch,
+    bbre_u32 *out)
+{
+  int res = bbre_set_match(set, s, n, 0, out_size, NULL, out);
+  *nmatch = res > 0 ? res : 0;
+  return res;
 }
 
 /*{ Generated by `unicode_data.py gen_casefold` */

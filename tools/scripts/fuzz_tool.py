@@ -256,7 +256,6 @@ class MatchTest(Test):
         match_string: bytes,
         match_spans: tuple[tuple[int, int], ...],
         match_sets: tuple[int],
-        match_anchor: str,
     ):
         super().__init__(stamp, extra)
         self.regexes = regexes
@@ -265,7 +264,6 @@ class MatchTest(Test):
         self.match_string = match_string
         self.match_spans = match_spans
         self.match_sets = match_sets
-        self.match_anchor = match_anchor
 
     @classmethod
     def from_dict(cls, obj: dict) -> Self:
@@ -278,7 +276,6 @@ class MatchTest(Test):
             deserialize_bytes(obj["match_string"]),
             obj["match_spans"],
             obj["match_sets"],
-            obj["match_anchor"],
         )
 
     def to_dict(self) -> dict:
@@ -289,7 +286,6 @@ class MatchTest(Test):
             "match_string": serialize_bytes(self.match_string),
             "match_spans": self.match_spans,
             "match_sets": self.match_sets,
-            "match_anchor": self.match_anchor,
         }
 
     def to_c_code(self) -> list[str]:
@@ -318,7 +314,6 @@ class MatchTest(Test):
                     f"{len(self.match_string)}",
                     f"{self.num_spans}",
                     f"{self.num_sets}",
-                    f"'{self.match_anchor}'",
                     "spans" if self.num_spans != 0 else "NULL",
                     "sets" if self.num_sets != 0 else "NULL",
                     f"{len(self.match_sets) if len(self.match_sets) != 0 else 1}",
