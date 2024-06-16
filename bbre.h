@@ -63,7 +63,7 @@ typedef enum bbre_flags {
   BBRE_FLAG_UNGREEDY = 8
 } bbre_flags;
 
-int bbre_spec_init(bbre_spec **b, char *s, size_t n, bbre_alloc alloc);
+int bbre_spec_init(bbre_spec **b, const char *s, size_t n, bbre_alloc alloc);
 void bbre_spec_flags(bbre_spec *b, bbre_flags flags);
 void bbre_spec_destroy(bbre_spec *b);
 
@@ -74,21 +74,11 @@ void bbre_spec_destroy(bbre_spec *b);
  * solution. */
 bbre *bbre_init(const char *regex_nt);
 
-/* Initialize a regular expression at `*r`. `s` is the regexp, `n` is the length
- * of the regexp, in chars, and `alloc` is the allocator function, or NULL if
- * you want to use the stdlib.
- * Returns 0 on success, BBRE_ERR_MEM if out of memory, or BBRE_ERR_PARSE if the
- * regexp was ill-formed. */
-int bbre_init_full(bbre **pr, const char *regex, size_t n, bbre_alloc alloc);
-
 int bbre_init_spec(bbre **pr, const bbre_spec *spec, bbre_alloc alloc);
 
 size_t bbre_get_error(bbre *r, const char **msg, size_t *pos);
 /* Add another regexp to the set of regular expressions that `r` matches. */
 int bbre_union(bbre *r, const char *s, size_t n);
-
-/* Compile the regular expression so that it can be used to match text. */
-int bbre_compile(bbre *r);
 
 /* Destroy the regular expression. */
 void bbre_destroy(bbre *r);
@@ -105,8 +95,8 @@ void bbre_set_destroy(bbre_set *set);
 
 int bbre_set_is_match(bbre_set *set, const char *s, size_t n);
 int bbre_set_matches(
-    bbre_set *set, const char *s, size_t n, bbre_u32 out_size, bbre_u32 *nmatch,
-    bbre_u32 *out);
+    bbre_set *set, const char *s, size_t n, bbre_u32 out_size, bbre_u32 *out,
+    bbre_u32 *nmatch);
 
 int bbre_fork(bbre *r, bbre **out);
 int bbre_set_fork(bbre_set *s, bbre_set **out);
