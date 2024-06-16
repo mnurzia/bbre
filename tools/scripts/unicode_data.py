@@ -215,7 +215,7 @@ def _cmd_gen_casefold(args) -> int:
     out("current = begin + a0;")
     out("while (current != begin) {")
     out(
-        "  if ((err = bbre_buf_push(r, cc_out, bbre_rune_range_make(current, current))))"
+        "  if ((err = bbre_buf_push(r->alloc, cc_out, bbre_rune_range_make(current, current))))"
     )
     out("    return err;")
     out("  current = (bbre_u32)((bbre_s32)current + bbre_compcc_fold_next(current));")
