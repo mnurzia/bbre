@@ -2778,15 +2778,21 @@ SUITE(fuzz_regression); /* provided by test-gen.c */
 
 TEST(limit_program_size)
 {
-  bbre *r = bbre_init("a{99999}{2}");
+  bbre_spec *spec = NULL;
+  bbre *r = NULL;
   int err = 0;
-  if (!r)
+  const char *regex = "a{99999}{2}";
+  if ((err = bbre_spec_init(&spec, regex, strlen(regex), NULL)) == BBRE_ERR_MEM)
+    goto oom;
+  if ((err = bbre_init_spec(&r, spec, NULL)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, BBRE_ERR_LIMIT);
   bbre_destroy(r);
+  bbre_spec_destroy(spec);
   PASS();
 oom:
   bbre_destroy(r);
+  bbre_spec_destroy(spec);
   OOM();
 }
 
