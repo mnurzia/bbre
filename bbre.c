@@ -316,7 +316,6 @@ typedef struct bbre_dfa {
                        [BBRE_DFA_STATE_FLAG_MAX]; /* program entry type
                                                    * dfa_state_flag */
   bbre_buf(bbre_u32) set_buf;
-  bbre_buf(size_t) loc_buf;
   bbre_buf(bbre_u32) set_bmp;
 } bbre_dfa;
 
@@ -3148,15 +3147,17 @@ bbre_bmp_init(bbre_alloc alloc, bbre_buf(bbre_u32) * b, bbre_u32 size)
   bbre_u32 i;
   int err = 0;
   bbre_buf_clear(b);
+  if ((err = bbre_buf_reserve(
+           alloc, b, (size + BBRE_BITS_PER_U32) / BBRE_BITS_PER_U32)))
+    return err;
   for (i = 0; i < (size + BBRE_BITS_PER_U32) / BBRE_BITS_PER_U32; i++)
-    if ((err = bbre_buf_push(
-             alloc, b, 0))) /* TODO: change this to a bulk allocation */
-      return err;
+    *b[i] = 0;
   return err;
 }
 
 static void bbre_bmp_clear(bbre_buf(bbre_u32) * b)
 {
+  assert(*b);
   memset(*b, 0, bbre_buf_size(*b));
 }
 
@@ -3423,8 +3424,7 @@ static void bbre_dfa_init(bbre_dfa *d)
   d->states = NULL;
   d->states_size = d->num_active_states = 0;
   memset(d->entry, 0, sizeof(d->entry));
-  bbre_buf_init(&d->set_buf), bbre_buf_init(&d->loc_buf),
-      bbre_buf_init(&d->set_bmp);
+  bbre_buf_init(&d->set_buf), bbre_buf_init(&d->set_bmp);
 }
 
 static void bbre_dfa_reset(bbre_dfa *d)
@@ -3434,8 +3434,7 @@ static void bbre_dfa_reset(bbre_dfa *d)
     if (d->states[i])
       d->states[i]->flags |= BBRE_DFA_STATE_FLAG_DIRTY;
   d->num_active_states = 0;
-  bbre_buf_clear(&d->set_buf), bbre_buf_clear(&d->loc_buf),
-      bbre_buf_clear(&d->set_bmp);
+  bbre_buf_clear(&d->set_buf), bbre_buf_clear(&d->set_bmp);
   memset(d->entry, 0, sizeof(d->entry));
 }
 
@@ -3447,7 +3446,7 @@ static void bbre_dfa_destroy(bbre_exec *exec, bbre_dfa *d)
       exec->alloc(d->states[i]->alloc, 0, d->states[i]);
   exec->alloc(d->states_size * sizeof(bbre_dfa_state *), 0, d->states);
   bbre_buf_destroy(exec->alloc, &d->set_buf),
-      bbre_buf_destroy(exec->alloc, &d->loc_buf),
+
       bbre_buf_destroy(exec->alloc, &d->set_bmp);
 }
 
@@ -3670,121 +3669,18 @@ static int bbre_dfa_construct_chr(
       n, out_next_state);
 }
 
-static void
-bbre_dfa_save_matches(bbre_dfa *dfa, bbre_dfa_state *state, size_t pos)
+static void bbre_dfa_save_matches(bbre_dfa *dfa, bbre_dfa_state *state)
 {
-  bbre_u32 i;
-  for (i = 0; i < state->nset; i++) {
-    dfa->loc_buf[bbre_dfa_state_data(state)[state->nstate + i]] = pos;
-    bbre_bmp_set(dfa->set_bmp, i);
-  }
-}
-
-static int bbre_dfa_match(
-    bbre_exec *exec, bbre_nfa *nfa, bbre_u8 *s, size_t n, bbre_u32 max_span,
-    bbre_u32 max_set, span *out_span, bbre_u32 *out_set)
-{
-  int err;
-  bbre_dfa_state *state = NULL;
-  size_t i;
-  bbre_u32 entry = BBRE_PROG_ENTRY_DOTSTAR;
-  bbre_u32 incoming_assert_flag = BBRE_DFA_STATE_FLAG_FROM_TEXT_BEGIN |
-                                  BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN,
-           reversed = !!(entry & BBRE_PROG_ENTRY_REVERSE);
-  int pri = 1;
-  assert(max_span == 0 || max_span == 1);
-  bbre_dfa_reset(&exec->dfa);
-  if ((err = bbre_nfa_start(
-           exec, &exec->nfa, exec->prog->entry[entry], 0, reversed, pri)))
-    return err;
-  if (pri) {
-    bbre_buf_clear(&exec->dfa.loc_buf);
-    if ((err =
-             bbre_bmp_init(exec->alloc, &exec->dfa.set_bmp, exec->prog->npat)))
-      return err;
-    for (i = 0; i < exec->prog->npat; i++) {
-      size_t p = 0;
-      if ((err = bbre_buf_push(exec->alloc, &exec->dfa.loc_buf, p)))
-        return err;
-    }
-  }
-  i = reversed ? n : 0;
-  if (!(state = exec->dfa.entry[entry][incoming_assert_flag]) &&
-      (err = bbre_dfa_construct_start(
-           exec, &exec->dfa, nfa, entry, incoming_assert_flag, &state)))
-    return err;
-  if (pri)
-    bbre_dfa_save_matches(&exec->dfa, state, i);
-  {
-    /* This is a *very* hot loop. Don't change this without profiling first. */
-    /* Originally this loop used an index on the `s` variable. It was determined
-     * through profiling that it was faster to just keep a pointer and
-     * dereference+increment it every iteration of the character loop. So, we
-     * compute the start and end pointers of the span of the string, and then
-     * rip through the string until start == end. */
-    const bbre_u8 *start = reversed ? s + n - 1 : s,
-                  *end = reversed ? s - 1 : s + n;
-    /* The amount to increment each iteration of the loop. */
-    int increment = reversed ? -1 : 1;
-    while (start != end) {
-      bbre_u8 ch = *start;
-      bbre_dfa_state *next = state->ptrs[ch];
-      if (!next) {
-        if ((err = bbre_dfa_construct_chr(
-                 exec, &exec->dfa, nfa, state, ch, &next)))
-          return err;
-      }
-      state = next;
-      start += increment;
-      if (pri)
-        bbre_dfa_save_matches(&exec->dfa, state, start - s);
-    }
-  }
-  if (!state->ptrs[BBRE_SENTINEL_CH]) {
-    if ((err = bbre_dfa_construct_chr(
-             exec, &exec->dfa, nfa, state, BBRE_SENTINEL_CH, &state)))
-      return err;
-  } else
-    state = state->ptrs[s[i]];
-  if (pri) {
-    bbre_dfa_save_matches(&exec->dfa, state, i);
-    assert(!err);
-    for (i = 0; i < exec->prog->npat; i++) {
-      assert(err >= 0 && err <= (signed)i);
-      if (!bbre_bmp_get(exec->dfa.set_bmp, i))
-        continue;
-      if ((unsigned)err == max_set && max_set)
-        break;
-      if (max_span) {
-        size_t spos = exec->dfa.loc_buf[i];
-        out_span[i].begin = reversed ? spos : 0;
-        out_span[i].end = reversed ? n : spos;
-      }
-      if (!max_set) {
-        err = 1;
-        break;
-      } else if ((unsigned)err < max_set)
-        out_set[err] = i;
-      err++;
-    }
-  } else {
-    assert(state);
-    for (i = 0; i < state->nset; i++) {
-      if (max_span) {
-        out_span[i].begin = 0, out_span[i].end = n;
-      }
-      if (i < max_set)
-        out_set[i] = bbre_dfa_state_data(state)[state->nstate + i];
-    }
-    err = max_set ? (state->nset > max_set ? max_set : state->nset)
-                  : !!state->nset;
-  }
-  return err;
+  bbre_u32 *start, *end;
+  for (start = bbre_dfa_state_data(state) + state->nstate,
+      end = start + state->nset;
+       start < end; start++)
+    bbre_bmp_set(dfa->set_bmp, *start);
 }
 
 static int bbre_dfa_match_new(
     bbre_exec *exec, bbre_u8 *s, size_t n, size_t pos, size_t *out_pos,
-    int reversed, int pri, int exit_early)
+    int reversed, int pri, int exit_early, int many)
 {
   int err;
   bbre_dfa_state *state = NULL;
@@ -3803,16 +3699,10 @@ static int bbre_dfa_match_new(
   if ((err = bbre_nfa_start(
            exec, &exec->nfa, exec->prog->entry[entry], 0, reversed, pri)))
     return err;
-  if (pri) {
-    bbre_buf_clear(&exec->dfa.loc_buf);
+  if (many) {
     if ((err =
              bbre_bmp_init(exec->alloc, &exec->dfa.set_bmp, exec->prog->npat)))
       return err;
-    for (i = 0; i < exec->prog->npat; i++) {
-      size_t p = 0;
-      if ((err = bbre_buf_push(exec->alloc, &exec->dfa.loc_buf, p)))
-        return err;
-    }
   }
   i = reversed ? n : 0;
   {
@@ -3850,6 +3740,8 @@ static int bbre_dfa_match_new(
           goto done;
         }
       }
+      if (many)
+        bbre_dfa_save_matches(&exec->dfa, state);
       start += increment;
     }
   }
@@ -3859,6 +3751,8 @@ static int bbre_dfa_match_new(
       return err;
   } else
     state = state->ptrs[s[i]];
+  if (many)
+    bbre_dfa_save_matches(&exec->dfa, state);
   if (out_pos && state->nset)
     *out_pos = reversed ? 0 : n;
 done:
@@ -3902,50 +3796,6 @@ int bbre_compile(bbre *r)
   return err;
 }
 
-int bbre_exec_match_internal(
-    bbre_exec *exec, const char *s, size_t n, bbre_u32 max_span,
-    bbre_u32 max_set, span *out_span, bbre_u32 *out_set)
-{
-  int err = 0;
-  bbre_u32 entry = BBRE_PROG_ENTRY_DOTSTAR;
-  size_t i;
-  bbre_u32 prev_ch = BBRE_SENTINEL_CH;
-  if (!(entry & BBRE_PROG_ENTRY_DOTSTAR) && (max_span == 0 || max_span == 1)) {
-    err = bbre_dfa_match(
-        exec, &exec->nfa, (bbre_u8 *)s, n, max_span, max_set, out_span,
-        out_set);
-    return err;
-  }
-  if ((err = bbre_nfa_start(
-           exec, &exec->nfa, exec->prog->entry[entry], max_span * 2,
-           entry & BBRE_PROG_ENTRY_REVERSE, 1)))
-    return err;
-  if (entry & BBRE_PROG_ENTRY_REVERSE) {
-    for (i = n; i > 0; i--) {
-      if ((err = bbre_nfa_run(
-               exec, &exec->nfa, ((const bbre_u8 *)s)[i - 1], i, prev_ch)))
-        return err;
-      prev_ch = ((const bbre_u8 *)s)[i - 1];
-    }
-    if ((err = bbre_nfa_end(
-             exec, 0, &exec->nfa, max_span, max_set, out_span, out_set,
-             prev_ch)))
-      return err;
-  } else {
-    for (i = 0; i < n; i++) {
-      if ((err = bbre_nfa_run(
-               exec, &exec->nfa, ((const bbre_u8 *)s)[i], i, prev_ch)))
-        return err;
-      prev_ch = ((const bbre_u8 *)s)[i];
-    }
-    if ((err = bbre_nfa_end(
-             exec, n, &exec->nfa, max_span, max_set, out_span, out_set,
-             prev_ch)))
-      return err;
-  }
-  return err;
-}
-
 static int bbre_exec_match(
     bbre_exec *exec, const char *s, size_t n, size_t pos, bbre_u32 max_span,
     span *out_span)
@@ -3956,14 +3806,14 @@ static int bbre_exec_match(
   bbre_u32 prev_ch = BBRE_SENTINEL_CH;
   (void)pos;
   if (max_span == 0) {
-    return bbre_dfa_match_new(exec, (bbre_u8 *)s, n, pos, NULL, 0, 1, 1);
+    return bbre_dfa_match_new(exec, (bbre_u8 *)s, n, pos, NULL, 0, 1, 1, 0);
   } else if (max_span == 1) {
-    err =
-        bbre_dfa_match_new(exec, (bbre_u8 *)s, n, 0, &out_span[0].end, 0, 1, 0);
+    err = bbre_dfa_match_new(
+        exec, (bbre_u8 *)s, n, 0, &out_span[0].end, 0, 1, 0, 0);
     if (err <= 0)
       return err;
     return bbre_dfa_match_new(
-        exec, (bbre_u8 *)s, n, out_span[0].end, &out_span[0].begin, 1, 0, 0);
+        exec, (bbre_u8 *)s, n, out_span[0].end, &out_span[0].begin, 1, 0, 0, 0);
   }
   if ((err = bbre_nfa_start(
            exec, &exec->nfa, exec->prog->entry[entry], max_span * 2,
@@ -4003,16 +3853,40 @@ int bbre_match(
   return bbre_match_internal(r, s, n, pos, num_captures, captures);
 }
 
+int bbre_exec_set_match(
+    bbre_exec *exec, const char *s, size_t n, size_t pos, bbre_u32 idxs_size,
+    bbre_u32 *out_idxs, bbre_u32 *out_num_idxs)
+{
+  int err;
+  assert(BBRE_IMPLIES(idxs_size, out_idxs != NULL));
+  if (!idxs_size) {
+    /* boolean match */
+    return bbre_dfa_match_new(exec, (bbre_u8 *)s, n, pos, NULL, 0, 1, 1, 0);
+  } else {
+    bbre_u32 i, j;
+    size_t dummy;
+    err = bbre_dfa_match_new(exec, (bbre_u8 *)s, n, pos, &dummy, 0, 1, 0, 1);
+    if (err < 0)
+      return err;
+    for (i = 0, j = 0; i < exec->prog->npat && j < idxs_size; i++) {
+      if (bbre_bmp_get(exec->dfa.set_bmp, i))
+        out_idxs[j++] = i;
+    }
+    *out_num_idxs = j;
+    return !!j;
+  }
+}
+
 int bbre_set_match_internal(
-    bbre_set *set, const char *s, size_t n, bbre_u32 max_span, bbre_u32 max_set,
-    span *out_span, bbre_u32 *out_set)
+    bbre_set *set, const char *s, size_t n, size_t pos, bbre_u32 idxs_size,
+    bbre_u32 *out_idxs, bbre_u32 *out_num_idxs)
 {
   int err = 0;
   if (!set->exec)
     if ((err = bbre_exec_init(&set->exec, &set->prog, set->alloc)))
       return err;
-  if ((err = bbre_exec_match_internal(
-           set->exec, s, n, max_span, max_set, out_span, out_set)))
+  if ((err = bbre_exec_set_match(
+           set->exec, s, n, pos, idxs_size, out_idxs, out_num_idxs)))
     goto done;
 done:
   return err;
@@ -4022,10 +3896,8 @@ int bbre_set_match(
     bbre_set *set, const char *s, size_t n, size_t pos, bbre_u32 idxs_size,
     bbre_u32 *out_idxs, bbre_u32 *out_num_idxs)
 {
-  int res = bbre_set_match_internal(set, s, n, 0, idxs_size, NULL, out_idxs);
-  *out_num_idxs = res > 0 ? res : 0;
-  (void)pos;
-  return res;
+  return bbre_set_match_internal(
+      set, s, n, pos, idxs_size, out_idxs, out_num_idxs);
 }
 
 /*{ Generated by `unicode_data.py gen_casefold` */
