@@ -82,10 +82,11 @@ int bbre_union(bbre *r, const char *s, size_t n);
 
 /* Destroy the regular expression. */
 void bbre_destroy(bbre *r);
+int bbre_fork(bbre *r, bbre **out);
 
-int bbre_is_match(bbre *r, const char *s, size_t n);
-int bbre_find(bbre *r, const char *s, size_t n, span *out);
-int bbre_captures(bbre *r, const char *s, size_t n, bbre_u32 ngrp, span *out);
+int bbre_match(
+    bbre *r, const char *s, size_t n, size_t pos, bbre_u32 num_captures,
+    span *captures);
 
 /* Initialize a set of regular expressions. */
 int bbre_set_init(bbre_set **set, const bbre **rs, size_t n, bbre_alloc alloc);
@@ -93,12 +94,10 @@ int bbre_set_init(bbre_set **set, const bbre **rs, size_t n, bbre_alloc alloc);
 /* Destroy a set of regular expressions. */
 void bbre_set_destroy(bbre_set *set);
 
-int bbre_set_is_match(bbre_set *set, const char *s, size_t n);
-int bbre_set_matches(
-    bbre_set *set, const char *s, size_t n, bbre_u32 out_size, bbre_u32 *out,
-    bbre_u32 *nmatch);
+int bbre_set_match(
+    bbre_set *set, const char *s, size_t n, size_t pos, bbre_u32 idxs_size,
+    bbre_u32 *out_idxs, bbre_u32 *out_num_idxs);
 
-int bbre_fork(bbre *r, bbre **out);
 int bbre_set_fork(bbre_set *s, bbre_set **out);
 
 #endif /* MN_BBRE_H */

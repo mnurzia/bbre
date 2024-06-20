@@ -58,7 +58,7 @@ int check_match_results(
   span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
   bbre_u32 i;
   /* perform the match */
-  if ((err = bbre_captures(r, s, n, max_span, found_span)) == BBRE_ERR_MEM)
+  if ((err = bbre_match(r, s, n, 0, max_span, found_span)) == BBRE_ERR_MEM)
     goto oom_re;
   ASSERT_GTEm(err, 0, "bbre_match() returned an error");
   ASSERT_EQm(
@@ -203,7 +203,7 @@ int check_compiles_n(const char *regex, size_t n)
   if ((err = bbre_init_spec(&r, spec, NULL)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, 0);
-  if ((err = bbre_is_match(r, "", 0)) == BBRE_ERR_MEM)
+  if ((err = bbre_match(r, "", 0, 0, 0, NULL)) == BBRE_ERR_MEM)
     goto oom;
   bbre_destroy(r);
   bbre_spec_destroy(spec);
@@ -273,7 +273,7 @@ int assert_cc_match_raw(
   ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
     size_t sz = utf_encode(utf8, codep);
-    if ((err = bbre_is_match(r, utf8, sz)) == BBRE_ERR_MEM)
+    if ((err = bbre_match(r, utf8, sz, 0, 0, NULL)) == BBRE_ERR_MEM)
       goto oom;
     for (range_idx = 0; range_idx < num_ranges; range_idx++) {
       if (codep >= ranges[range_idx * 2] &&
@@ -283,7 +283,7 @@ int assert_cc_match_raw(
       }
     }
     if (range_idx == num_ranges) {
-      if ((err = bbre_is_match(r, utf8, sz)) == BBRE_ERR_MEM)
+      if ((err = bbre_match(r, utf8, sz, 0, 0, NULL)) == BBRE_ERR_MEM)
         goto oom;
       ASSERT_EQ(err, invert);
     }
@@ -2340,8 +2340,8 @@ TEST(set_many)
     char text[] = {'a', 0};
     bbre_u32 nmatch = 0;
     text[0] += i;
-    if ((err = bbre_set_matches(
-             set, text, 1, sizeof(pat_ids) / sizeof(pat_ids[0]), pat_ids,
+    if ((err = bbre_set_match(
+             set, text, 1, 0, sizeof(pat_ids) / sizeof(pat_ids[0]), pat_ids,
              &nmatch)) == BBRE_ERR_MEM)
       goto oom;
     ASSERT_EQ(nmatch, 1);
