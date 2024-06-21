@@ -2478,6 +2478,7 @@ bbre_inst bbre_inst_relocate(bbre_inst inst, bbre_u32 src, bbre_u32 dst)
     next_inst = bbre_inst_make(
         bbre_inst_opcode(next_inst), bbre_inst_next(next_inst),
         bbre_inst_relocate_pc(bbre_inst_param(next_inst), src, dst));
+    /* fall through */
   case BBRE_OPCODE_RANGE:
   case BBRE_OPCODE_MATCH:
   case BBRE_OPCODE_ASSERT:
@@ -2515,6 +2516,7 @@ int bbre_compile_dup(
       next_inst = bbre_inst_make(
           bbre_inst_opcode(next_inst), bbre_inst_next(next_inst),
           should_patch[1] ? 0 : bbre_inst_param(next_inst));
+      /* fall through */
     case BBRE_OPCODE_RANGE:
     case BBRE_OPCODE_MATCH:
     case BBRE_OPCODE_ASSERT:
