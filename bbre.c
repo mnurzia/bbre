@@ -3721,7 +3721,7 @@ static void bbre_dfa_save_matches(bbre_dfa *dfa, bbre_dfa_state *state)
 
 static int bbre_dfa_match(
     bbre_exec *exec, bbre_u8 *s, size_t n, size_t pos, size_t *out_pos,
-    int reversed, int pri, int exit_early, int many)
+    const int reversed, const int pri, const int exit_early, const int many)
 {
   int err;
   bbre_dfa_state *state = NULL;
@@ -3736,6 +3736,8 @@ static int bbre_dfa_match(
           BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN |
       (bbre_is_word_char(prev_ch) ? BBRE_DFA_STATE_FLAG_FROM_WORD : 0);
   assert(BBRE_IMPLIES(!out_pos, exit_early));
+  assert(BBRE_IMPLIES(exit_early, !pri)); /* enforces inner loop invariant */
+  assert(BBRE_IMPLIES(exit_early, !many));
   bbre_dfa_reset(&exec->dfa);
   if ((err = bbre_nfa_start(
            exec, &exec->nfa, exec->prog->entry[entry], 0, reversed, pri)))
@@ -3747,12 +3749,6 @@ static int bbre_dfa_match(
   }
   i = reversed ? n : 0;
   {
-    /* This is a *very* hot loop. Don't change this without profiling first. */
-    /* Originally this loop used an index on the `s` variable. It was determined
-     * through profiling that it was faster to just keep a pointer and
-     * dereference+increment it every iteration of the character loop. So, we
-     * compute the start and end pointers of the span of the string, and then
-     * rip through the string until start == end. */
     const bbre_u8 *start = reversed ? s + n - 1 : s,
                   *end = reversed ? s - 1 : s + n, *out = NULL;
     /* The amount to increment each iteration of the loop. */
@@ -3762,28 +3758,38 @@ static int bbre_dfa_match(
              exec, &exec->dfa, &exec->nfa, entry, incoming_assert_flag,
              &state)))
       return err;
+    /* This is a *very* hot loop. Don't change this without profiling first. */
+    /* Originally this loop used an index on the `s` variable. It was determined
+     * through profiling that it was faster to just keep a pointer and
+     * dereference+increment it every iteration of the character loop. So, we
+     * compute the start and end pointers of the span of the string, and then
+     * rip through the string until start == end. */
     while (start != end) {
       bbre_u8 ch = *start;
       bbre_dfa_state *next = state->ptrs[ch];
+      if (exit_early) {
+        if (state->nset) {
+          return 1;
+        }
+      } else {
+        if (pri) {
+          if (state->nset)
+            out = start;
+          if (!state->nstate) {
+            *out_pos = reversed ? out - end - increment : out - s - increment;
+            goto done;
+          }
+        }
+        if (many)
+          bbre_dfa_save_matches(&exec->dfa, state);
+      }
+      start += increment;
       if (!next) {
         if ((err = bbre_dfa_construct_chr(
                  exec, &exec->dfa, &exec->nfa, state, ch, &next)))
           return err;
       }
       state = next;
-      if (exit_early && state->nset)
-        return 1;
-      if (pri) {
-        if (state->nset)
-          out = start;
-        if (!state->nstate) {
-          *out_pos = reversed ? out - end : out - s;
-          goto done;
-        }
-      }
-      if (many)
-        bbre_dfa_save_matches(&exec->dfa, state);
-      start += increment;
     }
   }
   if (!state->ptrs[BBRE_SENTINEL_CH]) {
@@ -3847,7 +3853,7 @@ static int bbre_exec_match(
   bbre_u32 prev_ch = BBRE_SENTINEL_CH;
   (void)pos;
   if (max_span == 0) {
-    return bbre_dfa_match(exec, (bbre_u8 *)s, n, pos, NULL, 0, 1, 1, 0);
+    return bbre_dfa_match(exec, (bbre_u8 *)s, n, pos, NULL, 0, 0, 1, 0);
   } else if (max_span == 1) {
     err =
         bbre_dfa_match(exec, (bbre_u8 *)s, n, 0, &out_span[0].end, 0, 1, 0, 0);

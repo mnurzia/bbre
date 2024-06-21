@@ -81,7 +81,7 @@ char run_pointer_chase(char *buf, size_t buf_size)
   return (char)(current - pointers);
 }
 
-#define BENCH_SIZE 1048576 * 64 * 4
+#define BENCH_SIZE 1048576 * 64 * 16
 
 int use(int val)
 {
@@ -103,29 +103,10 @@ void pointer_chase(void)
 void bool_match_full(void)
 {
   bbre *r = bbre_init("123456789123456789*");
-  bbre_exec *e;
   char *buf = rand_buf(BENCH_SIZE);
-  bbre_compile(r);
-  bbre_exec_init(r, &e);
   bench_start();
-  bbre_exec_match(e, buf, BENCH_SIZE, 0, 0, NULL, NULL, 'B');
+  bbre_match(r, buf, BENCH_SIZE, 0, 0, NULL);
   bench_end(BENCH_SIZE);
-  bbre_exec_destroy(e);
-  bbre_destroy(r);
-  free(buf);
-}
-
-void bool_match_unanchored(void)
-{
-  bbre *r = bbre_init("123456789123456789*");
-  bbre_exec *e;
-  char *buf = rand_buf(BENCH_SIZE);
-  bbre_compile(r);
-  bbre_exec_init(r, &e);
-  bench_start();
-  bbre_exec_match(e, buf, BENCH_SIZE, 0, 0, NULL, NULL, 'S');
-  bench_end(BENCH_SIZE);
-  bbre_exec_destroy(e);
   bbre_destroy(r);
   free(buf);
 }
@@ -136,6 +117,5 @@ int main(void)
 {
   BENCH_RUN(pointer_chase);
   BENCH_RUN(bool_match_full);
-  BENCH_RUN(bool_match_unanchored);
   return 0;
 }
