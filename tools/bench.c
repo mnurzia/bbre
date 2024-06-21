@@ -102,7 +102,7 @@ char run_pointer_chase(char *buf, size_t buf_size)
 int use(int val)
 {
   /* the compiler was REALLY trying to get me not to do this... */
-  const char fmt[] = {0, '%', 'i'};
+  const char fmt[] = {0, '%', 'i', 0};
   fprintf(stdout, fmt, val);
   return 0;
 }
