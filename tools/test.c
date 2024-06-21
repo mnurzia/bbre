@@ -19,6 +19,13 @@
 #endif
 
 #define IMPLIES(c, pred) (!(c) || (pred))
+#define PASS_OR_OOM(err)                                                       \
+  do {                                                                         \
+    if (err == ERR_MEM)                                                        \
+      OOM();                                                                   \
+    else                                                                       \
+      PASS();                                                                  \
+  } while (0)
 
 size_t utf_encode(char *out_buf, bbre_u32 codep)
 {
@@ -53,13 +60,13 @@ int check_match_results(
     bbre *r, const char *s, size_t n, bbre_u32 max_span, span *check_span,
     bbre_u32 match)
 {
-  int err;
+  int err = 0;
   /* memory for found spans and found sets */
   span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
   bbre_u32 i;
   /* perform the match */
   if ((err = bbre_match(r, s, n, 0, max_span, found_span)) == BBRE_ERR_MEM)
-    goto oom_re;
+    return err;
   ASSERT_GTEm(err, 0, "bbre_match() returned an error");
   ASSERT_EQm(
       (bbre_u32)err, match, "bbre_match() didn't return the correct value");
@@ -71,10 +78,7 @@ int check_match_results(
       ASSERT_EQm(
           check_span[i].end, found_span[i].end, "found unexpected span end");
     }
-  PASS();
-oom_re:
-  bbre_destroy(r);
-  OOM();
+  return !((bbre_u32)err == match);
 }
 
 int check_matches_n(
@@ -91,8 +95,13 @@ int check_matches_n(
     goto oom_re;
   ASSERT_EQm(err, 0, "bbre_init_full() returned a nonzero value");
   ASSERT_EQm(err, 0, "bbre_exec_init() returned a nonzero value");
-  PROPAGATE(check_match_results(r, s, n, max_span, check_span, match));
-  PROPAGATE(check_match_results(r, s, n, 0, 0, match));
+  if ((err = check_match_results(r, s, n, max_span, check_span, match)) ==
+      BBRE_ERR_MEM)
+    goto oom_re;
+  ASSERT(!err);
+  if ((err = check_match_results(r, s, n, 0, 0, match)) == BBRE_ERR_MEM)
+    goto oom_re;
+  ASSERT(!err);
   bbre_destroy(r);
   bbre_spec_destroy(spec);
   PASS();
@@ -289,9 +298,11 @@ int assert_cc_match_raw(
     }
   }
   bbre_destroy(r);
+  bbre_spec_destroy(spec);
   PASS();
 oom:
   bbre_destroy(r);
+  bbre_spec_destroy(spec);
   OOM();
 }
 
@@ -2322,6 +2333,7 @@ TEST(set_many)
 {
   bbre *patterns[26] = {0};
   bbre_set *set = NULL;
+  bbre_set_spec *spec = NULL;
   bbre_u32 i = 0;
   int err = 0;
   bbre_u32 pat_ids[2] = {0};
@@ -2332,10 +2344,16 @@ TEST(set_many)
       goto oom;
     ASSERT_EQ(err, 0);
   }
-  if ((err = bbre_set_init(
-           &set, (const bbre **)patterns,
-           sizeof(patterns) / sizeof(patterns[0]), NULL)) == BBRE_ERR_MEM)
+  if ((err = bbre_set_spec_init(&spec, NULL)) == BBRE_ERR_MEM)
     goto oom;
+  for (i = 0; i < sizeof(patterns) / sizeof(patterns[0]); i++) {
+    if ((err = bbre_set_spec_add(spec, patterns[i])))
+      goto oom;
+  }
+  if ((err = bbre_set_init_spec(&set, spec, NULL)) == BBRE_ERR_MEM)
+    goto oom;
+  bbre_set_spec_destroy(spec);
+  spec = NULL;
   for (i = 0; i < sizeof(patterns) / sizeof(patterns[0]); i++) {
     char text[] = {'a', 0};
     bbre_u32 nmatch = 0;
@@ -2352,11 +2370,13 @@ TEST(set_many)
   for (i = 0; i < sizeof(patterns) / sizeof(patterns[0]); i++)
     bbre_destroy(patterns[i]);
   bbre_set_destroy(set);
+  bbre_set_spec_destroy(spec);
   PASS();
 oom:
   for (i = 0; i < sizeof(patterns) / sizeof(patterns[0]); i++)
     bbre_destroy(patterns[i]);
   bbre_set_destroy(set);
+  bbre_set_spec_destroy(spec);
   OOM();
 }
 

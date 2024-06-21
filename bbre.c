@@ -263,6 +263,12 @@ struct bbre {
   bbre_exec *exec; /* local execution context, NULL until actually used */
 };
 
+/* A builder class for regular expression sets. */
+struct bbre_set_spec {
+  bbre_alloc alloc;            /* allocator function */
+  bbre_buf(const bbre *) pats; /* patterns that compose this set */
+};
+
 /* A set of compiled regular expressions. */
 struct bbre_set {
   bbre_alloc alloc; /* allocator function */
@@ -518,7 +524,7 @@ void bbre_buf_clear(void *buf)
 #define bbre_buf_push(r, b, e)                                                 \
   (bbre_buf_grow_t((r), (void **)(b), bbre_buf_esz(b))                         \
        ? BBRE_ERR_MEM                                                          \
-       : (((*b)                                                                \
+       : (((*(b))                                                              \
                [bbre_buf_tail_t((void *)(*b), bbre_buf_esz(b)) /               \
                 bbre_buf_esz(b)]) = (e),                                       \
           0))
@@ -556,7 +562,7 @@ int bbre_spec_init(bbre_spec **pspec, const char *s, size_t n, bbre_alloc alloc)
   alloc = bbre_alloc_make(alloc);
   spec = alloc(0, sizeof(bbre_spec), NULL);
   *pspec = spec;
-  if (!pspec)
+  if (!spec)
     return (err = BBRE_ERR_MEM);
   memset(spec, 0, sizeof(*spec));
   spec->alloc = alloc;
@@ -603,6 +609,10 @@ bbre *bbre_init(const char *regex)
 error:
   /* bbre_spec_destroy() accepts NULL */
   bbre_spec_destroy(spec);
+  if (err == BBRE_ERR_MEM) {
+    bbre_destroy(r);
+    r = NULL;
+  }
   return r;
 }
 
@@ -2885,9 +2895,38 @@ static int bbre_compile_internal(bbre *r, bbre_u32 ast_root, bbre_u32 reverse)
   return bbre_compile_dotstar(&r->prog, reverse, 1);
 }
 
+int bbre_set_spec_init(bbre_set_spec **pspec, bbre_alloc alloc)
+{
+  int err = 0;
+  bbre_set_spec *spec;
+  alloc = bbre_alloc_make(alloc);
+  spec = alloc(0, sizeof(bbre_spec), NULL);
+  *pspec = spec;
+  if (!spec)
+    return (err = BBRE_ERR_MEM);
+  memset(spec, 0, sizeof(*spec));
+  spec->alloc = alloc;
+  bbre_buf_init(&spec->pats);
+  return err;
+}
+
+int bbre_set_spec_add(bbre_set_spec *set, const bbre *b)
+{
+  return bbre_buf_push(set->alloc, &set->pats, b);
+}
+
+void bbre_set_spec_destroy(bbre_set_spec *spec)
+{
+  if (!spec)
+    return;
+  bbre_buf_destroy(spec->alloc, &spec->pats);
+  spec->alloc(sizeof(bbre_spec), 0, spec);
+}
+
 int bbre_set_compile(bbre_set *set, const bbre **rs, size_t n);
 
-int bbre_set_init(bbre_set **pset, const bbre **rs, size_t n, bbre_alloc alloc)
+int bbre_set_init_spec(
+    bbre_set **pset, const bbre_set_spec *spec, bbre_alloc alloc)
 {
   int err = 0;
   bbre_set *set;
@@ -2900,7 +2939,7 @@ int bbre_set_init(bbre_set **pset, const bbre **rs, size_t n, bbre_alloc alloc)
   set->alloc = alloc;
   bbre_prog_init(&set->prog, set->alloc);
   set->exec = NULL;
-  return bbre_set_compile(set, rs, n);
+  return bbre_set_compile(set, spec->pats, bbre_buf_size(spec->pats));
 }
 
 void bbre_set_destroy(bbre_set *set)
@@ -2908,6 +2947,8 @@ void bbre_set_destroy(bbre_set *set)
   if (!set)
     return;
   bbre_prog_destroy(&set->prog);
+  if (set->exec)
+    bbre_exec_destroy(set->exec);
   set->alloc(sizeof(*set), 0, set);
 }
 
@@ -3678,7 +3719,7 @@ static void bbre_dfa_save_matches(bbre_dfa *dfa, bbre_dfa_state *state)
     bbre_bmp_set(dfa->set_bmp, *start);
 }
 
-static int bbre_dfa_match_new(
+static int bbre_dfa_match(
     bbre_exec *exec, bbre_u8 *s, size_t n, size_t pos, size_t *out_pos,
     int reversed, int pri, int exit_early, int many)
 {
@@ -3806,13 +3847,13 @@ static int bbre_exec_match(
   bbre_u32 prev_ch = BBRE_SENTINEL_CH;
   (void)pos;
   if (max_span == 0) {
-    return bbre_dfa_match_new(exec, (bbre_u8 *)s, n, pos, NULL, 0, 1, 1, 0);
+    return bbre_dfa_match(exec, (bbre_u8 *)s, n, pos, NULL, 0, 1, 1, 0);
   } else if (max_span == 1) {
-    err = bbre_dfa_match_new(
-        exec, (bbre_u8 *)s, n, 0, &out_span[0].end, 0, 1, 0, 0);
+    err =
+        bbre_dfa_match(exec, (bbre_u8 *)s, n, 0, &out_span[0].end, 0, 1, 0, 0);
     if (err <= 0)
       return err;
-    return bbre_dfa_match_new(
+    return bbre_dfa_match(
         exec, (bbre_u8 *)s, n, out_span[0].end, &out_span[0].begin, 1, 0, 0, 0);
   }
   if ((err = bbre_nfa_start(
@@ -3861,11 +3902,11 @@ int bbre_exec_set_match(
   assert(BBRE_IMPLIES(idxs_size, out_idxs != NULL));
   if (!idxs_size) {
     /* boolean match */
-    return bbre_dfa_match_new(exec, (bbre_u8 *)s, n, pos, NULL, 0, 1, 1, 0);
+    return bbre_dfa_match(exec, (bbre_u8 *)s, n, pos, NULL, 0, 1, 1, 0);
   } else {
     bbre_u32 i, j;
     size_t dummy;
-    err = bbre_dfa_match_new(exec, (bbre_u8 *)s, n, pos, &dummy, 0, 1, 0, 1);
+    err = bbre_dfa_match(exec, (bbre_u8 *)s, n, pos, &dummy, 0, 1, 0, 1);
     if (err < 0)
       return err;
     for (i = 0, j = 0; i < exec->prog->npat && j < idxs_size; i++) {
