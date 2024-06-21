@@ -19,7 +19,7 @@ I like regular expressions and C89.
 
 ### You should have written this in Rust.
 
-That would have been too easy.
+That would have been too much fun.
 
 ### What does the `bb` stand for?
 

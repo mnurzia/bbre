@@ -19,13 +19,6 @@
 #endif
 
 #define IMPLIES(c, pred) (!(c) || (pred))
-#define PASS_OR_OOM(err)                                                       \
-  do {                                                                         \
-    if (err == ERR_MEM)                                                        \
-      OOM();                                                                   \
-    else                                                                       \
-      PASS();                                                                  \
-  } while (0)
 
 size_t utf_encode(char *out_buf, bbre_u32 codep)
 {
