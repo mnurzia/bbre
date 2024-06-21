@@ -156,6 +156,10 @@ bench: $(OUT_DIR)/bench
 prof: $(OUT_DIR)/bench
 	samply record ./$(OUT_DIR)/bench
 
+## profile a specific benchmark
+prof_%: $(OUT_DIR)/bench
+	samply record ./$(OUT_DIR)/bench $(subst prof_,,$@)
+
 build/fuzzington/release/fuzzington: scripts/fuzzington/src/main.rs scripts/fuzzington/build.rs re.c re.h
 	cd scripts/fuzzington;RUSTFLAGS="-C link-dead-code" cargo build --release --target-dir ../../build/fuzzington
 
