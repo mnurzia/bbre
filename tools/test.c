@@ -1040,6 +1040,16 @@ TEST(cls_utf8_insensitive_inverted)
   PASS();
 }
 
+TEST(cls_utf8_ranges_common_first_bytes)
+{
+  /* narrows down a very specific crash found by fuzzington (0017) */
+  ASSERT_CC_MATCH(
+      "[\\x09-\\x41\\x{164}-\\x{4c6e6}\\x{5927a}-\\x{5e0b7}\\x{6bef8}-\\x{"
+      "b285e}]",
+      "0x9 0x41,0x164 0x4C6E6,0x5927A 0x5E0B7,0x6BEF8 0xB285E");
+  PASS();
+}
+
 SUITE(cls_utf8)
 {
   RUN_TEST(cls_utf8_same_first_byte_and_full_second_byte);
@@ -1059,6 +1069,7 @@ SUITE(cls_utf8)
   RUN_TEST(cls_utf8_insensitive_ascii_many_non_adjacent);
   RUN_TEST(cls_utf8_insensitive_ascii_many_non_adjacent_1);
   RUN_TEST(cls_utf8_insensitive_inverted);
+  RUN_TEST(cls_utf8_ranges_common_first_bytes);
 }
 
 SUITE(cls_builtin); /* provided by test-gen.c */

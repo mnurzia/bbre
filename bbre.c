@@ -562,13 +562,16 @@ int bbre_spec_init(bbre_spec **pspec, const char *s, size_t n, bbre_alloc alloc)
   alloc = bbre_alloc_make(alloc);
   spec = alloc(0, sizeof(bbre_spec), NULL);
   *pspec = spec;
-  if (!spec)
-    return (err = BBRE_ERR_MEM);
+  if (!spec) {
+    err = BBRE_ERR_MEM;
+    goto error;
+  }
   memset(spec, 0, sizeof(*spec));
   spec->alloc = alloc;
   spec->expr = (const bbre_u8 *)s;
   spec->expr_size = n;
   spec->flags = 0;
+error:
   return err;
 }
 
@@ -623,8 +626,10 @@ int bbre_init_spec(bbre **pr, const bbre_spec *spec, bbre_alloc alloc)
   alloc = bbre_alloc_make(alloc);
   r = alloc(0, sizeof(bbre), NULL);
   *pr = r;
-  if (!r)
-    return (err = BBRE_ERR_MEM);
+  if (!r) {
+    err = BBRE_ERR_MEM;
+    goto error;
+  }
   r->alloc = alloc;
   bbre_buf_init(&r->ast);
   r->ast_root = 0;
@@ -638,7 +643,9 @@ int bbre_init_spec(bbre **pr, const bbre_spec *spec, bbre_alloc alloc)
   if ((err = bbre_parse(r, spec->expr, spec->expr_size, &r->ast_root)))
     return err;
   r->prog.npat = 1;
-  return bbre_compile(r);
+  err = bbre_compile(r);
+error:
+  return err;
 }
 
 void bbre_exec_destroy(bbre_exec *exec);
@@ -724,8 +731,9 @@ static int bbre_ast_make(
 static void bbre_ast_decompose(bbre *r, bbre_u32 node, bbre_u32 *out_args)
 {
   bbre_u32 *in_args = r->ast + node;
-  memcpy(
-      out_args, in_args + 1, bbre_ast_type_lens[*in_args] * sizeof(bbre_u32));
+  bbre_u32 i;
+  for (i = 0; i < bbre_ast_type_lens[*in_args]; i++)
+    out_args[i] = in_args[i + 1];
 }
 
 /* Get the type of the given AST node. */
@@ -1083,9 +1091,11 @@ static int bbre_parse_escape(bbre *r, bbre_u32 allowed_outputs)
     if (ch == '{') {     /* bracketed hex lit */
       bbre_u32 digs = 0; /* number of read hex digits */
       while (1) {
-        if ((digs == 7) || (err = bbre_parse_next_or(
-                                r, &ch, "expected up to six hex characters")))
+        if (digs == 7)
           return bbre_parse_err(r, "expected up to six hex characters");
+        if ((err = bbre_parse_next_or(
+                 r, &ch, "expected up to six hex characters")))
+          return err;
         if (ch == '}')
           break;
         if ((err = bbre_parse_hexdig(r, ch, &hex_dig)))
@@ -1886,7 +1896,7 @@ static int bbre_compcc_tree_build_one(
       mins[0] = rest_min, maxs[0] = rest_mask;
       brs[1] =
           bbre_byte_range_to_u32(bbre_byte_range_make(byte_min + 1, byte_max));
-      mins[1] = 0, maxs[1] = rest_mask;
+      mins[1] = 0, maxs[1] = rest_max;
       n = 2;
     } else {
       /* Range doesn't begin on all zeroes or all ones, and takes up more
@@ -2105,7 +2115,6 @@ static void bbre_compcc_tree_hash(
     }
     /* Swap node --> sibling links for node <-- sibling. */
     sibling_ref = child_ref;
-    sibling_node = child_node;
     child_ref = next_child_ref;
   }
   /* Finally, update the parent with its new child node, which was previously
@@ -2314,9 +2323,9 @@ bbre_compcc(bbre *r, bbre_u32 ast_root, bbre_compframe *frame, int reversed)
   /* push ranges */
   while (ast_root) {
     /* decompose the tree of [I]CC nodes into a flat array in compcc.ranges */
-    bbre_u32 args[3] /* ast arguments */,
-        rune_lo /* lower bound of rune range */,
-        rune_hi /* upper bound of rune range */;
+    bbre_u32 args[3] = {0} /* ast arguments */,
+             rune_lo /* lower bound of rune range */,
+             rune_hi /* upper bound of rune range */;
     bbre_ast_decompose(r, ast_root, args);
     ast_root = args[0], rune_lo = args[1], rune_hi = args[2];
     if ((err = bbre_buf_push(
@@ -2606,8 +2615,9 @@ static int bbre_compile_internal(bbre *r, bbre_u32 ast_root, bbre_u32 reverse)
     /* walk the AST tree recursively until we are done visiting nodes */
     bbre_compframe frame = *bbre_buf_peek(&r->comp_stk, 0);
     bbre_ast_type type; /* AST node type */
-    bbre_u32 args[4] /* AST node args */,
-        my_pc = bbre_prog_size(&r->prog); /* PC of this node's instructions */
+    bbre_u32 args[4] = {0} /* AST node args */,
+             my_pc =
+                 bbre_prog_size(&r->prog); /* PC of this node's instructions */
     /* we tell the compiler to visit a child by setting `frame.child_ref` to
      * some value other than `frame.root_ref`. By default, we set it to
      * `frame.root_ref` to disable visiting a child. */
@@ -2904,11 +2914,14 @@ int bbre_set_spec_init(bbre_set_spec **pspec, bbre_alloc alloc)
   alloc = bbre_alloc_make(alloc);
   spec = alloc(0, sizeof(bbre_spec), NULL);
   *pspec = spec;
-  if (!spec)
-    return (err = BBRE_ERR_MEM);
+  if (!spec) {
+    err = BBRE_ERR_MEM;
+    goto error;
+  }
   memset(spec, 0, sizeof(*spec));
   spec->alloc = alloc;
   bbre_buf_init(&spec->pats);
+error:
   return err;
 }
 
@@ -2934,14 +2947,18 @@ int bbre_set_init_spec(
   bbre_set *set;
   alloc = bbre_alloc_make(alloc);
   *pset = alloc(0, sizeof(bbre_set), NULL);
-  if (!*pset)
-    return (err = BBRE_ERR_MEM);
+  if (!*pset) {
+    err = BBRE_ERR_MEM;
+    goto error;
+  }
   set = *pset;
   memset(set, 0, sizeof(*set));
   set->alloc = alloc;
   bbre_prog_init(&set->prog, set->alloc);
   set->exec = NULL;
-  return bbre_set_compile(set, spec->pats, bbre_buf_size(spec->pats));
+  err = bbre_set_compile(set, spec->pats, bbre_buf_size(spec->pats));
+error:
+  return err;
 }
 
 void bbre_set_destroy(bbre_set *set)
@@ -3590,7 +3607,7 @@ static int bbre_dfa_construct(
           d->states[table_pos] ? d->states[table_pos]->alloc : 0;
       next_alloc =
           bbre_dfa_state_alloc(n->a.dense_size, bbre_buf_size(d->set_buf));
-      if (prev_alloc < next_alloc) {
+      if (!prev_alloc || prev_alloc < next_alloc) {
         next_state = exec->alloc(prev_alloc, next_alloc, d->states[table_pos]);
         if (!next_state)
           return BBRE_ERR_MEM;
@@ -4526,6 +4543,7 @@ static int bbre_builtin_cc_decode(
     return bbre_parse_err(r, "invalid Unicode property name");
   /* Start reading from the p->start offset in the compressed bit stream. */
   read = bbre_builtin_cc_data + p->start, bit_idx = 0;
+  assert(p->num_range); /* there are always ranges in builtin charclasses */
   for (i = 0; i < p->num_range; i++) {
     bbre_u32 *number, k;
     range[0] = 0, range[1] = 0;

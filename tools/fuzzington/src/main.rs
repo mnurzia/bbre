@@ -1,6 +1,5 @@
 use std::{
-    io::stdout,
-    io::Write,
+    io::{stdout, Write},
     ptr::{self, null_mut},
 };
 
@@ -469,24 +468,22 @@ use std::ffi::{c_char, c_int, c_void};
 use crate::nfa::Label;
 
 extern "C" {
-    fn re_init_full(
-        regex: *mut *mut c_void,
-        s: *const c_char,
-        n: usize,
+    fn bbre_spec_init(
+        spec: *mut *mut c_void,
+        pat: *const c_char,
+        pat_size: usize,
         alloc: *mut c_void,
     ) -> c_int;
-    fn re_destroy(regex: *mut c_void);
-    fn re_compile(regex: *mut c_void) -> c_int;
-    fn _re_union(regex: *mut c_void, s: *const c_char, n: usize) -> c_int;
-    fn re_match(
+    fn bbre_spec_destroy(spec: *mut c_void);
+    fn bbre_init_spec(pregex: *mut *mut c_void, spec: *mut c_void, alloc: *mut c_void) -> c_int;
+    fn bbre_destroy(regex: *mut c_void);
+    fn bbre_match(
         regex: *mut c_void,
         s: *const c_char,
         n: usize,
-        max_span: u32,
-        max_set: u32,
-        out_span: *mut usize,
-        out_set: *mut u32,
-        anchor_type: c_int,
+        pos: usize,
+        num_captures: u32,
+        captures: *mut u32,
     ) -> c_int;
 }
 
@@ -512,15 +509,12 @@ struct Extra {
 #[derive(Serialize, Deserialize, Debug)]
 struct Test {
     r#type: String,
-    regexes: Vec<Vec<u8>>,
     extra: Extra,
-    should_parse: Vec<bool>,
-    num_spans: Option<u32>,
-    num_sets: Option<u32>,
-    match_string: Option<Vec<u8>>,
-    match_spans: Option<Vec<(usize, usize)>>,
-    match_sets: Option<Vec<u32>>,
-    match_anchor: Option<char>,
+    regex: Vec<u8>,
+    num_spans: u32,
+    match_string: Vec<u8>,
+    r#match: bool,
+    match_spans: Vec<(usize, usize)>,
 }
 
 fn main() -> std::io::Result<()> {
@@ -549,40 +543,44 @@ fn main() -> std::io::Result<()> {
         }
         let test = Test {
             r#type: "match".to_string(),
-            regexes: vec![Vec::from(serialized_regex.as_bytes())],
-            extra: Extra { fuzzington_seed: cli.seed + m - 1 },
-            should_parse: vec![true],
-            num_spans: Some(0),
-            num_sets: Some(0),
-            match_string: Some(example.clone()),
-            match_spans: Some(Vec::<(usize, usize)>::new()),
-            match_sets: Some(Vec::<u32>::new()),
-            match_anchor: Some('B'),
+            regex: Vec::from(serialized_regex.as_bytes()),
+            extra: Extra {
+                fuzzington_seed: cli.seed + m - 1,
+            },
+            num_spans: 0,
+            match_string: example.clone(),
+            match_spans: Vec::<(usize, usize)>::new(),
+            r#match: true,
         };
         println!("{}", serde_json::to_string(&test).unwrap());
         stdout().flush().unwrap();
         unsafe {
-            let mut c_re_ptr: *mut c_void = null_mut();
-            let err = re_init_full(
-                ptr::addr_of_mut!(c_re_ptr),
-                serialized_regex.as_ptr().cast(),
-                serialized_regex.len(),
-                null_mut(),
+            let mut spec_ptr: *mut c_void = null_mut();
+            assert_eq!(
+                bbre_spec_init(
+                    ptr::addr_of_mut!(spec_ptr),
+                    serialized_regex.as_ptr().cast(),
+                    serialized_regex.len(),
+                    null_mut(),
+                ),
+                0
             );
-            assert_eq!(err, 0);
-            assert_eq!(re_compile(c_re_ptr), 0);
-            let err = re_match(
+            let mut c_re_ptr: *mut c_void = null_mut();
+            assert_eq!(
+                bbre_init_spec(ptr::addr_of_mut!(c_re_ptr), spec_ptr, null_mut()),
+                0
+            );
+            bbre_spec_destroy(spec_ptr);
+            let err = bbre_match(
                 c_re_ptr,
                 example.as_ptr().cast(),
                 example.len(),
                 0,
                 0,
                 null_mut(),
-                null_mut(),
-                'B' as i32,
             );
             assert_eq!(err, 1);
-            re_destroy(c_re_ptr);
+            bbre_destroy(c_re_ptr);
         }
         n += 1;
     }

@@ -22,7 +22,7 @@ CFLAGS=\
 			 -std=c89\
 			 $(CFLAGS_$(PROFILE))
 
-SRCS=re.c test.c test_gen.c
+SRCS=test.c test_gen.c
 GDB=ASAN_OPTIONS=halt_on_error=0 lldb --
 FORMAT=clang-format -i
 PYTHON=/usr/bin/env python3
@@ -126,10 +126,10 @@ cov: build/cov/lcov.info
 
 ## generate coverage html report and open in browser
 cov_html: build/cov/index.html
-	$(OPEN_URL) file://$(realpath build/cov/reee/re.c.gcov.html)
+	$(OPEN_URL) file://$(realpath build/cov/bbre/bbre.c.gcov.html)
 
-build/parser_fuzz: build parser_fuzz.c re.c re.h
-	$(CC) $(CFLAGS) -fsanitize=fuzzer,address re.c parser_fuzz.c -o $@
+build/parser_fuzz: build parser_fuzz.c $(BBRE_C) $(BBRE_H)
+	$(CC) $(CFLAGS) -fsanitize=fuzzer,address $(BBRE_C) parser_fuzz.c -o $@
 
 ## run the LLVM fuzzer on the parser
 parser_fuzz: build build/parser_fuzz
@@ -160,8 +160,23 @@ prof: $(OUT_DIR)/bench
 prof_%: $(OUT_DIR)/bench
 	samply record ./$(OUT_DIR)/bench $(subst prof_,,$@)
 
-build/fuzzington/release/fuzzington: scripts/fuzzington/src/main.rs scripts/fuzzington/build.rs re.c re.h
-	cd scripts/fuzzington;RUSTFLAGS="-C link-dead-code" cargo build --release --target-dir ../../build/fuzzington
+$(OUT_DIR)/anal: $(OUT_DIR)
+	mkdir -p $@
+
+anal: $(OUT_DIR)/anal $(BBRE_C)
+	rm -rf $(OUT_DIR)/anal/*.html
+	$(CC) $(CFLAGS) --analyze -Xclang -analyzer-output=html -o $(OUT_DIR)/anal $(BBRE_C)
+
+## run static analyzer on the code and display all reports
+anal_html: anal
+	for name in $(OUT_DIR)/anal/*.html; do $(OPEN_URL) file://$$(realpath $$name); done
+
+## run static analyzer on the code and display the first bug
+anal_html_one: anal
+	$(OPEN_URL) file://$$(realpath $$(ls -1 $(OUT_DIR)/anal/* | head -n1 | tr -d '\n'))
+
+build/fuzzington/release/fuzzington: fuzzington/src/main.rs fuzzington/build.rs $(BBRE_C) $(BBRE_H) 
+	cd fuzzington;RUSTFLAGS="-C link-dead-code" cargo build --release --target-dir ../build/fuzzington
 
 ## run fuzzington, the semantic regex fuzz tester
 fuzzington_run: build build/fuzzington/release/fuzzington

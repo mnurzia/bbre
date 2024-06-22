@@ -140,7 +140,7 @@ def nrange_isect(r1: RuneRange, r2: RuneRange) -> bool:
 def get_commit_hash() -> str:
     """Get the commit hash of the current Git repository."""
     return run(
-        ["git", "rev-parse", "HEAD"], captubbreoutput=True, encoding="utf-8", check=True
+        ["git", "rev-parse", "HEAD"], capture_output=True, encoding="utf-8", check=True
     ).stdout.strip()
 
 
