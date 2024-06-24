@@ -12,6 +12,7 @@ from typing import BinaryIO
 from tree_sitter import Language, Parser, Node
 import tree_sitter_c as tsc
 import marko
+import marko.inline
 
 from charclass_tree import X_BITS, Y_BITS, Tree, byte_length_digits, split_ranges_utf8
 from util import (
@@ -342,8 +343,11 @@ def _doc_api(args, lines: list[str]) -> int:
         doc = marko.parse(s)
 
         def replace_text_nodes(node):
+            # this function is very poorly written.
             if node.get_type() == "RawText":
                 assert isinstance(node.children, str)
+                lead = node.children[: len(node.children) - len(node.children.lstrip())]
+                tail = node.children[len(node.children.rstrip()) :]
                 next = marko.parse(
                     "".join(
                         [
@@ -353,7 +357,11 @@ def _doc_api(args, lines: list[str]) -> int:
                     )
                 )
                 assert isinstance(next.children[0], marko.block.Paragraph)
-                return list(next.children[0].children)
+                return (
+                    [marko.inline.RawText(lead)]
+                    + list(next.children[0].children)
+                    + [marko.inline.RawText(tail)]
+                )
             elif node.get_type() not in ["CodeBlock", "FencedCode"]:
                 if hasattr(node, "children") and isinstance(node.children, list):
                     node.children = sum(

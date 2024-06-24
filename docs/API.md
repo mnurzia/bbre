@@ -75,14 +75,14 @@ int bbre_spec_init(
     bbre_spec **pspec, const char *pat, size_t pat_size, bbre_alloc alloc);
 ```
 <ul>
-<li><code>pspec</code>is a pointer to a pointer that will contain the newly-constructed
+<li><code>pspec</code> is a pointer to a pointer that will contain the newly-constructed
 <a href="#bbre_spec">bbre_spec</a> object.</li>
-<li><code>pat</code>is the pattern string to use for the <a href="#bbre_spec">bbre_spec</a> object.</li>
-<li><code>pat_size</code>is the size (in bytes) of <code>pat</code>.</li>
-<li><code>alloc</code>is the memory allocator to use. Pass NULL to use the default.</li>
+<li><code>pat</code> is the pattern string to use for the <a href="#bbre_spec">bbre_spec</a> object.</li>
+<li><code>pat_size</code> is the size (in bytes) of  <code>pat</code>.</li>
+<li><code>alloc</code> is the memory allocator to use. Pass NULL to use the default.</li>
 </ul>
 <p>Returns BBRE_ERR_NOMEM if there is not enough memory to represent the
-object, 0 otherwise. If there was not enough memory, <code>*pspec</code>is NULL.</p>
+object, 0 otherwise. If there was not enough memory,  <code>*pspec</code> is NULL.</p>
 
 <h2 id="bbre"><code>bbre</code></h2>
 <p>An object that matches a single regular expression.</p>
@@ -97,7 +97,7 @@ typedef struct bbre bbre;
 ```c
 bbre *bbre_init(const char *pat_nt);
 ```
-<p><code>pat_nt</code>is a null-terminated string containing the pattern.</p>
+<p><code>pat_nt</code> is a null-terminated string containing the pattern.</p>
 <p>Returns a newly-constructed <a href="#bbre">bbre</a> object, or NULL if there was not enough
 memory to store the object. Internally, this function calls
 <a href="#bbre_init_spec">bbre_init_spec</a>(), which can return more than one error code if the pattern
@@ -112,12 +112,12 @@ if these errors occur. If you require more robust error checking, use
 int bbre_init_spec(bbre **preg, const bbre_spec *spec, bbre_alloc alloc);
 ```
 <ul>
-<li><code>preg</code>is a pointer to a pointer that will contain the newly-constucted
+<li><code>preg</code> is a pointer to a pointer that will contain the newly-constucted
 <a href="#bbre">bbre</a> object.</li>
-<li><code>spec</code>is a <a href="#bbre_spec">bbre_spec</a> used for initializing the <code>*preg</code>.</li>
-<li><code>alloc</code>is the memory allocator to use. Pass NULL to use the default.</li>
+<li><code>spec</code> is a <a href="#bbre_spec">bbre_spec</a> used for initializing the  <code>*preg</code>.</li>
+<li><code>alloc</code> is the memory allocator to use. Pass NULL to use the default.</li>
 </ul>
-<p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a> if the pattern in <code>spec</code>contains a parsing error,
+<p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a> if the pattern in  <code>spec</code> contains a parsing error,
 <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to parse or compile the
 pattern, <a href="#BBRE_ERR_MEM">BBRE_ERR_LIMIT</a> if the pattern's compiled size is too large, or 0
 if there was no error.
@@ -139,15 +139,15 @@ void bbre_destroy(bbre *reg);
 size_t bbre_get_error(bbre *reg, const char **pmsg, size_t *pos);
 ```
 <ul>
-<li><code>reg</code>is the <a href="#bbre">bbre</a> to check the error of.</li>
-<li><code>pmsg</code>is a pointer to the output message. <code>*pmsg</code>will be set to the
-error message. <code>*pmsg</code>is always null-terminated if an error occurred.</li>
-<li><code>ppos</code>is a pointer to the output position. <code>*ppos</code>will be set to
+<li><code>reg</code> is the <a href="#bbre">bbre</a> to check the error of.</li>
+<li><code>pmsg</code> is a pointer to the output message.  <code>*pmsg</code> will be set to the
+error message.  <code>*pmsg</code> is always null-terminated if an error occurred.</li>
+<li><code>ppos</code> is a pointer to the output position.  <code>*ppos</code> will be set to
 the index in the input pattern where the error occurred.</li>
 </ul>
-<p>Returns the length (in bytes) of <code>*pmsg</code>, not including its null terminator.
+<p>Returns the length (in bytes) of  <code>*pmsg</code>, not including its null terminator.
 If the preceding call to <a href="#bbre_init">bbre_init</a>() did not cause a parse error (i.e., it
-did not return <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a>) then <code>*pmsg</code>is NULL, <code>*ppos</code>is 0, and the
+did not return <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a>) then  <code>*pmsg</code> is NULL,  <code>*ppos</code> is 0, and the
 function returns 0.</p>
 
 <h2 id="bbre_span"><code>bbre_span</code></h2>
@@ -160,7 +160,7 @@ typedef struct bbre_span {
 } bbre_span;
 ```
 <p>This structure records the bounds of a capture recorded by <a href="#bbre_is_match">bbre_captures</a>().
-<code>begin</code>is the start of the match, <code>end</code>is the end.</p>
+<code>begin</code> is the start of the match,  <code>end</code> is the end.</p>
 
 <h2 id="bbre_is_match"><code>bbre_is_match</code>, <code>bbre_find</code>, <code>bbre_captures</code></h2>
 <p>Match text against a <a href="#bbre">bbre</a>.</p>
@@ -174,23 +174,23 @@ int bbre_captures(
     bbre_span *out_captures);
 ```
 <p>These functions perform matching operations using a <a href="#bbre">bbre</a> object. All of them
-take two parameters, <code>text</code>and <code>text_size</code>, which denote the string to
+take two parameters,  <code>text</code> and  <code>text_size</code>, which denote the string to
 match against.</p>
-<p><a href="#bbre_is_match">bbre_is_match</a>() checks if <code>reg</code>'s pattern occurs anywhere within <code>text</code>.
+<p><a href="#bbre_is_match">bbre_is_match</a>() checks if  <code>reg</code>'s pattern occurs anywhere within  <code>text</code>.
 Like the rest of these functions, <a href="#bbre_is_match">bbre_is_match</a>() returns 0 if the pattern
 did not match anywhere in the string, or 1 if it did.</p>
-<p><a href="#bbre_is_match">bbre_find</a>() locates the position in <code>text</code>where <code>reg</code>'s pattern occurs, if
-it occurs. <code>out_bounds</code>points to a <a href="#bbre_span">bbre_span</a> where the boundaries of the
+<p><a href="#bbre_is_match">bbre_find</a>() locates the position in  <code>text</code> where  <code>reg</code>'s pattern occurs, if
+it occurs.  <code>out_bounds</code> points to a <a href="#bbre_span">bbre_span</a> where the boundaries of the
 match will be stored should a match be found.</p>
 <p><a href="#bbre_is_match">bbre_captures</a>() works like <a href="#bbre_is_match">bbre_find</a>(), but it also extracts capturing
-groups. <code>num_captures</code>is the amount of groups to capture, and
-<code>out_captures</code>points to an array of <a href="#bbre_span">bbre_span</a> where the boundaries of each
+groups.  <code>num_captures</code> is the amount of groups to capture, and
+<code>out_captures</code> points to an array of <a href="#bbre_span">bbre_span</a> where the boundaries of each
 capture will be stored. Note that capture group 0 denotes the boundaries of
 the entire match (i.e., those retrieved by <a href="#bbre_is_match">bbre_find</a>()), so to retrieve the
-first capturing group, pass 2 for <code>num_captures</code>; to retrieve the second,
+first capturing group, pass 2 for  <code>num_captures</code>; to retrieve the second,
 pass 3, and so on.</p>
-<p>Returns 0 if a match was not found anywhere in <code>text</code>, 1 if a match was
-found, in which case the relevant <code>out_bounds</code>or <code>out_captures</code>variable
+<p>Returns 0 if a match was not found anywhere in  <code>text</code>, 1 if a match was
+found, in which case the relevant  <code>out_bounds</code> or  <code>out_captures</code> variable
 will be written to, or <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to
 successfully perform the match.</p>
 
@@ -207,10 +207,10 @@ int bbre_captures_at(
     bbre_u32 num_captures, bbre_span *out_captures);
 ```
 <p>These functions behave identically to the <a href="#bbre_is_match">bbre_is_match</a>(), <a href="#bbre_is_match">bbre_find</a>(), and
-<a href="#bbre_is_match">bbre_captures</a>() functions, but they take an additional <code>pos</code>parameter that
-describes an offset in <code>text</code>to start the match from.
+<a href="#bbre_is_match">bbre_captures</a>() functions, but they take an additional  <code>pos</code> parameter that
+describes an offset in  <code>text</code> to start the match from.
 The utility of these functions is that they take into account empty-width
-assertions active at <code>pos</code>. For example, matching <code>\b</code>against &quot;A &quot; at
+assertions active at  <code>pos</code>. For example, matching  <code>\b</code> against &quot;A &quot; at
 position 1 would return a match, because these functions look at the
 surrounding characters for empty-width assertion context.</p>
 
@@ -228,9 +228,9 @@ typedef struct bbre_set_spec bbre_set_spec;
 int bbre_set_spec_init(bbre_set_spec **pspec, bbre_alloc alloc);
 ```
 <ul>
-<li><code>pspec</code>is a pointer to a pointer that will contain the newly-constructed
+<li><code>pspec</code> is a pointer to a pointer that will contain the newly-constructed
 <a href="#bbre_set_spec">bbre_set_spec</a> object.</li>
-<li><code>alloc</code>is the <a href="#bbre_alloc">bbre_alloc</a> memory allocator to use. Pass NULL to use the
+<li><code>alloc</code> is the <a href="#bbre_alloc">bbre_alloc</a> memory allocator to use. Pass NULL to use the
 default.</li>
 </ul>
 <p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to store the object,
@@ -259,10 +259,10 @@ int bbre_set_match(
     bbre_u32 *out_idxs, bbre_u32 *out_num_idxs);
 ```
 <ul>
-<li><code>set</code>is the set to add the pattern to</li>
-<li><code>reg</code>is the pattern to add</li>
+<li><code>set</code> is the set to add the pattern to</li>
+<li><code>reg</code> is the pattern to add</li>
 </ul>
-<p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to add <code>reg</code>to <code>set</code>,
+<p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to add  <code>reg</code> to  <code>set</code>,
 0 otherwise.</p>
 
 <h2 id="bbre_fork"><code>bbre_fork</code>, <code>bbre_set_fork</code></h2>
