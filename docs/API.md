@@ -2,7 +2,7 @@
 <h2 id="Contents">Contents</h2>
 <ul>
 <li><a href="#BBRE_ERR_MEM">BBRE_ERR_MEM, BBRE_ERR_PARSE, BBRE_ERR_LIMIT</a></li>
-<li><a href="#bbre_alloc">bbre_alloc</a></li>
+<li><a href="#bbre_alloc_cb">bbre_alloc_cb, bbre_alloc</a></li>
 <li><a href="#bbre_flags">bbre_flags</a></li>
 <li><a href="#bbre_spec">bbre_spec</a></li>
 <li><a href="#bbre_spec_init">bbre_spec_init</a></li>
@@ -29,17 +29,21 @@
 #define BBRE_ERR_LIMIT (-3) /* Hard limit reached (program size, etc.) */
 ```
 
-<h2 id="bbre_alloc"><code>bbre_alloc</code></h2>
+<h2 id="bbre_alloc_cb"><code>bbre_alloc_cb</code>, <code>bbre_alloc</code></h2>
 <p>Memory allocator callback.</p>
 
 ```c
-typedef void *(*bbre_alloc)(size_t prev, size_t next, void *ptr);
+typedef void *(*bbre_alloc_cb)(void *user, void *ptr, size_t prev, size_t next);
+typedef struct bbre_alloc {
+  void *user;
+  bbre_alloc_cb cb;
+} bbre_alloc;
 ```
 <p>This is a little different from the three-callback option provided by most
 libraries. If you are confused, this might help you understand:</p>
-<pre><code class="language-c">    bbre_alloc(       0, new_size,    NULL) = malloc(new_size)
-    bbre_alloc(old_size, new_size, old_ptr) = realloc(old_ptr, new_size)
-    bbre_alloc(old_size,        0, old_ptr) = free(old_ptr)
+<pre><code class="language-c">alloc_cb(user,    NULL,        0, new_size) = malloc(new_size)
+alloc_cb(user, old_ptr, old_size, new_size) = realloc(old_ptr, new_size)
+alloc_cb(user, old_ptr, old_size,        0) = free(old_ptr)
 </code></pre>
 <p>Of course, the library uses stdlib malloc if possible, so chances are you
 don't need to worry about this part of the API.</p>
@@ -72,7 +76,7 @@ example, if you want to use a non-null-terminated regex.</p>
 
 ```c
 int bbre_spec_init(
-    bbre_spec **pspec, const char *pat, size_t pat_size, bbre_alloc alloc);
+    bbre_spec **pspec, const char *pat, size_t pat_size, bbre_alloc_cb alloc);
 ```
 <ul>
 <li><code>pspec</code> is a pointer to a pointer that will contain the newly-constructed
@@ -225,12 +229,12 @@ typedef struct bbre_set_spec bbre_set_spec;
 <p>Initialize a <a href="#bbre_set_spec">bbre_set_spec</a>.</p>
 
 ```c
-int bbre_set_spec_init(bbre_set_spec **pspec, bbre_alloc alloc);
+int bbre_set_spec_init(bbre_set_spec **pspec, bbre_alloc_cb alloc);
 ```
 <ul>
 <li><code>pspec</code> is a pointer to a pointer that will contain the newly-constructed
 <a href="#bbre_set_spec">bbre_set_spec</a> object.</li>
-<li><code>alloc</code> is the <a href="#bbre_alloc">bbre_alloc</a> memory allocator to use. Pass NULL to use the
+<li><code>alloc</code> is the <a href="#bbre_alloc_cb">bbre_alloc</a> memory allocator to use. Pass NULL to use the
 default.</li>
 </ul>
 <p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to store the object,
@@ -252,7 +256,7 @@ int bbre_set_spec_config(bbre_set_spec *b, int option, ...);
 typedef struct bbre_set bbre_set;
 bbre_set *bbre_set_init(const char *const *regexes_nt, size_t num_regexes);
 int bbre_set_init_spec(
-    bbre_set **pset, const bbre_set_spec *set_spec, bbre_alloc alloc);
+    bbre_set **pset, const bbre_set_spec *set_spec, bbre_alloc_cb alloc);
 void bbre_set_destroy(bbre_set *set);
 int bbre_set_match(
     bbre_set *set, const char *s, size_t n, size_t pos, bbre_u32 idxs_size,

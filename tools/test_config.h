@@ -1,7 +1,8 @@
 #include "mptest.h"
 
-void *bbre_default_alloc(size_t prev, size_t next, void *ptr)
+void *bbre_default_alloc(void *user, void *ptr, size_t prev, size_t next)
 {
+  (void)user;
   if (next) {
     (void)prev, assert((prev || !ptr));
     return MPTEST_INJECT_REALLOC(ptr, next);

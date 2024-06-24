@@ -37,13 +37,18 @@ typedef BBRE_U32_TYPE bbre_u32;
  ** This is a little different from the three-callback option provided by most
  ** libraries. If you are confused, this might help you understand:
  ** ```c
- **     bbre_alloc(       0, new_size,    NULL) = malloc(new_size)
- **     bbre_alloc(old_size, new_size, old_ptr) = realloc(old_ptr, new_size)
- **     bbre_alloc(old_size,        0, old_ptr) = free(old_ptr)
+ ** alloc_cb(user,    NULL,        0, new_size) = malloc(new_size)
+ ** alloc_cb(user, old_ptr, old_size, new_size) = realloc(old_ptr, new_size)
+ ** alloc_cb(user, old_ptr, old_size,        0) = free(old_ptr)
  ** ````
  ** Of course, the library uses stdlib malloc if possible, so chances are you
  ** don't need to worry about this part of the API. */
-typedef void *(*bbre_alloc)(size_t prev, size_t next, void *ptr);
+typedef void *(*bbre_alloc_cb)(void *user, void *ptr, size_t prev, size_t next);
+
+typedef struct bbre_alloc {
+  void *user;
+  bbre_alloc_cb cb;
+} bbre_alloc;
 
 /** Regular expression flags.
  ** These mirror the flags used in the regular expression syntax, but can be
@@ -70,7 +75,8 @@ typedef struct bbre_spec bbre_spec;
  ** Returns BBRE_ERR_NOMEM if there is not enough memory to represent the
  ** object, 0 otherwise. If there was not enough memory, `*pspec` is NULL. */
 int bbre_spec_init(
-    bbre_spec **pspec, const char *pat, size_t pat_size, bbre_alloc alloc);
+    bbre_spec **pspec, const char *pat, size_t pat_size,
+    const bbre_alloc *alloc);
 /* Set flags for a bbre_spec. */
 void bbre_spec_flags(bbre_spec *spec, bbre_flags flags);
 /* Destroy a bbre_spec. */
@@ -103,7 +109,7 @@ bbre *bbre_init(const char *pat_nt);
  ** If this function returns BBRE_ERR_PARSE, you can use the bbre_get_error()
  ** function to retrieve a detailed error message, and an index into the pattern
  ** where the error occurred. */
-int bbre_init_spec(bbre **preg, const bbre_spec *spec, bbre_alloc alloc);
+int bbre_init_spec(bbre **preg, const bbre_spec *spec, const bbre_alloc *alloc);
 
 /** Destroy a bbre. */
 void bbre_destroy(bbre *reg);
@@ -188,7 +194,7 @@ typedef struct bbre_set_spec bbre_set_spec;
  **
  ** Returns BBRE_ERR_MEM if there was not enough memory to store the object,
  ** 0 otherwise. */
-int bbre_set_spec_init(bbre_set_spec **pspec, bbre_alloc alloc);
+int bbre_set_spec_init(bbre_set_spec **pspec, const bbre_alloc *alloc);
 
 /** Destroy a bbre_set_spec. */
 void bbre_set_spec_destroy(bbre_set_spec *b);
@@ -206,7 +212,7 @@ int bbre_set_spec_config(bbre_set_spec *b, int option, ...);
 typedef struct bbre_set bbre_set;
 bbre_set *bbre_set_init(const char *const *regexes_nt, size_t num_regexes);
 int bbre_set_init_spec(
-    bbre_set **pset, const bbre_set_spec *set_spec, bbre_alloc alloc);
+    bbre_set **pset, const bbre_set_spec *set_spec, const bbre_alloc *alloc);
 void bbre_set_destroy(bbre_set *set);
 int bbre_set_match(
     bbre_set *set, const char *s, size_t n, size_t pos, bbre_u32 idxs_size,

@@ -329,17 +329,20 @@ TEST(init_some)
   PASS();
 }
 
-extern void *bbre_default_alloc(size_t prev, size_t next, void *ptr);
+extern void *
+bbre_default_alloc(void *user, void *ptr, size_t prev, size_t next);
 
 TEST(init_full_default_alloc)
 {
   bbre *r = NULL;
   bbre_spec *spec = NULL;
   int err;
-  if ((err = bbre_spec_init(&spec, "abc", 3, bbre_default_alloc)) ==
-      BBRE_ERR_MEM)
+  bbre_alloc alloc;
+  alloc.user = NULL;
+  alloc.cb = bbre_default_alloc;
+  if ((err = bbre_spec_init(&spec, "abc", 3, &alloc)) == BBRE_ERR_MEM)
     goto oom;
-  if ((err = bbre_init_spec(&r, spec, bbre_default_alloc)) == BBRE_ERR_MEM)
+  if ((err = bbre_init_spec(&r, spec, &alloc)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, 0);
   bbre_destroy(r);
