@@ -325,13 +325,15 @@ def _doc_api(args, lines: list[str]) -> int:
             return [line[num_leading_spaces:] for line in lines]
 
     def code(s: str) -> str:
-        return f"`{s}`"
+        return f"<code>{s}</code>"
 
-    def link(s: str, name: str) -> str:
-        return f'<a name="{name}">{s}</a>'
+    link_names: dict[str, str] = {}
+
+    def heading(s: str, ids: list[str], lvl: int) -> str:
+        return f'<h{lvl} id="{ids[0]}">{s}</h{lvl}>'
 
     def ref(s: str, name: str) -> str:
-        return f'<a href="#{name}">{s}</a>'
+        return f'<a href="#{link_names[name]}">{s}</a>'
 
     def splitwords(s: str):
         return split(r"\b", s)
@@ -387,7 +389,20 @@ def _doc_api(args, lines: list[str]) -> int:
     assert all(all_names.count(name) == 1 for name in all_names)
 
     for api in apis:
-        out("## " + ", ".join([link(code(name), name) for name in api.names]))
+        for name in api.names:
+            link_names[name] = api.names[0]
+
+    out("# API Reference")
+
+    # Generate ToC
+    out(heading("Contents", ["Contents"], 2))
+    out("<ul>")
+    for api in apis:
+        out(f"<li>{ref(", ".join(api.names), api.names[0])}</li>")
+    out("</ul>")
+
+    for api in apis:
+        out(heading(", ".join([code(name) for name in api.names]), api.names, 2))
         out(insert_references(api.header, all_names))
         out("```c")
         for node in api.node:

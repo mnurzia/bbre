@@ -1,4 +1,26 @@
-## <a name="BBRE_ERR_MEM">`BBRE_ERR_MEM`</a>, <a name="BBRE_ERR_PARSE">`BBRE_ERR_PARSE`</a>, <a name="BBRE_ERR_LIMIT">`BBRE_ERR_LIMIT`</a>
+# API Reference
+<h2 id="Contents">Contents</h2>
+<ul>
+<li><a href="#BBRE_ERR_MEM">BBRE_ERR_MEM, BBRE_ERR_PARSE, BBRE_ERR_LIMIT</a></li>
+<li><a href="#bbre_alloc">bbre_alloc</a></li>
+<li><a href="#bbre_flags">bbre_flags</a></li>
+<li><a href="#bbre_spec">bbre_spec</a></li>
+<li><a href="#bbre_spec_init">bbre_spec_init</a></li>
+<li><a href="#bbre">bbre</a></li>
+<li><a href="#bbre_init">bbre_init</a></li>
+<li><a href="#bbre_init_spec">bbre_init_spec</a></li>
+<li><a href="#bbre_destroy">bbre_destroy</a></li>
+<li><a href="#bbre_get_error">bbre_get_error</a></li>
+<li><a href="#bbre_span">bbre_span</a></li>
+<li><a href="#bbre_is_match">bbre_is_match, bbre_find, bbre_captures</a></li>
+<li><a href="#bbre_is_match_at">bbre_is_match_at, bbre_find_at, bbre_captures_at</a></li>
+<li><a href="#bbre_set_spec">bbre_set_spec</a></li>
+<li><a href="#bbre_set_spec_init">bbre_set_spec_init</a></li>
+<li><a href="#bbre_set_spec_destroy">bbre_set_spec_destroy</a></li>
+<li><a href="#bbre_set_spec_add">bbre_set_spec_add, bbre_set_spec_config, bbre_set, bbre_set_init, bbre_set_init_spec, bbre_set_destroy, bbre_set_match</a></li>
+<li><a href="#bbre_fork">bbre_fork, bbre_set_fork</a></li>
+</ul>
+<h2 id="BBRE_ERR_MEM"><code>BBRE_ERR_MEM</code>, <code>BBRE_ERR_PARSE</code>, <code>BBRE_ERR_LIMIT</code></h2>
 <p>Enumeration of error types.</p>
 
 ```c
@@ -7,7 +29,7 @@
 #define BBRE_ERR_LIMIT (-3) /* Hard limit reached (program size, etc.) */
 ```
 
-## <a name="bbre_alloc">`bbre_alloc`</a>
+<h2 id="bbre_alloc"><code>bbre_alloc</code></h2>
 <p>Memory allocator callback.</p>
 
 ```c
@@ -22,7 +44,7 @@ libraries. If you are confused, this might help you understand:</p>
 <p>Of course, the library uses stdlib malloc if possible, so chances are you
 don't need to worry about this part of the API.</p>
 
-## <a name="bbre_flags">`bbre_flags`</a>
+<h2 id="bbre_flags"><code>bbre_flags</code></h2>
 <p>Regular expression flags.</p>
 
 ```c
@@ -36,7 +58,7 @@ typedef enum bbre_flags {
 <p>These mirror the flags used in the regular expression syntax, but can be
 given to bbre_spec_flags() in order to enable them out-of-band.</p>
 
-## <a name="bbre_spec">`bbre_spec`</a>
+<h2 id="bbre_spec"><code>bbre_spec</code></h2>
 <p>Builder class for regular expressions.</p>
 
 ```c
@@ -45,7 +67,7 @@ typedef struct bbre_spec bbre_spec;
 <p>This is intended to be used for nontrivial usage of the library, for
 example, if you want to use a non-null-terminated regex.</p>
 
-## <a name="bbre_spec_init">`bbre_spec_init`</a>
+<h2 id="bbre_spec_init"><code>bbre_spec_init</code></h2>
 <p>Initialize a <a href="#bbre_spec">bbre_spec</a>.</p>
 
 ```c
@@ -62,14 +84,14 @@ int bbre_spec_init(
 <p>Returns BBRE_ERR_NOMEM if there is not enough memory to represent the
 object, 0 otherwise. If there was not enough memory, <code>*pspec</code>is NULL.</p>
 
-## <a name="bbre">`bbre`</a>
+<h2 id="bbre"><code>bbre</code></h2>
 <p>An object that matches a single regular expression.</p>
 
 ```c
 typedef struct bbre bbre;
 ```
 
-## <a name="bbre_init">`bbre_init`</a>
+<h2 id="bbre_init"><code>bbre_init</code></h2>
 <p>Initialize a <a href="#bbre">bbre</a>.</p>
 
 ```c
@@ -83,7 +105,7 @@ is malformed: this function assumes the pattern is correct and will abort
 if these errors occur. If you require more robust error checking, use
 <a href="#bbre_init_spec">bbre_init_spec</a>() directly.</p>
 
-## <a name="bbre_init_spec">`bbre_init_spec`</a>
+<h2 id="bbre_init_spec"><code>bbre_init_spec</code></h2>
 <p>Initialize a <a href="#bbre">bbre</a> from a <a href="#bbre_spec">bbre_spec</a>.</p>
 
 ```c
@@ -95,22 +117,22 @@ int bbre_init_spec(bbre **preg, const bbre_spec *spec, bbre_alloc alloc);
 <li><code>spec</code>is a <a href="#bbre_spec">bbre_spec</a> used for initializing the <code>*preg</code>.</li>
 <li><code>alloc</code>is the memory allocator to use. Pass NULL to use the default.</li>
 </ul>
-<p>Returns <a href="#BBRE_ERR_PARSE">BBRE_ERR_PARSE</a> if the pattern in <code>spec</code>contains a parsing error,
+<p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a> if the pattern in <code>spec</code>contains a parsing error,
 <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to parse or compile the
-pattern, <a href="#BBRE_ERR_LIMIT">BBRE_ERR_LIMIT</a> if the pattern's compiled size is too large, or 0
+pattern, <a href="#BBRE_ERR_MEM">BBRE_ERR_LIMIT</a> if the pattern's compiled size is too large, or 0
 if there was no error.
-If this function returns <a href="#BBRE_ERR_PARSE">BBRE_ERR_PARSE</a>, you can use the <a href="#bbre_get_error">bbre_get_error</a>()
+If this function returns <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a>, you can use the <a href="#bbre_get_error">bbre_get_error</a>()
 function to retrieve a detailed error message, and an index into the pattern
 where the error occurred.</p>
 
-## <a name="bbre_destroy">`bbre_destroy`</a>
+<h2 id="bbre_destroy"><code>bbre_destroy</code></h2>
 <p>Destroy a <a href="#bbre">bbre</a>.</p>
 
 ```c
 void bbre_destroy(bbre *reg);
 ```
 
-## <a name="bbre_get_error">`bbre_get_error`</a>
+<h2 id="bbre_get_error"><code>bbre_get_error</code></h2>
 <p>Retrieve a parsing error from a \ref <a href="#bbre">bbre</a>.</p>
 
 ```c
@@ -125,10 +147,10 @@ the index in the input pattern where the error occurred.</li>
 </ul>
 <p>Returns the length (in bytes) of <code>*pmsg</code>, not including its null terminator.
 If the preceding call to <a href="#bbre_init">bbre_init</a>() did not cause a parse error (i.e., it
-did not return <a href="#BBRE_ERR_PARSE">BBRE_ERR_PARSE</a>) then <code>*pmsg</code>is NULL, <code>*ppos</code>is 0, and the
+did not return <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a>) then <code>*pmsg</code>is NULL, <code>*ppos</code>is 0, and the
 function returns 0.</p>
 
-## <a name="bbre_span">`bbre_span`</a>
+<h2 id="bbre_span"><code>bbre_span</code></h2>
 <p>Substring bounds record.</p>
 
 ```c
@@ -137,10 +159,10 @@ typedef struct bbre_span {
   size_t end;   /* End index */
 } bbre_span;
 ```
-<p>This structure records the bounds of a capture recorded by <a href="#bbre_captures">bbre_captures</a>().
+<p>This structure records the bounds of a capture recorded by <a href="#bbre_is_match">bbre_captures</a>().
 <code>begin</code>is the start of the match, <code>end</code>is the end.</p>
 
-## <a name="bbre_is_match">`bbre_is_match`</a>, <a name="bbre_find">`bbre_find`</a>, <a name="bbre_captures">`bbre_captures`</a>
+<h2 id="bbre_is_match"><code>bbre_is_match</code>, <code>bbre_find</code>, <code>bbre_captures</code></h2>
 <p>Match text against a <a href="#bbre">bbre</a>.</p>
 
 ```c
@@ -157,14 +179,14 @@ match against.</p>
 <p><a href="#bbre_is_match">bbre_is_match</a>() checks if <code>reg</code>'s pattern occurs anywhere within <code>text</code>.
 Like the rest of these functions, <a href="#bbre_is_match">bbre_is_match</a>() returns 0 if the pattern
 did not match anywhere in the string, or 1 if it did.</p>
-<p><a href="#bbre_find">bbre_find</a>() locates the position in <code>text</code>where <code>reg</code>'s pattern occurs, if
+<p><a href="#bbre_is_match">bbre_find</a>() locates the position in <code>text</code>where <code>reg</code>'s pattern occurs, if
 it occurs. <code>out_bounds</code>points to a <a href="#bbre_span">bbre_span</a> where the boundaries of the
 match will be stored should a match be found.</p>
-<p><a href="#bbre_captures">bbre_captures</a>() works like <a href="#bbre_find">bbre_find</a>(), but it also extracts capturing
+<p><a href="#bbre_is_match">bbre_captures</a>() works like <a href="#bbre_is_match">bbre_find</a>(), but it also extracts capturing
 groups. <code>num_captures</code>is the amount of groups to capture, and
 <code>out_captures</code>points to an array of <a href="#bbre_span">bbre_span</a> where the boundaries of each
 capture will be stored. Note that capture group 0 denotes the boundaries of
-the entire match (i.e., those retrieved by <a href="#bbre_find">bbre_find</a>()), so to retrieve the
+the entire match (i.e., those retrieved by <a href="#bbre_is_match">bbre_find</a>()), so to retrieve the
 first capturing group, pass 2 for <code>num_captures</code>; to retrieve the second,
 pass 3, and so on.</p>
 <p>Returns 0 if a match was not found anywhere in <code>text</code>, 1 if a match was
@@ -172,7 +194,7 @@ found, in which case the relevant <code>out_bounds</code>or <code>out_captures</
 will be written to, or <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to
 successfully perform the match.</p>
 
-## <a name="bbre_is_match_at">`bbre_is_match_at`</a>, <a name="bbre_find_at">`bbre_find_at`</a>, <a name="bbre_captures_at">`bbre_captures_at`</a>
+<h2 id="bbre_is_match_at"><code>bbre_is_match_at</code>, <code>bbre_find_at</code>, <code>bbre_captures_at</code></h2>
 <p>Match text against a <a href="#bbre">bbre</a>, starting the match from a given position.</p>
 
 ```c
@@ -184,22 +206,22 @@ int bbre_captures_at(
     bbre *reg, const char *text, size_t text_size, size_t pos,
     bbre_u32 num_captures, bbre_span *out_captures);
 ```
-<p>These functions behave identically to the <a href="#bbre_is_match">bbre_is_match</a>(), <a href="#bbre_find">bbre_find</a>(), and
-<a href="#bbre_captures">bbre_captures</a>() functions, but they take an additional <code>pos</code>parameter that
+<p>These functions behave identically to the <a href="#bbre_is_match">bbre_is_match</a>(), <a href="#bbre_is_match">bbre_find</a>(), and
+<a href="#bbre_is_match">bbre_captures</a>() functions, but they take an additional <code>pos</code>parameter that
 describes an offset in <code>text</code>to start the match from.
 The utility of these functions is that they take into account empty-width
 assertions active at <code>pos</code>. For example, matching <code>\b</code>against &quot;A &quot; at
 position 1 would return a match, because these functions look at the
 surrounding characters for empty-width assertion context.</p>
 
-## <a name="bbre_set_spec">`bbre_set_spec`</a>
+<h2 id="bbre_set_spec"><code>bbre_set_spec</code></h2>
 <p>Builder class for regular expression sets.</p>
 
 ```c
 typedef struct bbre_set_spec bbre_set_spec;
 ```
 
-## <a name="bbre_set_spec_init">`bbre_set_spec_init`</a>
+<h2 id="bbre_set_spec_init"><code>bbre_set_spec_init</code></h2>
 <p>Initialize a <a href="#bbre_set_spec">bbre_set_spec</a>.</p>
 
 ```c
@@ -214,14 +236,14 @@ default.</li>
 <p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to store the object,
 0 otherwise.</p>
 
-## <a name="bbre_set_spec_destroy">`bbre_set_spec_destroy`</a>
+<h2 id="bbre_set_spec_destroy"><code>bbre_set_spec_destroy</code></h2>
 <p>Destroy a <a href="#bbre_set_spec">bbre_set_spec</a>.</p>
 
 ```c
 void bbre_set_spec_destroy(bbre_set_spec *b);
 ```
 
-## <a name="bbre_set_spec_add">`bbre_set_spec_add`</a>, <a name="bbre_set_spec_config">`bbre_set_spec_config`</a>, <a name="bbre_set">`bbre_set`</a>, <a name="bbre_set_init">`bbre_set_init`</a>, <a name="bbre_set_init_spec">`bbre_set_init_spec`</a>, <a name="bbre_set_destroy">`bbre_set_destroy`</a>, <a name="bbre_set_match">`bbre_set_match`</a>
+<h2 id="bbre_set_spec_add"><code>bbre_set_spec_add</code>, <code>bbre_set_spec_config</code>, <code>bbre_set</code>, <code>bbre_set_init</code>, <code>bbre_set_init_spec</code>, <code>bbre_set_destroy</code>, <code>bbre_set_match</code></h2>
 <p>Add a pattern to a <a href="#bbre_set_spec">bbre_set_spec</a>.</p>
 
 ```c
@@ -243,7 +265,7 @@ int bbre_set_match(
 <p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to add <code>reg</code>to <code>set</code>,
 0 otherwise.</p>
 
-## <a name="bbre_fork">`bbre_fork`</a>, <a name="bbre_set_fork">`bbre_set_fork`</a>
+<h2 id="bbre_fork"><code>bbre_fork</code>, <code>bbre_set_fork</code></h2>
 <p>Duplicate a \ref <a href="#bbre">bbre</a> without re-compiling it.</p>
 
 ```c
