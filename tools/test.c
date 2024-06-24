@@ -50,15 +50,16 @@ size_t utf_encode(char *out_buf, bbre_u32 codep)
 #define TEST_MAX_SET  10
 
 int check_match_results(
-    bbre *r, const char *s, size_t n, bbre_u32 max_span, span *check_span,
+    bbre *r, const char *s, size_t n, bbre_u32 max_span, bbre_span *check_span,
     bbre_u32 match)
 {
   int err = 0;
   /* memory for found spans and found sets */
-  span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
+  bbre_span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
   bbre_u32 i;
   /* perform the match */
-  if ((err = bbre_match(r, s, n, 0, max_span, found_span)) == BBRE_ERR_MEM)
+  if ((err = bbre_captures_at(r, s, n, 0, max_span, found_span)) ==
+      BBRE_ERR_MEM)
     return err;
   ASSERT_GTEm(err, 0, "bbre_match() returned an error");
   ASSERT_EQm(
@@ -76,7 +77,7 @@ int check_match_results(
 
 int check_matches_n(
     const char *regex, size_t regex_n, const char *s, size_t n,
-    bbre_u32 max_span, span *check_span, bbre_u32 match)
+    bbre_u32 max_span, bbre_span *check_span, bbre_u32 match)
 {
   bbre *r = NULL;
   bbre_spec *spec = NULL;
@@ -106,7 +107,7 @@ oom_re:
 
 int check_match(
     const char *regex, const char *s, size_t n, bbre_u32 max_span,
-    span *check_span, bbre_u32 match)
+    bbre_span *check_span, bbre_u32 match)
 {
   size_t regex_n = strlen(regex);
   return check_matches_n(regex, regex_n, s, n, max_span, check_span, match);
@@ -134,7 +135,7 @@ int check_not_fullmatch(const char *regex, const char *s)
 
 int check_match_g1(const char *regex, const char *s, size_t b, size_t e)
 {
-  span g;
+  bbre_span g;
   g.begin = b, g.end = e;
   return check_match(regex, s, strlen(s), 1, &g, 1);
 }
@@ -142,7 +143,7 @@ int check_match_g1(const char *regex, const char *s, size_t b, size_t e)
 int check_match_g2(
     const char *regex, const char *s, size_t b, size_t e, size_t b2, size_t e2)
 {
-  span g[2];
+  bbre_span g[2];
   g[0].begin = b, g[0].end = e;
   g[1].begin = b2, g[1].end = e2;
   return check_match(regex, s, strlen(s), 2, g, 1);
@@ -205,7 +206,7 @@ int check_compiles_n(const char *regex, size_t n)
   if ((err = bbre_init_spec(&r, spec, NULL)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, 0);
-  if ((err = bbre_match(r, "", 0, 0, 0, NULL)) == BBRE_ERR_MEM)
+  if ((err = bbre_is_match(r, "", 0)) == BBRE_ERR_MEM)
     goto oom;
   bbre_destroy(r);
   bbre_spec_destroy(spec);
@@ -275,7 +276,7 @@ int assert_cc_match_raw(
   ASSERT(!err);
   for (codep = 0; codep < TEST_NAMED_CLASS_RANGE_MAX; codep++) {
     size_t sz = utf_encode(utf8, codep);
-    if ((err = bbre_match(r, utf8, sz, 0, 0, NULL)) == BBRE_ERR_MEM)
+    if ((err = bbre_is_match(r, utf8, sz)) == BBRE_ERR_MEM)
       goto oom;
     for (range_idx = 0; range_idx < num_ranges; range_idx++) {
       if (codep >= ranges[range_idx * 2] &&
@@ -285,7 +286,7 @@ int assert_cc_match_raw(
       }
     }
     if (range_idx == num_ranges) {
-      if ((err = bbre_match(r, utf8, sz, 0, 0, NULL)) == BBRE_ERR_MEM)
+      if ((err = bbre_is_match(r, utf8, sz)) == BBRE_ERR_MEM)
         goto oom;
       ASSERT_EQ(err, invert);
     }

@@ -7,61 +7,61 @@ The engine builds an AST from the input regexp. The AST is analyzed and then com
 Each node in the AST has a type. Nodes have children and associated data depending on their type.
 
 ## AST Reference
-### CHR
+### BBRE_AST_TYPE_CHR
 A single character.
 
 #### Example: `a`
-![CHR AST example](generated/ast/chr_ast.svg)
+![BBRE_AST_TYPE_CHR AST example](generated/ast/bbre_ast_type_chr_ast.svg)
 
-![CHR program example](generated/ast/chr_prog.svg)
+![BBRE_AST_TYPE_CHR program example](generated/ast/bbre_ast_type_chr_prog.svg)
 
-### CAT
+### BBRE_AST_TYPE_CAT
 The concatenation of two regular expressions.
 #### Arguments:
   -   Argument 0: left child tree (AST)
   -   Argument 1: right child tree (AST)
 
 #### Example: `lr`
-![CAT AST example](generated/ast/cat_ast.svg)
+![BBRE_AST_TYPE_CAT AST example](generated/ast/bbre_ast_type_cat_ast.svg)
 
-![CAT program example](generated/ast/cat_prog.svg)
+![BBRE_AST_TYPE_CAT program example](generated/ast/bbre_ast_type_cat_prog.svg)
 
-### ALT
+### BBRE_AST_TYPE_ALT
 The alternation of two regular expressions.
 #### Arguments:
   -   Argument 0: primary alternation tree (AST)
   -   Argument 1: secondary alternation tree (AST)
 
 #### Example: `l|r`
-![ALT AST example](generated/ast/alt_ast.svg)
+![BBRE_AST_TYPE_ALT AST example](generated/ast/bbre_ast_type_alt_ast.svg)
 
-![ALT program example](generated/ast/alt_prog.svg)
+![BBRE_AST_TYPE_ALT program example](generated/ast/bbre_ast_type_alt_prog.svg)
 
-### QUANT
+### BBRE_AST_TYPE_QUANT
 A repeated regular expression.
 #### Arguments:
   -   Argument 0: child tree (AST)
   -   Argument 1: lower bound, always <= upper bound (number)
-  -   Argument 2: upper bound, might be the constant `INFTY` (number)
+  -   Argument 2: upper bound, might be the constant `BBRE_INFTY` (number)
 
 #### Example: `a+`
-![QUANT AST example](generated/ast/quant_ast.svg)
+![BBRE_AST_TYPE_QUANT AST example](generated/ast/bbre_ast_type_quant_ast.svg)
 
-![QUANT program example](generated/ast/quant_prog.svg)
+![BBRE_AST_TYPE_QUANT program example](generated/ast/bbre_ast_type_quant_prog.svg)
 
-### UQUANT
+### BBRE_AST_TYPE_UQUANT
 Like `QUANT`, but not greedy.
 #### Arguments:
   -   Argument 0: child tree (AST)
   -   Argument 1: lower bound, always <= upper bound (number)
-  -   Argument 2: upper bound, might be the constant `INFTY` (number)
+  -   Argument 2: upper bound, might be the constant `BBRE_INFTY` (number)
 
 #### Example: `(a*?)`
-![UQUANT AST example](generated/ast/uquant_ast.svg)
+![BBRE_AST_TYPE_UQUANT AST example](generated/ast/bbre_ast_type_uquant_ast.svg)
 
-![UQUANT program example](generated/ast/uquant_prog.svg)
+![BBRE_AST_TYPE_UQUANT program example](generated/ast/bbre_ast_type_uquant_prog.svg)
 
-### GROUP
+### BBRE_AST_TYPE_GROUP
 A matching group.
 #### Arguments:
   -   Argument 0: child tree (AST)
@@ -69,11 +69,11 @@ A matching group.
   -   Argument 2: scratch used by the parser to store old flags (number)
 
 #### Example: `(a)`
-![GROUP AST example](generated/ast/group_ast.svg)
+![BBRE_AST_TYPE_GROUP AST example](generated/ast/bbre_ast_type_group_ast.svg)
 
-![GROUP program example](generated/ast/group_prog.svg)
+![BBRE_AST_TYPE_GROUP program example](generated/ast/bbre_ast_type_group_prog.svg)
 
-### IGROUP
+### BBRE_AST_TYPE_IGROUP
 An inline group.
 #### Arguments:
   -   Argument 0: child tree (AST)
@@ -81,49 +81,49 @@ An inline group.
   -   Argument 2: scratch used by the parser to store old flags (number)
 
 #### Example: `(?i)a`
-![IGROUP AST example](generated/ast/igroup_ast.svg)
+![BBRE_AST_TYPE_IGROUP AST example](generated/ast/bbre_ast_type_igroup_ast.svg)
 
-![IGROUP program example](generated/ast/igroup_prog.svg)
+![BBRE_AST_TYPE_IGROUP program example](generated/ast/bbre_ast_type_igroup_prog.svg)
 
-### CLS
+### BBRE_AST_TYPE_CC
 A character class.
 #### Arguments:
-  -   Argument 0: REF_NONE or another CLS node in the charclass (AST)
+  -   Argument 0: BBRE_REF_NONE or another CLS node in the charclass (AST)
   -   Argument 1: character range begin (number)
   -   Argument 2: character range end (number)
 
 #### Example: `[a-zA-Z]`
-![CLS AST example](generated/ast/cls_ast.svg)
+![BBRE_AST_TYPE_CC AST example](generated/ast/bbre_ast_type_cc_ast.svg)
 
-![CLS program example](generated/ast/cls_prog.svg)
+![BBRE_AST_TYPE_CC program example](generated/ast/bbre_ast_type_cc_prog.svg)
 
-### ICLS
+### BBRE_AST_TYPE_ICC
 An inverted character class.
 #### Arguments:
-  -   Argument 0: REF_NONE or another CLS node in the charclass (AST)
+  -   Argument 0: BBRE_REF_NONE or another CLS node in the charclass (AST)
   -   Argument 1: character range begin (number)
   -   Argument 2: character range end (number)
 
 #### Example: `[^a-zA-Z]`
-![ICLS AST example](generated/ast/icls_ast.svg)
+![BBRE_AST_TYPE_ICC AST example](generated/ast/bbre_ast_type_icc_ast.svg)
 
-![ICLS program example](generated/ast/icls_prog.svg)
+![BBRE_AST_TYPE_ICC program example](generated/ast/bbre_ast_type_icc_prog.svg)
 
-### ANYBYTE
+### BBRE_AST_TYPE_ANYBYTE
 Matches any byte.
 
 #### Example: `\C`
-![ANYBYTE AST example](generated/ast/anybyte_ast.svg)
+![BBRE_AST_TYPE_ANYBYTE AST example](generated/ast/bbre_ast_type_anybyte_ast.svg)
 
-![ANYBYTE program example](generated/ast/anybyte_prog.svg)
+![BBRE_AST_TYPE_ANYBYTE program example](generated/ast/bbre_ast_type_anybyte_prog.svg)
 
-### AASSERT
+### BBRE_AST_TYPE_ASSERT
 Empty assertion.
 #### Arguments:
-  -   Argument 0: assertion flags, bitset of `enum assert_flag` (number)
+  -   Argument 0: assertion flags, bitset of `bbre_assert_flag` (number)
 
 #### Example: `\b`
-![AASSERT AST example](generated/ast/aassert_ast.svg)
+![BBRE_AST_TYPE_ASSERT AST example](generated/ast/bbre_ast_type_assert_ast.svg)
 
-![AASSERT program example](generated/ast/aassert_prog.svg)
+![BBRE_AST_TYPE_ASSERT program example](generated/ast/bbre_ast_type_assert_prog.svg)
 

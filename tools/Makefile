@@ -36,6 +36,8 @@ OUT_DIR=build/$(PROFILE)
 BBRE_C=../bbre.c
 BBRE_H=../bbre.h
 
+DOCS_DIR=../docs
+
 ## run target `test`
 all: test
 
@@ -216,8 +218,9 @@ help_profiles:
 
 ## build documentation
 docs: build build/viz
-	$(PYTHON) scripts/make_docs.py --folder docs --debug $(BBRE_C) internals/AST.md
-	$(PYTHON) scripts/make_docs.py --folder docs --debug $(BBRE_C) internals/Charclass_Compiler.md
+	$(PYTHON) scripts/make_docs.py --folder $(DOCS_DIR) --debug $(BBRE_C) internals/AST.md
+	$(PYTHON) scripts/make_docs.py --folder $(DOCS_DIR) --debug $(BBRE_C) internals/Charclass_Compiler.md
+	$(PYTHON) scripts/make_docs.py --folder $(DOCS_DIR) --debug $(BBRE_H) API.md
 
 ## build a folder with re + tests for testing on other platforms
 port: build $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h test_config.h

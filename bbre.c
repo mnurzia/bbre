@@ -3441,7 +3441,7 @@ bbre_make_assert_flag(bbre_u32 prev_ch, bbre_u32 next_ch)
 /* if max_set != 0 and max_span != 0 */
 static int bbre_nfa_end(
     bbre_exec *exec, size_t pos, bbre_nfa *n, bbre_u32 max_span,
-    bbre_u32 max_set, span *out_span, bbre_u32 *out_set, bbre_u32 prev_ch)
+    bbre_u32 max_set, bbre_span *out_span, bbre_u32 *out_set, bbre_u32 prev_ch)
 {
   int err;
   size_t j, sets = 0, nset = 0;
@@ -3864,7 +3864,7 @@ int bbre_compile(bbre *r)
 
 static int bbre_exec_match(
     bbre_exec *exec, const char *s, size_t n, size_t pos, bbre_u32 max_span,
-    span *out_span)
+    bbre_span *out_span)
 {
   int err = 0;
   bbre_u32 entry = BBRE_PROG_ENTRY_DOTSTAR;
@@ -3899,7 +3899,7 @@ static int bbre_exec_match(
 
 int bbre_match_internal(
     bbre *r, const char *s, size_t n, size_t pos, bbre_u32 max_span,
-    span *out_span)
+    bbre_span *out_span)
 {
   int err = 0;
   if (!r->exec)
@@ -3914,9 +3914,46 @@ done:
 
 int bbre_match(
     bbre *r, const char *s, size_t n, size_t pos, bbre_u32 num_captures,
-    span *captures)
+    bbre_span *captures)
 {
   return bbre_match_internal(r, s, n, pos, num_captures, captures);
+}
+
+int bbre_is_match(bbre *reg, const char *text, size_t text_size)
+{
+  return bbre_match(reg, text, text_size, 0, 0, NULL);
+}
+
+int bbre_find(
+    bbre *reg, const char *text, size_t text_size, bbre_span *out_bounds)
+{
+  return bbre_match(reg, text, text_size, 0, 1, out_bounds);
+}
+
+int bbre_captures(
+    bbre *reg, const char *text, size_t text_size, bbre_u32 num_captures,
+    bbre_span *out_captures)
+{
+  return bbre_match(reg, text, text_size, 0, num_captures, out_captures);
+}
+
+int bbre_is_match_at(bbre *reg, const char *text, size_t text_size, size_t pos)
+{
+  return bbre_match(reg, text, text_size, pos, 0, NULL);
+}
+
+int bbre_find_at(
+    bbre *reg, const char *text, size_t text_size, size_t pos,
+    bbre_span *out_bounds)
+{
+  return bbre_match(reg, text, text_size, pos, 1, out_bounds);
+}
+
+int bbre_captures_at(
+    bbre *reg, const char *text, size_t text_size, size_t pos,
+    bbre_u32 num_captures, bbre_span *out_captures)
+{
+  return bbre_match(reg, text, text_size, pos, num_captures, out_captures);
 }
 
 int bbre_exec_set_match(
@@ -4863,6 +4900,8 @@ void d_prog_gv(const bbre_prog *prog)
 {
   d_prog_range(prog, 1, prog->entry[BBRE_PROG_ENTRY_DOTSTAR], GRAPHVIZ);
 }
+
+void d_prog_gv_re(bbre *reg) { d_prog_gv(&reg->prog); }
 
 void d_cctree_i(
     const bbre_buf(bbre_compcc_tree) cc_tree, bbre_u32 ref, bbre_u32 lvl)

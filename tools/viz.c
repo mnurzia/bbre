@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-void d_prog_gv(bbre *r);
+void d_prog_gv_re(bbre *r);
 void d_ast_gv(bbre *r);
 
 /* these Graphviz escaping rules are really confusing... */
@@ -32,21 +32,20 @@ int main(int argc, const char *const *argv)
 {
   bbre *r;
   char buf[BUFSIZ] = {0}, esc_buf[BUFSIZ] = {0}, *res;
-  int ast, err;
+  int ast;
   assert(argc > 1);
   ast = !strcmp(argv[1], "ast");
   res = fgets(buf, sizeof(buf), stdin);
   assert(res);
-  err = bbre_init_full(&r, buf, strlen(buf), NULL);
-  assert(!err);
+  r = bbre_init(buf);
+  assert(r);
   printf(
       "digraph D { label=\"%s for \\\"%s\\\"\"; labelloc=\"t\";\n",
       ast ? "ast" : "program", escape(buf, esc_buf));
   if (ast)
     d_ast_gv(r);
   else {
-    bbre_compile(r);
-    d_prog_gv(r);
+    d_prog_gv_re(r);
   }
   (void)(esc_buf);
   bbre_destroy(r);
