@@ -331,7 +331,7 @@ def _doc_api(args, lines: list[str]) -> int:
     link_names: dict[str, str] = {}
 
     def heading(s: str, ids: list[str], lvl: int) -> str:
-        return f'<h{lvl} id="{ids[0]}"><a href="#{ids[0]}">{s}</a></h{lvl}>'
+        return f'<a href="#{ids[0]}"><h{lvl} id="{ids[0]}">{s}</h{lvl}></a>'
 
     def ref(s: str, name: str) -> str:
         return f'<a href="#{link_names[name]}">{s}</a>'
