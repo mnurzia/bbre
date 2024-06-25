@@ -434,8 +434,8 @@ PATH_FUNCS = {
 def main() -> int:
     """Main method."""
     ap = ArgumentParser()
-    ap.add_argument("--folder", type=Path, default=Path("docs"))
-    ap.add_argument("--viz", type=Path, default=Path("build/viz"))
+    ap.add_argument("--folder", type=Path, default=Path("../docs"))
+    ap.add_argument("--viz", type=Path, default=Path("build/debug/viz"))
     ap.add_argument("--debug", default=False, action="store_true")
     ap.add_argument("re_source", type=FileType("r"))
     ap.add_argument("file", type=Path)

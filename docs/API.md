@@ -196,7 +196,7 @@ int bbre_find(
     bbre *reg, const char *text, size_t text_size, bbre_span *out_bounds);
 int bbre_captures(
     bbre *reg, const char *text, size_t text_size, bbre_span *out_captures,
-    bbre_u32 out_captures_size);
+    unsigned int out_captures_size);
 ```
 <p>These functions perform matching operations using a <a href="#bbre">bbre</a> object. All of them
 take two parameters,  <code>text</code> and  <code>text_size</code>, which denote the string to
@@ -229,7 +229,7 @@ int bbre_find_at(
     bbre_span *out_bounds);
 int bbre_captures_at(
     bbre *reg, const char *text, size_t text_size, size_t pos,
-    bbre_span *out_captures, bbre_u32 out_captures_size);
+    bbre_span *out_captures, unsigned int out_captures_size);
 ```
 <p>These functions behave identically to the <a href="#bbre_is_match">bbre_is_match</a>(), <a href="#bbre_is_match">bbre_find</a>(), and
 <a href="#bbre_is_match">bbre_captures</a>() functions, but they take an additional  <code>pos</code> parameter that
@@ -340,8 +340,8 @@ void bbre_set_destroy(bbre_set *set);
 ```c
 int bbre_set_is_match(bbre_set *set, const char *text, size_t text_size);
 int bbre_set_matches(
-    bbre_set *set, const char *text, size_t text_size, bbre_u32 *out_idxs,
-    bbre_u32 out_idxs_size, bbre_u32 *out_num_idxs);
+    bbre_set *set, const char *text, size_t text_size, unsigned int *out_idxs,
+    unsigned int out_idxs_size, unsigned int *out_num_idxs);
 ```
 <p>These functions perform multi-matching of patterns. They both take two
 parameters,  <code>text</code> and  <code>text_size</code>, which denote the string to match
@@ -368,7 +368,8 @@ int bbre_set_is_match_at(
     bbre_set *set, const char *text, size_t text_size, size_t pos);
 int bbre_set_matches_at(
     bbre_set *set, const char *text, size_t text_size, size_t pos,
-    bbre_u32 *out_idxs, bbre_u32 out_idxs_size, bbre_u32 *out_num_idxs);
+    unsigned int *out_idxs, unsigned int out_idxs_size,
+    unsigned int *out_num_idxs);
 ```
 <p>These functions perform identically to the <a href="#bbre_set_is_match">bbre_set_is_match</a>() and
 <a href="#bbre_set_is_match">bbre_set_matches</a>() functions, except they take an additional  <code>pos</code> argument

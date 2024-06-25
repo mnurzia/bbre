@@ -20,6 +20,7 @@ CFLAGS=\
 			 -Wuninitialized\
 			 -Wunused-variable\
 			 -std=c89\
+			 -DBBRE_DEBUG_UTILS=\"tools/debug_utils.c\"\
 			 $(CFLAGS_$(PROFILE))
 
 SRCS=test.c test_gen.c
@@ -196,17 +197,17 @@ format:
 	$(FORMAT) $(BBRE_C) $(BBRE_H) test_gen.c test.c test_config.h viz.c parser_fuzz.c
 	$(PYTHON) -m black -q scripts/*.py
 
-build/viz: build viz.c $(BBRE_C)
-	$(CC) $(CFLAGS) viz.c $(BBRE_C) -o $@
+$(OUT_DIR)/viz: build $(BBRE_C) viz.c
+	$(CC) $(CFLAGS) $(BBRE_C) viz.c -o $@
 
-viz_gv_%:
-	TVIZ=$$(mktemp); ./build/viz $(subst viz_gv_,,$@) | dot -Tsvg > "$$TVIZ"; $(OPEN_URL) file://$$(realpath $$TVIZ); sleep 0.5; rm -rf $$TVIZ
+viz_gv_%: $(OUT_DIR)/viz
+	TVIZ=$$(mktemp); $(OUT_DIR)/viz $(subst viz_gv_,,$@) | dot -Tsvg > "$$TVIZ"; $(OPEN_URL) file://$$(realpath $$TVIZ); sleep 0.5; rm -rf $$TVIZ
 
 ## visualize a regex's compiled program (use `echo "regex" | make viz_prog`)
-viz_prog: build/viz viz_gv_prog
+viz_prog: viz_gv_prog
 
 ## visualize a regex's AST (use `echo "regex" | make viz_ast`)
-viz_ast: build/viz viz_gv_ast
+viz_ast: viz_gv_ast
 
 ## print a list of targets and their descriptions
 help_targets:
@@ -217,10 +218,10 @@ help_profiles:
 	sed < Makefile -n -e '1s/^.*/PROFILE\&CFLAGS/p' -e 's/CFLAGS_\([a-z]*\)=\(.*\)/\1\&\2/p' | column -t -s '&'
 
 ## build documentation
-docs: build build/viz
-	$(PYTHON) scripts/make_docs.py --folder $(DOCS_DIR) --debug $(BBRE_C) internals/AST.md
-	$(PYTHON) scripts/make_docs.py --folder $(DOCS_DIR) --debug $(BBRE_C) internals/Charclass_Compiler.md
-	$(PYTHON) scripts/make_docs.py --folder $(DOCS_DIR) --debug $(BBRE_H) API.md
+docs: build $(OUT_DIR)/viz
+	$(PYTHON) scripts/make_docs.py --viz $(OUT_DIR)/viz --folder $(DOCS_DIR) --debug $(BBRE_C) internals/AST.md
+	$(PYTHON) scripts/make_docs.py --viz $(OUT_DIR)/viz --folder $(DOCS_DIR) --debug $(BBRE_C) internals/Charclass_Compiler.md
+	$(PYTHON) scripts/make_docs.py --viz $(OUT_DIR)/viz --folder $(DOCS_DIR) --debug $(BBRE_H) API.md
 
 ## build a folder with re + tests for testing on other platforms
 port: build $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h test_config.h
