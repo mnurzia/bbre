@@ -349,13 +349,13 @@ def cmd_dfa(args) -> int:
     lines, out = make_appender_func()
     out(f"#define BBRE_UTF8_DFA_NUM_CLASS {len(common_classes)}")
     out(f"#define BBRE_UTF8_DFA_NUM_STATE {len(state_n) + 1}")
-    out(f"static const bbre_u8 bbre_utf8_dfa_class[256] = {{")
+    out(f"static const bbre_byte bbre_utf8_dfa_class[256] = {{")
     out(",".join(map(str, class_table)) + "};")
     out(
-        f"static const bbre_u8 bbre_utf8_dfa_trans[BBRE_UTF8_DFA_NUM_STATE][BBRE_UTF8_DFA_NUM_CLASS] = {{"
+        f"static const bbre_byte bbre_utf8_dfa_trans[BBRE_UTF8_DFA_NUM_STATE][BBRE_UTF8_DFA_NUM_CLASS] = {{"
     )
     out(",".join("{" + ",".join(map(str, row)) + "}" for row in state_table) + "};")
-    out(f"static const bbre_u8 bbre_utf8_dfa_shift[BBRE_UTF8_DFA_NUM_CLASS] = {{")
+    out(f"static const bbre_byte bbre_utf8_dfa_shift[BBRE_UTF8_DFA_NUM_CLASS] = {{")
     out(",".join(map(str, (shift_amt(next(iter(cc))) for cc in common_classes))) + "};")
 
     insert_c_file(args.file, lines, "dfa", file_name="charclass_tree.py")

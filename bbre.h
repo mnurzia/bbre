@@ -2,32 +2,6 @@
 #define MN_BBRE_H
 #include <stddef.h> /* size_t */
 
-/* Self-plagiarism from rv. */
-#if __STDC__ && __STDC_VERSION__ >= 199901L /* Attempt to load stdint.h. */
-  #include <stdint.h>
-  #define BBRE_U8_TYPE  uint8_t
-  #define BBRE_U16_TYPE uint16_t
-  #define BBRE_S32_TYPE int32_t
-  #define BBRE_U32_TYPE uint32_t
-#else
-  #ifdef __UINT8_TYPE__
-    #define BBRE_U8_TYPE  __UINT8_TYPE__
-    #define BBRE_U16_TYPE __UINT16_TYPE__
-    #define BBRE_S32_TYPE __INT32_TYPE__
-    #define BBRE_U32_TYPE __UINT32_TYPE__
-  #else
-    #define BBRE_U8_TYPE  unsigned char
-    #define BBRE_U16_TYPE unsigned short
-    #define BBRE_S32_TYPE signed int
-    #define BBRE_U32_TYPE unsigned int
-  #endif /* (slight) deviations from c89. Sorry {TI, Cray, DEC, et. al.} */
-#endif
-
-typedef BBRE_U8_TYPE bbre_u8;
-typedef BBRE_U16_TYPE bbre_u16;
-typedef BBRE_S32_TYPE bbre_s32;
-typedef BBRE_U32_TYPE bbre_u32;
-
 /** Enumeration of error types. */
 #define BBRE_ERR_MEM   (-1) /* Out of memory. */
 #define BBRE_ERR_PARSE (-2) /* Parsing failed. */
@@ -181,7 +155,7 @@ int bbre_find(
     bbre *reg, const char *text, size_t text_size, bbre_span *out_bounds);
 int bbre_captures(
     bbre *reg, const char *text, size_t text_size, bbre_span *out_captures,
-    bbre_u32 out_captures_size);
+    unsigned int out_captures_size);
 
 /** Match text against a bbre, starting the match from a given position.
  ** These functions behave identically to the bbre_is_match(), bbre_find(), and
@@ -197,7 +171,7 @@ int bbre_find_at(
     bbre_span *out_bounds);
 int bbre_captures_at(
     bbre *reg, const char *text, size_t text_size, size_t pos,
-    bbre_span *out_captures, bbre_u32 out_captures_size);
+    bbre_span *out_captures, unsigned int out_captures_size);
 
 /** Builder class for regular expression sets. */
 typedef struct bbre_set_spec bbre_set_spec;
@@ -276,8 +250,8 @@ void bbre_set_destroy(bbre_set *set);
  ** BBRE_ERR_MEM if there was not enough memory to perform the match. */
 int bbre_set_is_match(bbre_set *set, const char *text, size_t text_size);
 int bbre_set_matches(
-    bbre_set *set, const char *text, size_t text_size, bbre_u32 *out_idxs,
-    bbre_u32 out_idxs_size, bbre_u32 *out_num_idxs);
+    bbre_set *set, const char *text, size_t text_size, unsigned int *out_idxs,
+    unsigned int out_idxs_size, unsigned int *out_num_idxs);
 
 /** Match text against a bbre, starting the match from a given position.
  ** These functions perform identically to the bbre_set_is_match() and
@@ -290,7 +264,8 @@ int bbre_set_is_match_at(
     bbre_set *set, const char *text, size_t text_size, size_t pos);
 int bbre_set_matches_at(
     bbre_set *set, const char *text, size_t text_size, size_t pos,
-    bbre_u32 *out_idxs, bbre_u32 out_idxs_size, bbre_u32 *out_num_idxs);
+    unsigned int *out_idxs, unsigned int out_idxs_size,
+    unsigned int *out_num_idxs);
 
 /** Duplicate a bbre or bbre_set without recompiling it.
  ** If you want to match a pattern using multiple threads, you will need to call

@@ -27,7 +27,10 @@ class DataType(NamedTuple):
 
     def to_ctype(self) -> str:
         """Return the C type name for this datatype."""
-        return f"bbre_{'s' if self.signed else 'u'}{8 * self.size_bytes}"
+        data_types = {1: "char", 2: "short", 4: "int"}
+        return (
+            f"{'signed' if self.signed else 'unsigned'} {data_types[self.size_bytes]}"
+        )
 
 
 def _find_tags(lines: list[str], start_tag: str, end_tag: str | None):

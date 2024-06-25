@@ -64,7 +64,7 @@ def _declare_cstr(id: str, a: bytes) -> str:
     if (
         len(a) > 500
     ):  # c89 disallows 509+ bytes but let's be safe here... you never know when you might hit a compiler limit!!!
-        return f"const bbre_u8 {id}[{len(a)}] = {{" + ",".join(map(str, a)) + "};"
+        return f"const unsigned char {id}[{len(a)}] = {{" + ",".join(map(str, a)) + "};"
     return f"const char* {id} = {_escape_cstr(a)};"
 
 

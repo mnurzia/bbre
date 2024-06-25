@@ -165,7 +165,7 @@ def _cmd_gen_casefold(args) -> int:
         out(",".join(fmt_hex(n, data_types[i], num_digits) for n in array))
         out("};")
 
-    out("static bbre_s32 bbre_compcc_fold_next(bbre_u32 rune) { return ")
+    out("static int bbre_compcc_fold_next(bbre_uint rune) { return ")
 
     def shift_mask_expr(name: str, i: int) -> str:
         shift_expr = f"({name} >> {shifts[i]})" if shifts[i] != 0 else name
@@ -178,12 +178,12 @@ def _cmd_gen_casefold(args) -> int:
     out(";}")
 
     out(
-        "static int bbre_compcc_fold_range(bbre *r, bbre_u32 begin, bbre_u32 end, bbre_buf(bbre_rune_range) *cc_out) {"
+        "static int bbre_compcc_fold_range(bbre *r, bbre_uint begin, bbre_uint end, bbre_buf(bbre_rune_range) *cc_out) {"
     )
 
     types = {
         "int": ["err = 0"],
-        "bbre_u32": ["current"] + [f"x{i}" for i in range(len(arrays))],
+        "bbre_uint": ["current"] + [f"x{i}" for i in range(len(arrays))],
     }
 
     for i, data_type in enumerate(data_types):
@@ -215,10 +215,10 @@ def _cmd_gen_casefold(args) -> int:
     out("current = begin + a0;")
     out("while (current != begin) {")
     out(
-        "  if ((err = bbre_buf_push(r->alloc, cc_out, bbre_rune_range_make(current, current))))"
+        "  if ((err = bbre_buf_push(&r->alloc, cc_out, bbre_rune_range_make(current, current))))"
     )
     out("    return err;")
-    out("  current = (bbre_u32)((bbre_s32)current + bbre_compcc_fold_next(current));")
+    out("  current = (bbre_uint)((int)current + bbre_compcc_fold_next(current));")
     out("}")
     out("begin++;")
 
@@ -397,7 +397,7 @@ def _cmd_gen_ccs_impl(args) -> int:
     out(
         f"/* {num_ranges} ranges, {num_ranges * 2} integers, {len(encoded_arr) * 4} bytes */"
     )
-    out(f"const bbre_u32 bbre_builtin_cc_data[{len(encoded_arr)}] = {{")
+    out(f"const bbre_uint bbre_builtin_cc_data[{len(encoded_arr)}] = {{")
     out(",".join(f"0x{e:08X}" for e in encoded_arr))
     out("};")
     for cc_type in _BuiltinCCType:
@@ -425,7 +425,7 @@ def _cmd_gen_ccs_test(args) -> int:
         encoded_ranges = {",".join(f"0x{lo:X} 0x{hi:X}" for lo, hi in cc)}
         return f"""
         TEST({test_name}) {{
-            static const bbre_u32 ranges[] = {{{",".join(f"0x{r:X}" for c in cc for r in c)}}};
+            static const unsigned int ranges[] = {{{",".join(f"0x{r:X}" for c in cc for r in c)}}};
             PROPAGATE(assert_cc_match_raw(
                 {regex},
                 ranges, {len(cc)}, {int(invert)}));

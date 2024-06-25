@@ -20,25 +20,25 @@
 
 #define IMPLIES(c, pred) (!(c) || (pred))
 
-size_t utf_encode(char *out_buf, bbre_u32 codep)
+size_t utf_encode(char *out_buf, unsigned int codep)
 {
   if (codep <= 0x7F) {
     out_buf[0] = codep & 0x7F;
     return 1;
   } else if (codep <= 0x07FF) {
-    out_buf[0] = (bbre_u8)(((codep >> 6) & 0x1F) | 0xC0);
-    out_buf[1] = (bbre_u8)(((codep >> 0) & 0x3F) | 0x80);
+    out_buf[0] = (unsigned char)(((codep >> 6) & 0x1F) | 0xC0);
+    out_buf[1] = (unsigned char)(((codep >> 0) & 0x3F) | 0x80);
     return 2;
   } else if (codep <= 0xFFFF) {
-    out_buf[0] = (bbre_u8)(((codep >> 12) & 0x0F) | 0xE0);
-    out_buf[1] = (bbre_u8)(((codep >> 6) & 0x3F) | 0x80);
-    out_buf[2] = (bbre_u8)(((codep >> 0) & 0x3F) | 0x80);
+    out_buf[0] = (unsigned char)(((codep >> 12) & 0x0F) | 0xE0);
+    out_buf[1] = (unsigned char)(((codep >> 6) & 0x3F) | 0x80);
+    out_buf[2] = (unsigned char)(((codep >> 0) & 0x3F) | 0x80);
     return 3;
   } else if (codep <= 0x10FFFF) {
-    out_buf[0] = (bbre_u8)(((codep >> 18) & 0x07) | 0xF0);
-    out_buf[1] = (bbre_u8)(((codep >> 12) & 0x3F) | 0x80);
-    out_buf[2] = (bbre_u8)(((codep >> 6) & 0x3F) | 0x80);
-    out_buf[3] = (bbre_u8)(((codep >> 0) & 0x3F) | 0x80);
+    out_buf[0] = (unsigned char)(((codep >> 18) & 0x07) | 0xF0);
+    out_buf[1] = (unsigned char)(((codep >> 12) & 0x3F) | 0x80);
+    out_buf[2] = (unsigned char)(((codep >> 6) & 0x3F) | 0x80);
+    out_buf[3] = (unsigned char)(((codep >> 0) & 0x3F) | 0x80);
     return 4;
   } else {
     assert(0);
@@ -50,20 +50,20 @@ size_t utf_encode(char *out_buf, bbre_u32 codep)
 #define TEST_MAX_SET  10
 
 int check_match_results(
-    bbre *r, const char *s, size_t n, bbre_u32 max_span, bbre_span *check_span,
-    bbre_u32 match)
+    bbre *r, const char *s, size_t n, unsigned int max_span,
+    bbre_span *check_span, unsigned int match)
 {
   int err = 0;
   /* memory for found spans and found sets */
   bbre_span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
-  bbre_u32 i;
+  unsigned int i;
   /* perform the match */
   if ((err = bbre_captures_at(r, s, n, 0, found_span, max_span)) ==
       BBRE_ERR_MEM)
     return err;
   ASSERT_GTEm(err, 0, "bbre_match() returned an error");
   ASSERT_EQm(
-      (bbre_u32)err, match, "bbre_match() didn't return the correct value");
+      (unsigned int)err, match, "bbre_match() didn't return the correct value");
   if (match)
     for (i = 0; i < max_span; i++) {
       ASSERT_EQm(
@@ -72,12 +72,12 @@ int check_match_results(
       ASSERT_EQm(
           check_span[i].end, found_span[i].end, "found unexpected span end");
     }
-  return !((bbre_u32)err == match);
+  return !((unsigned int)err == match);
 }
 
 int check_matches_n(
     const char *regex, size_t regex_n, const char *s, size_t n,
-    bbre_u32 max_span, bbre_span *check_span, bbre_u32 match)
+    unsigned int max_span, bbre_span *check_span, unsigned int match)
 {
   bbre *r = NULL;
   bbre_spec *spec = NULL;
@@ -106,8 +106,8 @@ oom_re:
 }
 
 int check_match(
-    const char *regex, const char *s, size_t n, bbre_u32 max_span,
-    bbre_span *check_span, bbre_u32 match)
+    const char *regex, const char *s, size_t n, unsigned int max_span,
+    bbre_span *check_span, unsigned int match)
 {
   size_t regex_n = strlen(regex);
   return check_matches_n(regex, regex_n, s, n, max_span, check_span, match);
@@ -223,9 +223,9 @@ int check_compiles(const char *regex)
   PASS();
 }
 
-bbre_u32 matchnum(const char *num)
+unsigned int matchnum(const char *num)
 {
-  bbre_u32 out = 0;
+  unsigned int out = 0;
   unsigned char chout;
   if (sscanf(num, "0x%X", &out))
     return out;
@@ -236,9 +236,9 @@ bbre_u32 matchnum(const char *num)
   return 0;
 }
 
-bbre_u32 matchspec(const char *spec, bbre_u32 *ranges)
+unsigned int matchspec(const char *spec, unsigned int *ranges)
 {
-  bbre_u32 n = 0;
+  unsigned int n = 0;
   while (*spec) {
     const char *comma = strchr(spec, ',');
     const char *nextspec = comma ? comma + 1 : comma;
@@ -262,12 +262,13 @@ bbre_u32 matchspec(const char *spec, bbre_u32 *ranges)
 }
 
 int assert_cc_match_raw(
-    const char *regex, const bbre_u32 *ranges, bbre_u32 num_ranges, int invert)
+    const char *regex, const unsigned int *ranges, unsigned int num_ranges,
+    int invert)
 {
   bbre *r = NULL;
   bbre_spec *spec = NULL;
   int err;
-  bbre_u32 codep, range_idx;
+  unsigned int codep, range_idx;
   char utf8[16];
   if ((err = bbre_spec_init(&spec, regex, strlen(regex), NULL)) == BBRE_ERR_MEM)
     goto oom;
@@ -302,8 +303,8 @@ oom:
 
 int assert_cc_match(const char *regex, const char *spec, int invert)
 {
-  bbre_u32 ranges[128];
-  bbre_u32 nrange = matchspec(spec, ranges);
+  unsigned int ranges[128];
+  unsigned int nrange = matchspec(spec, ranges);
   PROPAGATE(assert_cc_match_raw(regex, ranges, nrange, invert));
   PASS();
 }
@@ -2342,9 +2343,9 @@ TEST(set_many)
   bbre *patterns[26] = {0};
   bbre_set *set = NULL;
   bbre_set_spec *spec = NULL;
-  bbre_u32 i = 0;
+  unsigned int i = 0;
   int err = 0;
-  bbre_u32 pat_ids[2] = {0};
+  unsigned int pat_ids[2] = {0};
   for (i = 0; i < sizeof(patterns) / sizeof(patterns[0]); i++) {
     char pattern[] = {'a', 0};
     pattern[0] += i;
@@ -2364,7 +2365,7 @@ TEST(set_many)
   spec = NULL;
   for (i = 0; i < sizeof(patterns) / sizeof(patterns[0]); i++) {
     char text[] = {'a', 0};
-    bbre_u32 nmatch = 0;
+    unsigned int nmatch = 0;
     text[0] += i;
     if ((err = bbre_set_matches(
              set, text, 1, pat_ids, sizeof(pat_ids) / sizeof(pat_ids[0]),
