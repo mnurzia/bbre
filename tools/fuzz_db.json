@@ -243,5 +243,74 @@
     "num_spans": 0,
     "match_string": "\u13bc\u0901\u0f6f",
     "match_spans": []
+  },
+  {
+    "identifier": "0018",
+    "commit_hash": "302e794530070a37eb723eb75e16dcf8c48011c6",
+    "created": "2024-06-25T18:19:38.806771",
+    "type": "match",
+    "extra": {
+      "fuzzington_seed": 3471845700814703161
+    },
+    "regex": "([\u06ab-\udb7b\ude29\u0010-\ud998\udf7a\u017c-2\u045d-\ud835\ude00`-F])|\u0000S\u00c5*",
+    "match": true,
+    "num_spans": 1,
+    "match_string": "\u00d9",
+    "match_spans": [
+      [
+        0,
+        2
+      ]
+    ]
+  },
+  {
+    "identifier": "0019",
+    "commit_hash": "302e794530070a37eb723eb75e16dcf8c48011c6",
+    "created": "2024-06-25T18:57:03.540644",
+    "type": "match",
+    "extra": {
+      "fuzzington_seed": 3471845700814703161
+    },
+    "regex": "([\u06ab-\udb7b\ude29\u0010-\ud998\udf7a\u017c-2\u045d-\ud835\ude00`-F])|\u0000S\u00c5*",
+    "match": true,
+    "num_spans": 2,
+    "match_string": "\u00d9",
+    "match_spans": [
+      [
+        0,
+        2
+      ],
+      [
+        0,
+        2
+      ]
+    ]
+  },
+  {
+    "identifier": "0020",
+    "commit_hash": "302e794530070a37eb723eb75e16dcf8c48011c6",
+    "created": "2024-06-25T19:26:39.091465",
+    "type": "match",
+    "extra": {
+      "fuzzington_seed": 3471845700814703174
+    },
+    "regex": "(?:(E))*(\b\u00cf)",
+    "match": true,
+    "num_spans": 3,
+    "match_string": "E\b\u00cf",
+    "match_spans": [
+      [
+        0,
+        4
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        1,
+        4
+      ]
+    ]
   }
 ]

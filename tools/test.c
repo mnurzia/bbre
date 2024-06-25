@@ -60,7 +60,7 @@ int check_match_results(
   /* perform the match */
   if ((err = bbre_captures_at(r, s, n, 0, found_span, max_span)) ==
       BBRE_ERR_MEM)
-    return err;
+    goto oom;
   ASSERT_GTEm(err, 0, "bbre_match() returned an error");
   ASSERT_EQm(
       (unsigned int)err, match, "bbre_match() didn't return the correct value");
@@ -72,7 +72,9 @@ int check_match_results(
       ASSERT_EQm(
           check_span[i].end, found_span[i].end, "found unexpected span end");
     }
-  return !((unsigned int)err == match);
+  PASS();
+oom:
+  OOM();
 }
 
 int check_matches_n(
@@ -85,16 +87,13 @@ int check_matches_n(
   ASSERT_LTEm(max_span, TEST_MAX_SPAN, "too many spans to match");
   if ((err = bbre_spec_init(&spec, regex, regex_n, NULL)) == BBRE_ERR_MEM)
     goto oom_re;
+  ASSERT_EQm(err, 0, "bbre_spec_init() returned a nonzero value");
   if ((err = bbre_init_spec(&r, spec, NULL)) == BBRE_ERR_MEM)
     goto oom_re;
-  ASSERT_EQm(err, 0, "bbre_init_full() returned a nonzero value");
-  ASSERT_EQm(err, 0, "bbre_exec_init() returned a nonzero value");
-  if ((err = check_match_results(r, s, n, max_span, check_span, match)) ==
-      BBRE_ERR_MEM)
-    goto oom_re;
+  ASSERT_EQm(err, 0, "bbre_init_spec() returned a nonzero value");
+  PROPAGATE(check_match_results(r, s, n, max_span, check_span, match));
   ASSERT(!err);
-  if ((err = check_match_results(r, s, n, 0, 0, match)) == BBRE_ERR_MEM)
-    goto oom_re;
+  PROPAGATE(check_match_results(r, s, n, 0, 0, match));
   ASSERT(!err);
   bbre_destroy(r);
   bbre_spec_destroy(spec);
@@ -2311,6 +2310,12 @@ TEST(grp_invalid_unmatched_lparen)
   PASS();
 }
 
+TEST(grp_nested_in_nonmatching)
+{
+  ASSERT_MATCH_G2("(?:(A))", "A", 0, 1, 0, 1);
+  PASS();
+}
+
 SUITE(grp)
 {
   RUN_SUITE(grp_flag_i);
@@ -2336,6 +2341,7 @@ SUITE(grp)
   RUN_TEST(grp_nested_inlines);
   RUN_TEST(grp_invalid_unmatched_rparen);
   RUN_TEST(grp_invalid_unmatched_lparen);
+  RUN_TEST(grp_nested_in_nonmatching);
 }
 
 TEST(set_many)

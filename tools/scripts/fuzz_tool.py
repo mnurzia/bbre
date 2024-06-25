@@ -295,7 +295,7 @@ class MatchTest(Test):
         out(str(len(self.regex)))
         out(";")
         if self.num_spans != 0:
-            out("span spans[] = {")
+            out("bbre_span spans[] = {")
             out(",".join(f"{{{s[0]}, {s[1]}}}" for s in self.match_spans) + "};")
         out("PROPAGATE(check_matches_n(")
         out(

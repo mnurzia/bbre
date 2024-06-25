@@ -199,9 +199,16 @@ build/fuzzington/release/fuzzington: fuzzington/src/main.rs fuzzington/build.rs\
 		$(BBRE_C) $(BBRE_H) 
 	cd fuzzington;RUSTFLAGS="-C link-dead-code" cargo build --release\
 		--target-dir ../build/fuzzington
+	
+build/fuzzington/debug/fuzzington: fuzzington/src/main.rs fuzzington/build.rs\
+		$(BBRE_C) $(BBRE_H) 
+	cd fuzzington;RUSTFLAGS="-C link-dead-code" cargo build\
+		--target-dir ../build/fuzzington
+
+fuzzington: build/fuzzington/release/fuzzington
 
 ## run fuzzington, the semantic regex fuzz tester
-fuzzington_run: build build/fuzzington/release/fuzzington
+fuzzington_run: build fuzzington
 	$(PYTHON) scripts/fuzz_tool.py --debug fuzz_db.json run_fuzzington\
 		--num-iterations $(FUZZINGTON_ITERS)
 
@@ -218,7 +225,7 @@ format:
 		test.c test_config.h test_gen.c viz.c 
 	$(PYTHON) -m black -q scripts/*.py
 
-$(OUT_DIR)/viz: build $(BBRE_C) viz.c
+$(OUT_DIR)/viz: $(OUT_DIR) $(BBRE_C) viz.c
 	$(CC) $(CFLAGS) $(BBRE_C) viz.c -o $@
 
 viz_gv_%: $(OUT_DIR)/viz

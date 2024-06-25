@@ -1,5 +1,6 @@
 use std::{
     io::{stdout, Write},
+    iter::zip,
     ptr::{self, null_mut},
 };
 
@@ -31,6 +32,7 @@ mod nfa {
     struct Transition {
         pub dest: StateId,
         pub label: Label,
+        pub save: Option<usize>,
     }
 
     /// A NFA (nondeterministic finite automaton) for matching character
@@ -38,6 +40,39 @@ mod nfa {
     pub struct Nfa {
         trans: Vec<Vec<Transition>>,
         matches: HashSet<StateId>,
+    }
+
+    pub struct Thread {
+        state_id: StateId,
+        saves: Vec<usize>,
+    }
+
+    impl Thread {
+        pub fn root(state_id: StateId) -> Thread {
+            Thread {
+                state_id,
+                saves: vec![],
+            }
+        }
+
+        pub fn fork(&self, state_id: StateId) -> Thread {
+            Thread {
+                state_id,
+                saves: self.saves.clone(),
+            }
+        }
+
+        pub fn fork_with(&self, state_id: StateId, idx: usize, pos: usize) -> Thread {
+            let mut next_saves = self.saves.clone();
+            while idx >= next_saves.len() {
+                next_saves.push(0);
+            }
+            next_saves[idx] = pos;
+            Thread {
+                state_id,
+                saves: next_saves,
+            }
+        }
     }
 
     impl Nfa {
@@ -68,41 +103,60 @@ mod nfa {
         pub fn link(&mut self, start: StateId, label: Label, dest: StateId) {
             assert!(!matches!(label, Label::None) <= self.trans[start].is_empty());
             assert!(!self.matches.contains(&start));
-            self.trans[start].push(Transition { dest, label })
+            self.trans[start].push(Transition {
+                dest,
+                label,
+                save: None,
+            })
+        }
+
+        pub fn link_with_save(&mut self, start: StateId, save: usize, dest: StateId) {
+            self.trans[start].push(Transition {
+                dest,
+                label: Label::None,
+                save: Some(save),
+            })
         }
 
         /// Follow all epsilon transitions in the given set of states.
         pub fn follow(
             &self,
-            states: &Vec<StateId>,
-            states_out: &mut Vec<StateId>,
+            threads: &mut Vec<Thread>,
+            threads_out: &mut Vec<Thread>,
             states_hash_out: &mut HashSet<StateId>,
+            pos: usize,
         ) {
             let mut found = HashSet::<StateId>::new();
-            let mut stk = Vec::<StateId>::new();
-            stk.extend(states);
-            states_out.clear();
+            let mut stk = Vec::<Thread>::new();
+            stk.extend(threads.drain(0..));
+            threads_out.clear();
             states_hash_out.clear();
             while let Some(elt) = stk.pop() {
-                if found.contains(&elt) {
+                if found.contains(&elt.state_id) {
                     continue;
                 }
-                if self.matches.contains(&elt) && (states_hash_out.insert(elt)) {
-                    states_out.push(elt);
+                if self.matches.contains(&elt.state_id) && (states_hash_out.insert(elt.state_id)) {
+                    threads_out.push(elt.fork(elt.state_id));
                 }
-                for Transition { dest: state, label } in &self.trans[elt] {
+                for Transition {
+                    dest: state,
+                    label,
+                    save,
+                } in &self.trans[elt.state_id]
+                {
                     match label {
-                        Label::None => {
-                            stk.push(*state);
-                        }
+                        Label::None => match save {
+                            None => stk.push(elt.fork(*state)),
+                            Some(idx) => stk.push(elt.fork_with(*state, *idx, pos)),
+                        },
                         _ => {
-                            if states_hash_out.insert(elt) {
-                                states_out.push(elt);
+                            if states_hash_out.insert(elt.state_id) {
+                                threads_out.push(elt.fork(elt.state_id));
                             }
                         }
                     }
                 }
-                found.insert(elt);
+                found.insert(elt.state_id);
             }
         }
 
@@ -110,19 +164,24 @@ mod nfa {
         pub fn feed(
             &self,
             ch: Input,
-            states: &Vec<StateId>,
-            states_out: &mut Vec<StateId>,
+            states: &Vec<Thread>,
+            states_out: &mut Vec<Thread>,
             states_hash_out: &mut HashSet<StateId>,
         ) {
             states_out.clear();
             states_hash_out.clear();
             for state in states {
-                for Transition { dest: next, label } in &self.trans[*state] {
+                for Transition {
+                    dest: next,
+                    label,
+                    save: _save,
+                } in &self.trans[state.state_id]
+                {
                     match label {
                         Label::_ByteRange(min, max) => match ch {
                             Input::Byte(byte) if byte >= *min && byte <= *max => {
                                 if states_hash_out.insert(*next) {
-                                    states_out.push(*next);
+                                    states_out.push(state.fork(*next));
                                 }
                             }
                             _ => {}
@@ -130,7 +189,7 @@ mod nfa {
                         Label::RuneRange(min, max) => match ch {
                             Input::Rune(rune) if rune >= *min && rune <= *max => {
                                 if states_hash_out.insert(*next) {
-                                    states_out.push(*next);
+                                    states_out.push(state.fork(*next));
                                 }
                             }
                             _ => {}
@@ -147,40 +206,39 @@ mod nfa {
             start: StateId,
             target: StateId,
             rng: &mut R,
-        ) -> Option<Vec<u8>> {
-            let mut states_vec = Vec::<StateId>::new();
-            let mut states_vec_next = Vec::<StateId>::new();
+        ) -> Option<(Vec<u8>, Vec<usize>)> {
+            let mut threads_vec = Vec::<Thread>::new();
+            let mut threads_vec_next = Vec::<Thread>::new();
             let mut states_hash = HashSet::<StateId>::new();
             let mut options_vec = Vec::<Label>::new();
             let mut options_hash = HashSet::<Label>::new();
-            let mut output = Vec::<Input>::new();
-            states_vec.push(start);
+            let mut flattened = Vec::<u8>::new();
+            threads_vec.push(Thread::root(start));
             states_hash.insert(start);
             loop {
-                assert!(!states_vec.is_empty());
-                self.follow(&states_vec, &mut states_vec_next, &mut states_hash);
-                (states_vec, states_vec_next) = (states_vec_next, states_vec);
+                assert!(!threads_vec.is_empty());
+                self.follow(
+                    &mut threads_vec,
+                    &mut threads_vec_next,
+                    &mut states_hash,
+                    flattened.len(),
+                );
+                (threads_vec, threads_vec_next) = (threads_vec_next, threads_vec);
                 if states_hash.contains(&target)
-                    && (states_vec.len() == 1 || rng.gen_range(0..5) == 0)
+                    && (threads_vec.len() == 1 || rng.gen_range(0..5) == 0)
                 {
-                    let mut flattened = Vec::<u8>::new();
-                    for symbol in output {
-                        match symbol {
-                            Input::Byte(b) => flattened.push(b),
-                            Input::Rune(r) => {
-                                let mut ubuf: [u8; 4] = [0; 4];
-                                let encoded = r.encode_utf8(&mut ubuf);
-                                flattened.extend_from_slice(encoded.as_bytes());
-                            }
-                        }
-                    }
-                    return Some(Vec::from_iter(flattened));
+                    return Some((Vec::from_iter(flattened), threads_vec.pop().unwrap().saves));
                 }
-                assert!(!states_vec.is_empty());
+                assert!(!threads_vec.is_empty());
                 options_vec.clear();
                 options_hash.clear();
-                for state in &states_vec {
-                    for Transition { dest: _, label } in &self.trans[*state] {
+                for state in &threads_vec {
+                    for Transition {
+                        dest: _,
+                        label,
+                        save: _,
+                    } in &self.trans[state.state_id]
+                    {
                         match label {
                             Label::None => {}
                             _ => {
@@ -199,9 +257,16 @@ mod nfa {
                     Label::RuneRange(min, max) => Input::Rune(rng.gen_range(*min..=*max)),
                     _ => unreachable!(),
                 };
-                output.push(next);
-                self.feed(next, &states_vec, &mut states_vec_next, &mut states_hash);
-                (states_vec, states_vec_next) = (states_vec_next, states_vec);
+                match next {
+                    Input::Byte(b) => flattened.push(b),
+                    Input::Rune(r) => {
+                        let mut ubuf: [u8; 4] = [0; 4];
+                        let encoded = r.encode_utf8(&mut ubuf);
+                        flattened.extend_from_slice(encoded.as_bytes());
+                    }
+                }
+                self.feed(next, &threads_vec, &mut threads_vec_next, &mut states_hash);
+                (threads_vec, threads_vec_next) = (threads_vec_next, threads_vec);
             }
         }
     }
@@ -222,10 +287,11 @@ mod regex {
         Alt(Box<Regex>, Box<Regex>),
         Quant(Box<Regex>, usize, Option<usize>),
         Cls(Option<Box<Regex>>, char, char),
+        Grp(Box<Regex>),
     }
 
     impl Regex {
-        fn _print(&self, indent: usize) {
+        pub fn _print(&self, indent: usize) {
             print!("{:i$}", "", i = indent);
             match self {
                 Regex::Char(u) => println!("Char: {}", u),
@@ -253,31 +319,39 @@ mod regex {
                         r.as_ref().unwrap()._print(indent + 1);
                     }
                 }
+                Regex::Grp(r) => {
+                    println!("Grp:");
+                    r._print(indent + 1);
+                }
             }
         }
 
         /// Dump this regex into an NFA, returning start and end states.
-        pub fn to_nfa(&self, nfa: &mut Nfa) -> (usize, usize) {
+        pub fn to_nfa(&self, nfa: &mut Nfa, grp_idx: usize) -> (usize, usize, usize) {
             let start = nfa.new_state();
             let end = nfa.new_state();
+            let next_grp_idx;
             match self {
                 Regex::Char(u) => {
                     nfa.link(start, Label::RuneRange(*u, *u), end);
+                    next_grp_idx = grp_idx;
                 }
                 Regex::Cat(l, r) => {
-                    let (l_start, l_end) = l.to_nfa(nfa);
-                    let (r_start, r_end) = r.to_nfa(nfa);
+                    let (l_start, l_end, ret_grp_idx) = l.to_nfa(nfa, grp_idx);
+                    let (r_start, r_end, ret_grp_idx) = r.to_nfa(nfa, ret_grp_idx);
                     nfa.link(l_end, Label::None, r_start);
                     nfa.link(start, Label::None, l_start);
                     nfa.link(r_end, Label::None, end);
+                    next_grp_idx = ret_grp_idx;
                 }
                 Regex::Alt(l, r) => {
-                    let (l_start, l_end) = l.to_nfa(nfa);
-                    let (r_start, r_end) = r.to_nfa(nfa);
+                    let (l_start, l_end, ret_grp_idx) = l.to_nfa(nfa, grp_idx);
+                    let (r_start, r_end, ret_grp_idx) = r.to_nfa(nfa, ret_grp_idx);
                     nfa.link(start, Label::None, l_start);
                     nfa.link(start, Label::None, r_start);
                     nfa.link(l_end, Label::None, end);
                     nfa.link(r_end, Label::None, end);
+                    next_grp_idx = ret_grp_idx;
                 }
                 Regex::Quant(r, min, max) => {
                     fn compile_quant(
@@ -285,61 +359,77 @@ mod regex {
                         nfa: &mut Nfa,
                         min: usize,
                         max: Option<usize>,
-                    ) -> (usize, usize) {
+                        grp_idx: usize,
+                    ) -> (usize, usize, usize) {
                         let start = nfa.new_state();
                         let end = nfa.new_state();
+                        let next_grp_idx: usize;
                         match (min, max) {
                             (0, None) => {
-                                let (r_start, r_end) = r.to_nfa(nfa);
+                                let (r_start, r_end, ret_grp_idx) = r.to_nfa(nfa, grp_idx);
                                 nfa.link(start, Label::None, r_start);
                                 nfa.link(r_end, Label::None, end);
                                 nfa.link(end, Label::None, start);
+                                next_grp_idx = ret_grp_idx;
                             }
                             (0, Some(0)) => {
                                 nfa.link(start, Label::None, end);
+                                next_grp_idx = grp_idx;
                             }
                             (0, Some(m)) => {
-                                let (r_start, r_end) = r.to_nfa(nfa);
+                                let (r_start, r_end, _) = r.to_nfa(nfa, grp_idx);
                                 nfa.link(start, Label::None, end);
                                 nfa.link(start, Label::None, r_start);
                                 nfa.link(r_end, Label::None, end);
-                                let (d_start, d_end) = compile_quant(r, nfa, 0, Some(m - 1));
+                                let (d_start, d_end, ret_grp_idx) =
+                                    compile_quant(r, nfa, 0, Some(m - 1), grp_idx);
                                 nfa.link(r_end, Label::None, d_start);
                                 nfa.link(d_end, Label::None, end);
+                                next_grp_idx = ret_grp_idx;
                             }
                             (n, m) => {
-                                let (r_start, r_end) = r.to_nfa(nfa);
+                                let (r_start, r_end, _) = r.to_nfa(nfa, grp_idx);
                                 nfa.link(start, Label::None, r_start);
-                                let (d_start, d_end) =
-                                    compile_quant(r, nfa, n - 1, m.map(|m| m - 1));
+                                let (d_start, d_end, ret_grp_idx) =
+                                    compile_quant(r, nfa, n - 1, m.map(|m| m - 1), grp_idx);
                                 nfa.link(r_end, Label::None, d_start);
                                 nfa.link(d_end, Label::None, end);
+                                next_grp_idx = ret_grp_idx
                             }
                         }
-                        (start, end)
+                        (start, end, next_grp_idx)
                     }
-                    let (q_start, q_end) = compile_quant(r, nfa, *min, *max);
+                    let (q_start, q_end, ret_grp_idx) = compile_quant(r, nfa, *min, *max, grp_idx);
                     nfa.link(start, Label::None, q_start);
                     nfa.link(q_end, Label::None, end);
+                    next_grp_idx = ret_grp_idx;
                 }
                 Regex::Cls(r, lo, hi) => {
                     let label = Label::RuneRange(min(*lo, *hi), max(*lo, *hi));
                     match r {
                         None => {
                             nfa.link(start, label, end);
+                            next_grp_idx = grp_idx;
                         }
                         Some(r) => {
                             let down = nfa.new_state();
                             nfa.link(start, Label::None, down);
                             nfa.link(down, label, end);
-                            let (d_start, d_end) = r.to_nfa(nfa);
+                            let (d_start, d_end, _) = r.to_nfa(nfa, grp_idx);
                             nfa.link(start, Label::None, d_start);
                             nfa.link(d_end, Label::None, end);
+                            next_grp_idx = grp_idx;
                         }
                     }
                 }
+                Regex::Grp(r) => {
+                    let (d_start, d_end, ret_grp_idx) = r.to_nfa(nfa, grp_idx + 2);
+                    nfa.link_with_save(start, grp_idx, d_start);
+                    nfa.link_with_save(d_end, grp_idx + 1, end);
+                    next_grp_idx = ret_grp_idx;
+                }
             }
-            (start, end)
+            (start, end, next_grp_idx)
         }
     }
 
@@ -368,7 +458,7 @@ mod regex {
     }
 
     pub fn generate_regex<R: Rng + ?Sized>(rng: &mut R, level: u32) -> Regex {
-        let range = if level < 3 { 0..5 } else { 0..1 };
+        let range = if level < 3 { 0..6 } else { 0..1 };
         match rng.gen_range(range) {
             0 => Regex::Char(rng.gen_range('\0'..'\u{ff}')),
             1 => Regex::Cat(
@@ -392,6 +482,7 @@ mod regex {
                 let ranges = rng.gen_range(1..10);
                 generate_cls(rng, ranges)
             }
+            5 => Regex::Grp(Box::new(generate_regex(rng, level + 1))),
             _ => unreachable!(),
         }
     }
@@ -458,6 +549,9 @@ mod regex {
                 Regex::Cls(r, lo, hi) => write!(f, "[")
                     .and_then(|_| fmt_charclass(r, *lo, *hi, f))
                     .and_then(|_| write!(f, "]")),
+                Regex::Grp(r) => write!(f, "(")
+                    .and_then(|_| write!(f, "{r}"))
+                    .and_then(|_| write!(f, ")")),
             }
         }
     }
@@ -467,6 +561,11 @@ use std::ffi::{c_char, c_int, c_void};
 
 use crate::nfa::Label;
 
+#[repr(C)]
+struct bbre_span {
+    begin: usize,
+    end: usize,
+}
 extern "C" {
     fn bbre_spec_init(
         spec: *mut *mut c_void,
@@ -477,13 +576,12 @@ extern "C" {
     fn bbre_spec_destroy(spec: *mut c_void);
     fn bbre_init_spec(pregex: *mut *mut c_void, spec: *mut c_void, alloc: *mut c_void) -> c_int;
     fn bbre_destroy(regex: *mut c_void);
-    fn bbre_match(
+    fn bbre_captures(
         regex: *mut c_void,
         s: *const c_char,
         n: usize,
-        pos: usize,
-        num_captures: u32,
-        captures: *mut u32,
+        captures: *mut bbre_span,
+        num_captures: c_int,
     ) -> c_int;
 }
 
@@ -529,7 +627,7 @@ fn main() -> std::io::Result<()> {
         m += 1;
         let regex = regex::generate_regex(&mut rng, 0);
         let mut nfa = nfa::Nfa::new();
-        let (start, stop) = regex.to_nfa(&mut nfa);
+        let (start, stop, _) = regex.to_nfa(&mut nfa, 0);
         let end = nfa.new_matching_state();
         nfa.link(stop, Label::None, end);
         let serialized_regex = format!("{regex}");
@@ -537,7 +635,19 @@ fn main() -> std::io::Result<()> {
         if example_or_none.is_none() {
             continue;
         }
-        let example = example_or_none.unwrap();
+        let (example, saves) = example_or_none.unwrap();
+        assert!(saves.len() % 2 == 0);
+        let mut match_spans = Vec::<(usize, usize)>::new();
+        let mut found_spans = Vec::<bbre_span>::new();
+        match_spans.push((0, example.len()));
+        found_spans.push(bbre_span {
+            begin: 0,
+            end: example.len(),
+        });
+        for idx in (0..saves.len()).step_by(2) {
+            match_spans.push((saves[idx], saves[idx + 1]));
+            found_spans.push(bbre_span { begin: 0, end: 0 });
+        }
         if example.len() > 500 {
             continue;
         }
@@ -547,9 +657,9 @@ fn main() -> std::io::Result<()> {
             extra: Extra {
                 fuzzington_seed: cli.seed + m - 1,
             },
-            num_spans: 0,
+            num_spans: match_spans.len().try_into().unwrap(),
             match_string: example.clone(),
-            match_spans: Vec::<(usize, usize)>::new(),
+            match_spans: match_spans.clone(),
             r#match: true,
         };
         println!("{}", serde_json::to_string(&test).unwrap());
@@ -571,16 +681,19 @@ fn main() -> std::io::Result<()> {
                 0
             );
             bbre_spec_destroy(spec_ptr);
-            let err = bbre_match(
+            let err = bbre_captures(
                 c_re_ptr,
                 example.as_ptr().cast(),
                 example.len(),
-                0,
-                0,
-                null_mut(),
+                found_spans.as_mut_ptr(),
+                found_spans.len().try_into().unwrap(),
             );
             assert_eq!(err, 1);
             bbre_destroy(c_re_ptr);
+        }
+        for (span_a, (begin, end)) in zip(&found_spans, &match_spans) {
+            assert_eq!(span_a.begin, *begin);
+            assert_eq!(span_a.end, *end);
         }
         n += 1;
     }

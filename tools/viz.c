@@ -7,11 +7,11 @@ void d_prog_gv_re(bbre *r);
 void d_ast_gv(bbre *r);
 
 /* these Graphviz escaping rules are really confusing... */
-const char *escape(const char *regex, char *buf)
+const char *escape(const unsigned char *regex, char *buf)
 {
   const char *out = buf;
   while (*regex) {
-    if (strchr("\\\"\n\r\v\t[]", *regex)) {
+    if (strchr("\\\"\n\r\v\t[]()", *regex)) {
       *(buf++) = '&';
       *(buf++) = '#';
       if (*regex > 100)
@@ -41,7 +41,7 @@ int main(int argc, const char *const *argv)
   assert(r);
   printf(
       "digraph D { label=\"%s for \\\"%s\\\"\"; labelloc=\"t\";\n",
-      ast ? "ast" : "program", escape(buf, esc_buf));
+      ast ? "ast" : "program", escape((unsigned char *)buf, esc_buf));
   if (ast)
     d_ast_gv(r);
   else {

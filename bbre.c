@@ -199,7 +199,8 @@ typedef struct bbre_rune_range {
 /* Auxiliary data for tree nodes used for accelerating compilation. */
 typedef union bbre_compcc_tree_aux {
   bbre_uint hash, /* node hash, used for tree reduction */
-      pc; /* compiled location, nonzero if this node was compiled already */
+      pc,     /* compiled location, nonzero if this node was compiled already */
+      xposed; /* 1 if the node was transposed, 0 otherwise */
 } bbre_compcc_tree_aux;
 
 /* Tree node for the character class compiler. */
@@ -1363,6 +1364,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
                child, flags, old_flags, &res)) ||
           (err = bbre_buf_push(&r->alloc, &r->op_stk, res)))
         return err;
+      flags &= ~(BBRE_GROUP_FLAG_NONCAPTURING);
       /* op_stk:  | ... | (R) | */
     } else if (ch == ')') {
       bbre_uint grp, prev;
@@ -2276,7 +2278,7 @@ static int bbre_compcc_tree_render(
  * contains roughly the same number of instructions as the forward program, so
  * it is still compact. */
 static void bbre_compcc_tree_xpose(
-    const bbre_buf(bbre_compcc_tree) cc_tree_in,
+    bbre_buf(bbre_compcc_tree) cc_tree_in,
     bbre_buf(bbre_compcc_tree) cc_tree_out, bbre_uint node_ref,
     bbre_uint root_ref)
 {
@@ -2288,9 +2290,13 @@ static void bbre_compcc_tree_xpose(
   assert(bbre_buf_size(cc_tree_out) == bbre_buf_size(cc_tree_in));
   while (node_ref) {
     bbre_uint parent_ref = root_ref;
+    if (cc_tree_in[node_ref].aux.xposed)
+      return;
+
     src_node = cc_tree_in + node_ref;
     dst_node = cc_tree_out + node_ref;
     dst_node->sibling_ref = dst_node->child_ref = BBRE_REF_NONE;
+
     if (src_node->child_ref != BBRE_REF_NONE)
       /* if there is a child, reverse it first */
       bbre_compcc_tree_xpose(
@@ -2304,6 +2310,7 @@ static void bbre_compcc_tree_xpose(
     dst_node->sibling_ref = parent_node->child_ref;
     parent_node->child_ref = node_ref;
     /* continue on to our sibling */
+    cc_tree_in[node_ref].aux.xposed = 1;
     node_ref = src_node->sibling_ref;
   }
 }
@@ -3321,6 +3328,7 @@ bbre_nfa_eps(bbre_exec *exec, bbre_nfa *n, size_t pos, bbre_assert_flag ass)
         pri.pc = bbre_inst_next(op), pri.slot = thrd.slot;
         sec.pc = bbre_inst_param(op),
         sec.slot = bbre_save_slots_fork(&n->slots, thrd.slot);
+        assert(pri.pc != thrd.pc && sec.pc != thrd.pc);
         *bbre_buf_peek(&n->thrd_stk, 0) = sec;
         if ((err = bbre_buf_push(&exec->alloc, &n->thrd_stk, pri)))
           /* sec is pushed first because it needs to be processed after pri.
