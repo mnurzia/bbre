@@ -15,16 +15,16 @@ CFLAGS_cov=-O0 --coverage -DRE_COV -DNDEBUG
 
 # tell em to bring out the whole... set of compiler flags!
 CFLAGS=\
-			 -Wall\
-			 -Werror\
-			 -Wextra\
-			 -Wshadow\
-			 -pedantic\
-			 -Wuninitialized\
-			 -Wunused-variable\
-			 -std=c89\
-			 -DBBRE_DEBUG_UTILS=\"tools/debug_utils.c\"\
-			 $(CFLAGS_$(PROFILE))
+	-Wall\
+	-Werror\
+	-Wextra\
+	-Wshadow\
+	-pedantic\
+	-Wuninitialized\
+	-Wunused-variable\
+	-std=c89\
+	-DBBRE_DEBUG_UTILS=\"tools/debug_utils.c\"\
+	$(CFLAGS_$(PROFILE))
 
 GDB=ASAN_OPTIONS=halt_on_error=0 lldb --
 FORMAT=clang-format -i
@@ -63,7 +63,8 @@ $(OUT_DIR)/mptest.o: $(OUT_DIR) mptest.c
 	$(CC) $(CFLAGS) mptest.c -c -o $@
 
 $(OUT_DIR)/bbre.o: $(OUT_DIR) $(BBRE_C)
-	$(CC) $(CFLAGS) -DBBRE_CONFIG_HEADER_FILE=\"$(shell realpath test_config.h)\" $(BBRE_C) -c -o $@
+	$(CC) $(CFLAGS) -DBBRE_CONFIG_HEADER_FILE=\"tools/test_config.h\"\
+		$(BBRE_C) -c -o $@
 
 $(OUT_DIR)/test.o: $(OUT_DIR) test.c
 	$(CC) $(CFLAGS) test.c -c -o $@
@@ -71,8 +72,10 @@ $(OUT_DIR)/test.o: $(OUT_DIR) test.c
 $(OUT_DIR)/test_gen.o: $(OUT_DIR) test_gen.c
 	$(CC) $(CFLAGS) test_gen.c -c -o $@
 
-$(OUT_DIR)/bbre_test: $(OUT_DIR)/mptest.o $(OUT_DIR)/bbre.o $(OUT_DIR)/test.o $(OUT_DIR)/test_gen.o
-	$(CC) $(CFLAGS) $(OUT_DIR)/mptest.o $(OUT_DIR)/bbre.o $(OUT_DIR)/test.o $(OUT_DIR)/test_gen.o -o $@
+$(OUT_DIR)/bbre_test: $(OUT_DIR)/mptest.o $(OUT_DIR)/bbre.o $(OUT_DIR)/test.o\
+		$(OUT_DIR)/test_gen.o
+	$(CC) $(CFLAGS) $(OUT_DIR)/mptest.o $(OUT_DIR)/bbre.o $(OUT_DIR)/test.o\
+		$(OUT_DIR)/test_gen.o -o $@
 
 $(OUT_DIR)/re.S: $(OUT_DIR) $(BBRE_C)
 	$(CC) $(CFLAGS) $(BBRE_C) -S -fverbose-asm -o $@
@@ -103,11 +106,13 @@ testdbg_%: $(OUT_DIR)/bbre_test
 
 ## run the given test with OOM checking
 testoom_%: $(OUT_DIR)/bbre_test
-	./$(OUT_DIR)/bbre_test -t $(subst testoom_,,$@) --leak-check --fault-check
+	./$(OUT_DIR)/bbre_test -t $(subst testoom_,,$@) --leak-check\
+		--fault-check
 
 ## run the given test with OOM checking in a debugger
 testdbgoom_%: $(OUT_DIR)/bbre_test
-	$(GDB) ./$(OUT_DIR)/bbre_test -t $(subst testdbgoom_,,$@) --leak-check --fault-check
+	$(GDB) ./$(OUT_DIR)/bbre_test -t $(subst testdbgoom_,,$@) --leak-check\
+		--fault-check
 
 build/compile_commands.json: build
 	bear --output $@ -- make -B build/$(PROFILE)/bbre_test
@@ -121,10 +126,12 @@ build/cov/lcov.info: build/$(PROFILE)/bbre_test
 	$(MAKE) PROFILE=cov build/cov/bbre_test
 	rm -rf $@ build/cov/*.gcda
 	cd build/cov; ./bbre_test --leak-check --fault-check
-	lcov --rc lcov_branch_coverage=1 --directory build/cov --base-directory . --capture --exclude test -o $@
+	lcov --rc lcov_branch_coverage=1 --directory build/cov\
+		--base-directory . --capture --exclude test -o $@
 
 build/cov/index.html: build/cov/lcov.info
-	genhtml build/cov/lcov.info --branch-coverage --output-directory build/cov
+	genhtml build/cov/lcov.info --branch-coverage\
+		--output-directory build/cov
 
 ## run coverage tests (alias for build/cov/lcov.info)
 cov: build/cov/lcov.info
@@ -138,11 +145,15 @@ build/parser_fuzz: build parser_fuzz.c $(BBRE_C) $(BBRE_H)
 
 ## run the LLVM fuzzer on the parser
 parser_fuzz: build build/parser_fuzz
-	./build/parser_fuzz -artifact_prefix=build/fuzz/artifact/ -timeout=5 build/fuzz build/fuzz/new || python scripts/fuzz_tool.py fuzz_db.json import_parser build/fuzz/artifact/*
+	./build/parser_fuzz -artifact_prefix=build/fuzz/artifact/ -timeout=5\
+		build/fuzz build/fuzz/new\
+		|| python scripts/fuzz_tool.py fuzz_db.json import_parser\
+			build/fuzz/artifact/*
 
 ## import generated LLVM fuzzer artifacts as tests
 parser_fuzz_import: build
-	$(UDATA) add_parser_fuzz_regression_tests fuzz_results.json build/fuzz/artifact/*
+	$(UDATA) add_parser_fuzz_regression_tests fuzz_results.json\
+		build/fuzz/artifact/*
 
 $(OUT_DIR)/bench.o: $(OUT_DIR) bench.c $(BBRE_H)
 	$(CC) $(CFLAGS) bench.c -c -o $@
@@ -170,22 +181,28 @@ $(OUT_DIR)/anal: $(OUT_DIR)
 
 anal: $(OUT_DIR)/anal $(BBRE_C)
 	rm -rf $(OUT_DIR)/anal/*.html
-	$(CC) $(CFLAGS) --analyze -Xclang -analyzer-output=html -o $(OUT_DIR)/anal $(BBRE_C)
+	$(CC) $(CFLAGS) --analyze -Xclang -analyzer-output=html\
+		-o $(OUT_DIR)/anal $(BBRE_C)
 
 ## run static analyzer on the code and display all reports
 anal_html: anal
-	for name in $(OUT_DIR)/anal/*.html; do $(OPEN_URL) file://$$(realpath $$name); done
+	for name in $(OUT_DIR)/anal/*.html;\
+		do $(OPEN_URL) file://$$(realpath $$name);\
+	done
 
 ## run static analyzer on the code and display the first bug
 anal_html_one: anal
-	$(OPEN_URL) file://$$(realpath $$(ls -1 $(OUT_DIR)/anal/* | head -n1 | tr -d '\n'))
+	$(OPEN_URL) file://\
+		$$(realpath $$(ls -1 $(OUT_DIR)/anal/* | head -n1 | tr -d '\n'))
 
 build/fuzzington/release/fuzzington: fuzzington/src/main.rs fuzzington/build.rs $(BBRE_C) $(BBRE_H) 
-	cd fuzzington;RUSTFLAGS="-C link-dead-code" cargo build --release --target-dir ../build/fuzzington
+	cd fuzzington;RUSTFLAGS="-C link-dead-code" cargo build --release\
+		--target-dir ../build/fuzzington
 
 ## run fuzzington, the semantic regex fuzz tester
 fuzzington_run: build build/fuzzington/release/fuzzington
-	$(PYTHON) scripts/fuzz_tool.py --debug fuzz_db.json run_fuzzington --num-iterations $(FUZZINGTON_ITERS)
+	$(PYTHON) scripts/fuzz_tool.py --debug fuzz_db.json run_fuzzington\
+		--num-iterations $(FUZZINGTON_ITERS)
 
 ## generate data tables for re.c
 tables:
@@ -196,14 +213,19 @@ tables:
 
 ## run clang-format/black on all .c/.py sources
 format:
-	$(FORMAT) $(BBRE_C) $(BBRE_H) bench.c debug_utils.c parser_fuzz.c test.c test_config.h test_gen.c viz.c 
+	$(FORMAT) $(BBRE_C) $(BBRE_H) bench.c debug_utils.c parser_fuzz.c\
+		test.c test_config.h test_gen.c viz.c 
 	$(PYTHON) -m black -q scripts/*.py
 
 $(OUT_DIR)/viz: build $(BBRE_C) viz.c
 	$(CC) $(CFLAGS) $(BBRE_C) viz.c -o $@
 
 viz_gv_%: $(OUT_DIR)/viz
-	TVIZ=$$(mktemp); $(OUT_DIR)/viz $(subst viz_gv_,,$@) | dot -Tsvg > "$$TVIZ"; $(OPEN_URL) file://$$(realpath $$TVIZ); sleep 0.5; rm -rf $$TVIZ
+	TVIZ=$$(mktemp);\
+		$(OUT_DIR)/viz $(subst viz_gv_,,$@) | dot -Tsvg > "$$TVIZ";\
+		$(OPEN_URL) file://$$(realpath $$TVIZ);\
+		sleep 0.5;\
+		rm -rf $$TVIZ
 
 ## visualize a regex's compiled program (use `echo "regex" | make viz_prog`)
 viz_prog: viz_gv_prog
@@ -213,20 +235,26 @@ viz_ast: viz_gv_ast
 
 ## print a list of targets and their descriptions
 help_targets:
-	awk 'BEGIN {print "TARGET&DESCRIPTION"} {if ($$0 ~ /^##/) {getline target; split(target,a,":"); print a[1]"&"substr($$0,4)}}' Makefile | sort | column -t -s '&'
+	awk 'BEGIN {print "TARGET&DESCRIPTION"}\
+		{if ($$0 ~ /^##/) {getline target; split(target,a,":");\
+		print a[1]"&"substr($$0,4)}}' Makefile | sort | column -t -s '&'
 
 ## print a list of profiles
 help_profiles:
-	sed < Makefile -n -e '1s/^.*/PROFILE\&CFLAGS/p' -e 's/CFLAGS_\([a-z]*\)=\(.*\)/\1\&\2/p' | column -t -s '&'
+	sed < Makefile -n -e '1s/^.*/PROFILE\&CFLAGS/p'\
+		-e 's/CFLAGS_\([a-z]*\)=\(.*\)/\1\&\2/p' | column -t -s '&'
 
+DOC_ARGS=--viz $(OUT_DIR)/viz --folder $(DOCS_DIR) --debug
 ## build documentation
 docs: build $(OUT_DIR)/viz
-	$(PYTHON) scripts/make_docs.py --viz $(OUT_DIR)/viz --folder $(DOCS_DIR) --debug $(BBRE_C) internals/AST.md
-	$(PYTHON) scripts/make_docs.py --viz $(OUT_DIR)/viz --folder $(DOCS_DIR) --debug $(BBRE_C) internals/Charclass_Compiler.md
-	$(PYTHON) scripts/make_docs.py --viz $(OUT_DIR)/viz --folder $(DOCS_DIR) --debug $(BBRE_H) API.md
+	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_C) internals/AST.md
+	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_C)\
+		internals/Charclass_Compiler.md
+	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_H) API.md
 
 ## build a folder with bbre + tests for testing on other platforms
-port: build $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h test_config.h
+port: build $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h\
+		test_config.h
 	mkdir -p build/port
 	mkdir -p build/port/tools
 	cp port/Makefile build/port
