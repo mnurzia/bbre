@@ -397,12 +397,14 @@ def _cmd_gen_ccs_impl(args) -> int:
     out(
         f"/* {num_ranges} ranges, {num_ranges * 2} integers, {len(encoded_arr) * 4} bytes */"
     )
-    out(f"const bbre_uint bbre_builtin_cc_data[{len(encoded_arr)}] = {{")
+    out(f"static const bbre_uint bbre_builtin_cc_data[{len(encoded_arr)}] = {{")
     out(",".join(f"0x{e:08X}" for e in encoded_arr))
     out("};")
     for cc_type in _BuiltinCCType:
         ccs = sorted([cc for cc in builtin_ccs if cc.cctype == cc_type])
-        out(f"const bbre_builtin_cc bbre_builtin_ccs_{cc_type}[{len(ccs) + 1}] = {{")
+        out(
+            f"static const bbre_builtin_cc bbre_builtin_ccs_{cc_type}[{len(ccs) + 1}] = {{"
+        )
         for builtin_cc in ccs:
             out(
                 f'{{ {len(builtin_cc.name)}, {len(builtin_cc.ranges)}, {encoded_locs[builtin_cc.ranges]}, "{builtin_cc.name}"}},'

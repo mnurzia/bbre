@@ -501,7 +501,7 @@ static size_t bbre_buf_tail_t(void *buf, size_t decr)
 }
 
 /* Pop the last element of the array, returning its index in storage units. */
-size_t bbre_buf_pop_t(void *buf, size_t decr)
+static size_t bbre_buf_pop_t(void *buf, size_t decr)
 {
   size_t out;
   bbre_buf_hdr *hdr;
@@ -514,7 +514,7 @@ size_t bbre_buf_pop_t(void *buf, size_t decr)
 }
 
 /* Clear the buffer, without freeing its backing memory */
-void bbre_buf_clear(void *buf)
+static void bbre_buf_clear(void *buf)
 {
   void *sbuf;
   assert(buf);
@@ -558,7 +558,7 @@ void bbre_buf_clear(void *buf)
 /* Destroy a dynamic array. */
 #define bbre_buf_destroy(r, b) (bbre_buf_destroy_t((r), (void **)(b)))
 
-bbre_alloc bbre_alloc_make(const bbre_alloc *input)
+static bbre_alloc bbre_alloc_make(const bbre_alloc *input)
 {
   bbre_alloc out;
   if (input)
@@ -604,7 +604,7 @@ void bbre_spec_flags(bbre_spec *b, bbre_flags flags) { b->flags = flags; }
 
 static int bbre_parse(bbre *r, const bbre_byte *s, size_t sz, bbre_uint *root);
 
-void bbre_prog_init(bbre_prog *prog, bbre_alloc alloc)
+static void bbre_prog_init(bbre_prog *prog, bbre_alloc alloc)
 {
   prog->alloc = alloc;
   bbre_buf_init(&prog->prog), bbre_buf_init(&prog->set_idxs);
@@ -612,7 +612,7 @@ void bbre_prog_init(bbre_prog *prog, bbre_alloc alloc)
   prog->npat = 0;
 }
 
-void bbre_prog_destroy(bbre_prog *prog)
+static void bbre_prog_destroy(bbre_prog *prog)
 {
   bbre_buf_destroy(&prog->alloc, &prog->prog),
       bbre_buf_destroy(&prog->alloc, &prog->set_idxs);
@@ -666,7 +666,7 @@ error:
   return err;
 }
 
-void bbre_exec_destroy(bbre_exec *exec);
+static void bbre_exec_destroy(bbre_exec *exec);
 
 void bbre_destroy(bbre *r)
 {
@@ -765,25 +765,6 @@ static bbre_uint *bbre_ast_param_ref(bbre *r, bbre_uint node, bbre_uint n)
 {
   assert(bbre_ast_type_lens[*bbre_ast_type_ref(r, node)] > n);
   return r->ast + node + 1 + n;
-}
-
-/* Add another regular expression to the set of regular expressions matched by
- * this `re` instance. */
-int bbre_union(bbre *r, const char *regex, size_t n)
-{
-  int err = 0;
-  bbre_uint next_reg, next_root;
-  if (!r->prog.npat) {
-    r->prog.npat++;
-    return bbre_parse(r, (const bbre_byte *)regex, n, &r->ast_root);
-  }
-  if ((err = bbre_parse(r, (const bbre_byte *)regex, n, &next_reg)) ||
-      (err = bbre_ast_make(
-           r, BBRE_AST_TYPE_ALT, r->ast_root, next_reg, 0, &next_root)))
-    return err;
-  r->ast_root = next_root;
-  r->prog.npat++;
-  return err;
 }
 
 /* Below is a UTF-8 decoder implemented as a compact DFA. This was heavily
@@ -2501,13 +2482,15 @@ bbre_compcc(bbre *r, bbre_uint ast_root, bbre_compframe *frame, int reversed)
   return err;
 }
 
-bbre_uint bbre_inst_relocate_pc(bbre_uint orig, bbre_uint src, bbre_uint dst)
+static bbre_uint
+bbre_inst_relocate_pc(bbre_uint orig, bbre_uint src, bbre_uint dst)
 {
   return orig ? orig - src + dst : orig;
 }
 
 /* Duplicate the instruction, relocating relative jumps. */
-bbre_inst bbre_inst_relocate(bbre_inst inst, bbre_uint src, bbre_uint dst)
+static bbre_inst
+bbre_inst_relocate(bbre_inst inst, bbre_uint src, bbre_uint dst)
 {
   bbre_inst next_inst = inst;
   switch (bbre_inst_opcode(inst)) {
@@ -2530,7 +2513,7 @@ bbre_inst bbre_inst_relocate(bbre_inst inst, bbre_uint src, bbre_uint dst)
 /* Given a compiled program described by `src` and `src_end`, duplicate its
  * instructions, and return the duplicate in `dst` as if it was just compiled by
  * an iteration of the compiler loop. */
-int bbre_compile_dup(
+static int bbre_compile_dup(
     bbre *r, bbre_compframe *src, bbre_uint src_end, bbre_compframe *dst,
     bbre_uint dest_pc)
 {
@@ -2966,7 +2949,7 @@ void bbre_set_spec_destroy(bbre_set_spec *spec)
   bbre_ialloc(&spec->alloc, spec, sizeof(bbre_spec), 0);
 }
 
-int bbre_set_compile(bbre_set *set, const bbre **rs, size_t n);
+static int bbre_set_compile(bbre_set *set, const bbre **rs, size_t n);
 
 int bbre_set_init_spec(
     bbre_set **pset, const bbre_set_spec *spec, const bbre_alloc *palloc)
@@ -2999,7 +2982,7 @@ void bbre_set_destroy(bbre_set *set)
   bbre_ialloc(&set->alloc, set, sizeof(*set), 0);
 }
 
-int bbre_set_compile(bbre_set *set, const bbre **rs, size_t n)
+static int bbre_set_compile(bbre_set *set, const bbre **rs, size_t n)
 {
   int err = 0;
   size_t i;
@@ -3859,7 +3842,7 @@ done:
   return !!state->nset;
 }
 
-int bbre_exec_init(
+static int bbre_exec_init(
     bbre_exec **pexec, const bbre_prog *prog, const bbre_alloc *palloc)
 {
   int err = 0;
@@ -3877,7 +3860,7 @@ int bbre_exec_init(
   return err;
 }
 
-void bbre_exec_destroy(bbre_exec *exec)
+static void bbre_exec_destroy(bbre_exec *exec)
 {
   if (!exec)
     return;
@@ -3886,7 +3869,7 @@ void bbre_exec_destroy(bbre_exec *exec)
   bbre_ialloc(&exec->alloc, exec, sizeof(bbre_exec), 0);
 }
 
-int bbre_compile(bbre *r)
+static int bbre_compile(bbre *r)
 {
   int err;
   assert(!bbre_prog_size(&r->prog));
@@ -3933,7 +3916,7 @@ static int bbre_exec_match(
   return err;
 }
 
-int bbre_match_internal(
+static int bbre_match_internal(
     bbre *r, const char *s, size_t n, size_t pos, bbre_span *out_spans,
     bbre_uint out_spans_size)
 {
@@ -3987,7 +3970,7 @@ int bbre_captures_at(
       reg, text, text_size, pos, out_captures, num_captures);
 }
 
-int bbre_exec_set_match(
+static int bbre_exec_set_match(
     bbre_exec *exec, const char *s, size_t n, size_t pos, bbre_uint idxs_size,
     bbre_uint *out_idxs, bbre_uint *out_num_idxs)
 {
@@ -4011,7 +3994,7 @@ int bbre_exec_set_match(
   }
 }
 
-int bbre_set_match_internal(
+static int bbre_set_match_internal(
     bbre_set *set, const char *s, size_t n, size_t pos, bbre_uint *out_idxs,
     bbre_uint out_idxs_size, bbre_uint *out_num_idxs)
 {
@@ -4360,7 +4343,7 @@ typedef struct bbre_builtin_cc {
 
 /*{ Generated by `unicode_data.py gen_ccs impl` */
 /* 3360 ranges, 6720 integers, 4320 bytes */
-const bbre_uint bbre_builtin_cc_data[1080] = {
+static const bbre_uint bbre_builtin_cc_data[1080] = {
     0x7ACF7CF7, 0x00007AD7, 0xAD77ADFF, 0x00000007, 0x000017F2, 0x00005A9F,
     0x003ECD7A, 0x00007CF7, 0x006ECDFB, 0x007ADFB3, 0x12B0D0DF, 0x001ECCFB,
     0xD331CDFB, 0xD3B6D3B1, 0x00000004, 0x0012B2DF, 0x0007ADFF, 0x7ACF7CF7,
@@ -4541,7 +4524,7 @@ const bbre_uint bbre_builtin_cc_data[1080] = {
     0xCF36D6BB, 0x6F32CB32, 0x35C7B36C, 0x4CCF26D3, 0x77DF5BDB, 0x36EDF59D,
     0xADD7330D, 0xD36CDB34, 0xDCF3CB2C, 0xB6CDF1D6, 0xACF3CF3D, 0x0001BD0A,
     0x000E622B, 0x001E622B, 0xB23FC8FB, 0x3FD98FBE, 0x8F669C33, 0x00007EBF};
-const bbre_builtin_cc bbre_builtin_ccs_ascii[16] = {
+static const bbre_builtin_cc bbre_builtin_ccs_ascii[16] = {
     {5,  3, 0,  "alnum"     },
     {5,  2, 2,  "alpha"     },
     {5,  1, 4,  "ascii"     },
@@ -4559,7 +4542,7 @@ const bbre_builtin_cc bbre_builtin_ccs_ascii[16] = {
     {6,  3, 19, "xdigit"    },
     {0,  0, 0,  ""          }
 };
-const bbre_builtin_cc bbre_builtin_ccs_unicode_property[30] = {
+static const bbre_builtin_cc bbre_builtin_ccs_unicode_property[30] = {
     {2, 2,   21,   "Cc"},
     {2, 21,  23,   "Cf"},
     {2, 6,   36,   "Co"},
@@ -4591,7 +4574,7 @@ const bbre_builtin_cc bbre_builtin_ccs_unicode_property[30] = {
     {2, 7,   1076, "Zs"},
     {0, 0,   0,    ""  }
 };
-const bbre_builtin_cc bbre_builtin_ccs_perl[4] = {
+static const bbre_builtin_cc bbre_builtin_ccs_perl[4] = {
     {1, 1, 7,  "d"},
     {1, 3, 10, "s"},
     {1, 4, 17, "w"},
@@ -4714,3 +4697,23 @@ static int bbre_builtin_cc_perl(
 #ifdef BBRE_DEBUG_UTILS
   #include BBRE_DEBUG_UTILS
 #endif
+
+/* Copyright 2024 Max Nurzia
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the “Software”), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE. */

@@ -1,11 +1,11 @@
 #ifndef MN_BBRE_H
-#define MN_BBRE_H
-#include <stddef.h> /* size_t */
+  #define MN_BBRE_H
+  #include <stddef.h> /* size_t */
 
-/** Enumeration of error types. */
-#define BBRE_ERR_MEM   (-1) /* Out of memory. */
-#define BBRE_ERR_PARSE (-2) /* Parsing failed. */
-#define BBRE_ERR_LIMIT (-3) /* Hard limit reached (program size, etc.) */
+  /** Enumeration of error types. */
+  #define BBRE_ERR_MEM   (-1) /* Out of memory. */
+  #define BBRE_ERR_PARSE (-2) /* Parsing failed. */
+  #define BBRE_ERR_LIMIT (-3) /* Hard limit reached (program size, etc.) */
 
 /** Memory allocator callback.
  ** The bbre_alloc type can be used with most of the bbre_*_init() functions
@@ -280,3 +280,23 @@ int bbre_dup(bbre *reg, bbre **pout);
 int bbre_set_dup(bbre_set *s, bbre_set **pout);
 
 #endif /* MN_BBRE_H */
+
+/* Copyright 2024 Max Nurzia
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the “Software”), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE. */

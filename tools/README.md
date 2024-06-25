@@ -1,12 +1,13 @@
 # `tools`
 
-This directory contains tools for developing `bbre`.
+This directory contains tools for developing and maintaining `bbre`.
 
 |File|Description|
 |----|-----------|
 |`Makefile`|contains targets that aid development (run `make help_targets` for info)|
 |`README.md`|this file|
 |`bench.c`|benchmarking utility, runs various predefined benchmarks on the code|
+|`debug_utils.c`|utility functions callable from a debugger that visualize internal data structures|
 |`fuzz_db.json`|database of test cases found through fuzzing|
 |`fuzzington/`|a regex fuzzer written in Rust that is used to fuzz `bbre`.|
 |`mptest.c`, `mptest.h`|testing framework, written by yours truly|

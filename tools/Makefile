@@ -1,8 +1,11 @@
-.SILENT: help_targets help_profiles
+# This is a long and dense Makefile. If you need help figuring out how to use
+# this, run `make help_targets`.
+.SILENT: help_targets help_profiles loc
 
 # default profile: debug
 PROFILE=debug
 
+# For each profile, define a new CFLAGS and it will be used throughout the Makefile.
 CFLAGS_debug=-O0 -g -fsanitize=address,undefined
 CFLAGS_noopt=-O0 -g -DNDEBUG
 CFLAGS_bench=-O3 -g -DNDEBUG
@@ -23,7 +26,6 @@ CFLAGS=\
 			 -DBBRE_DEBUG_UTILS=\"tools/debug_utils.c\"\
 			 $(CFLAGS_$(PROFILE))
 
-SRCS=test.c test_gen.c
 GDB=ASAN_OPTIONS=halt_on_error=0 lldb --
 FORMAT=clang-format -i
 PYTHON=/usr/bin/env python3
@@ -60,7 +62,7 @@ $(OUT_DIR): build
 $(OUT_DIR)/mptest.o: $(OUT_DIR) mptest.c
 	$(CC) $(CFLAGS) mptest.c -c -o $@
 
-$(OUT_DIR)/re.o: $(OUT_DIR) $(BBRE_C)
+$(OUT_DIR)/bbre.o: $(OUT_DIR) $(BBRE_C)
 	$(CC) $(CFLAGS) -DBBRE_CONFIG_HEADER_FILE=\"$(shell realpath test_config.h)\" $(BBRE_C) -c -o $@
 
 $(OUT_DIR)/test.o: $(OUT_DIR) test.c
@@ -69,56 +71,56 @@ $(OUT_DIR)/test.o: $(OUT_DIR) test.c
 $(OUT_DIR)/test_gen.o: $(OUT_DIR) test_gen.c
 	$(CC) $(CFLAGS) test_gen.c -c -o $@
 
-$(OUT_DIR)/re_test: $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test_gen.o
-	$(CC) $(CFLAGS) $(OUT_DIR)/mptest.o $(OUT_DIR)/re.o $(OUT_DIR)/test.o $(OUT_DIR)/test_gen.o -o $@
+$(OUT_DIR)/bbre_test: $(OUT_DIR)/mptest.o $(OUT_DIR)/bbre.o $(OUT_DIR)/test.o $(OUT_DIR)/test_gen.o
+	$(CC) $(CFLAGS) $(OUT_DIR)/mptest.o $(OUT_DIR)/bbre.o $(OUT_DIR)/test.o $(OUT_DIR)/test_gen.o -o $@
 
 $(OUT_DIR)/re.S: $(OUT_DIR) $(BBRE_C)
 	$(CC) $(CFLAGS) $(BBRE_C) -S -fverbose-asm -o $@
 
 ## run tests
-test: $(OUT_DIR)/re_test
-	./$(OUT_DIR)/re_test
+test: $(OUT_DIR)/bbre_test
+	./$(OUT_DIR)/bbre_test
 
 ## run tests in a debugger
-testdbg: $(OUT_DIR)/re_test
-	$(GDB) ./$(OUT_DIR)/re_test
+testdbg: $(OUT_DIR)/bbre_test
+	$(GDB) ./$(OUT_DIR)/bbre_test
 
 ## run tests with OOM checking
-testoom: $(OUT_DIR)/re_test
-	./$(OUT_DIR)/re_test --leak-check --fault-check
+testoom: $(OUT_DIR)/bbre_test
+	./$(OUT_DIR)/bbre_test --leak-check --fault-check
 
 ## run tests with OOM checking in a debugger
-testdbgoom: $(OUT_DIR)/re_test
-	$(GDB) ./$(OUT_DIR)/re_test --leak-check --fault-check
+testdbgoom: $(OUT_DIR)/bbre_test
+	$(GDB) ./$(OUT_DIR)/bbre_test --leak-check --fault-check
 
 ## run the given test
-test_%: $(OUT_DIR)/re_test
-	./$(OUT_DIR)/re_test -t $(subst test_,,$@)
+test_%: $(OUT_DIR)/bbre_test
+	./$(OUT_DIR)/bbre_test -t $(subst test_,,$@)
 
 ## run the given test in a debugger
-testdbg_%: $(OUT_DIR)/re_test
-	$(GDB) ./$(OUT_DIR)/re_test -t $(subst testdbg_,,$@)
+testdbg_%: $(OUT_DIR)/bbre_test
+	$(GDB) ./$(OUT_DIR)/bbre_test -t $(subst testdbg_,,$@)
 
 ## run the given test with OOM checking
-testoom_%: $(OUT_DIR)/re_test
-	./$(OUT_DIR)/re_test -t $(subst testoom_,,$@) --leak-check --fault-check
+testoom_%: $(OUT_DIR)/bbre_test
+	./$(OUT_DIR)/bbre_test -t $(subst testoom_,,$@) --leak-check --fault-check
 
 ## run the given test with OOM checking in a debugger
-testdbgoom_%: $(OUT_DIR)/re_test
-	$(GDB) ./$(OUT_DIR)/re_test -t $(subst testdbgoom_,,$@) --leak-check --fault-check
+testdbgoom_%: $(OUT_DIR)/bbre_test
+	$(GDB) ./$(OUT_DIR)/bbre_test -t $(subst testdbgoom_,,$@) --leak-check --fault-check
 
 build/compile_commands.json: build
-	bear --output $@ -- make -B build/$(PROFILE)/re_test
+	bear --output $@ -- make -B build/$(PROFILE)/bbre_test
 
 ## generate build/compile_commands.json for language servers 
 compile_commands: build/compile_commands.json
 	mkdir -p ../build # because compile commands needs to be at project root
 	cp build/compile_commands.json ../build/compile_commands.json
 
-build/cov/lcov.info: build/$(PROFILE)/re_test
-	$(MAKE) PROFILE=cov build/cov/re_test
+build/cov/lcov.info: build/$(PROFILE)/bbre_test
+	$(MAKE) PROFILE=cov build/cov/bbre_test
 	rm -rf $@ build/cov/*.gcda
-	cd build/cov; ./re_test --leak-check --fault-check
+	cd build/cov; ./bbre_test --leak-check --fault-check
 	lcov --rc lcov_branch_coverage=1 --directory build/cov --base-directory . --capture --exclude test -o $@
 
 build/cov/index.html: build/cov/lcov.info
@@ -145,11 +147,11 @@ parser_fuzz_import: build
 $(OUT_DIR)/bench.o: $(OUT_DIR) bench.c $(BBRE_H)
 	$(CC) $(CFLAGS) bench.c -c -o $@
 
-$(OUT_DIR)/re-bench.o: $(OUT_DIR) $(BBRE_C) $(BBRE_H)
+$(OUT_DIR)/bbre_bench.o: $(OUT_DIR) $(BBRE_C) $(BBRE_H)
 	$(CC) $(CFLAGS) $(BBRE_C) -c -o $@
 
-$(OUT_DIR)/bench: $(OUT_DIR)/bench.o $(OUT_DIR)/re-bench.o
-	$(CC) $(CFLAGS) $(OUT_DIR)/bench.o $(OUT_DIR)/re-bench.o -o $@
+$(OUT_DIR)/bench: $(OUT_DIR)/bench.o $(OUT_DIR)/bbre_bench.o
+	$(CC) $(CFLAGS) $(OUT_DIR)/bench.o $(OUT_DIR)/bbre_bench.o -o $@
 
 ## run benchmarks
 bench: $(OUT_DIR)/bench
@@ -194,7 +196,7 @@ tables:
 
 ## run clang-format/black on all .c/.py sources
 format:
-	$(FORMAT) $(BBRE_C) $(BBRE_H) test_gen.c test.c test_config.h viz.c parser_fuzz.c
+	$(FORMAT) $(BBRE_C) $(BBRE_H) bench.c debug_utils.c parser_fuzz.c test.c test_config.h test_gen.c viz.c 
 	$(PYTHON) -m black -q scripts/*.py
 
 $(OUT_DIR)/viz: build $(BBRE_C) viz.c
@@ -223,11 +225,18 @@ docs: build $(OUT_DIR)/viz
 	$(PYTHON) scripts/make_docs.py --viz $(OUT_DIR)/viz --folder $(DOCS_DIR) --debug $(BBRE_C) internals/Charclass_Compiler.md
 	$(PYTHON) scripts/make_docs.py --viz $(OUT_DIR)/viz --folder $(DOCS_DIR) --debug $(BBRE_H) API.md
 
-## build a folder with re + tests for testing on other platforms
+## build a folder with bbre + tests for testing on other platforms
 port: build $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h test_config.h
 	mkdir -p build/port
-	cp -f scripts/port/* build/port
-	cp -f $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h test_config.h build/port
+	mkdir -p build/port/tools
+	cp port/Makefile build/port
+	cp -f $(BBRE_C) $(BBRE_H) build/port
+	cp -f test.c test_gen.c mptest.c mptest.h test_config.h build/port/tools
 
 ## run sanity tests before committing
 precommit: test testoom
+
+## show code size statistics
+loc: $(BBRE_C) $(BBRE_H)
+	wc -l $(BBRE_C) $(BBRE_H)
+	echo "$$(cat $(BBRE_C) | tr -dc ';' | wc -c) semicolons."

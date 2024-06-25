@@ -86,8 +86,8 @@ def _find_top_level_nodes(root_node: Node) -> Iterator[Symbol]:
 def warn(symbol: Symbol, header_symbols: dict[str, Symbol]) -> Iterator[str]:
     if symbol.name not in header_symbols and symbol.storage_class == "extern":
         yield f"{symbol.name} marked 'extern', should be 'static'"
-    if not symbol.name.startswith("re_"):
-        yield f"{symbol.name} does not start with 're_'"
+    if not symbol.name.startswith("bbre_"):
+        yield f"{symbol.name} does not start with 'bbre_'"
 
 
 if __name__ == "__main__":
@@ -115,7 +115,7 @@ if __name__ == "__main__":
     for symbol in _find_top_level_nodes(source_tree.root_node):
         for warning in warn(symbol, header_symbols):
             print(
-                f"{args.source.name}:{symbol.location.row}:{symbol.location.column}: {warning}"
+                f"{args.source.name}:{symbol.location.row+1}:{symbol.location.column}: {warning}"
             )
             any_warning = True
 
