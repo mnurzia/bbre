@@ -34,6 +34,20 @@ typedef BBRE_U32_TYPE bbre_u32;
 #define BBRE_ERR_LIMIT (-3) /* Hard limit reached (program size, etc.) */
 
 /** Memory allocator callback.
+ ** The bbre_alloc type can be used with most of the bbre_*_init() functions
+ ** provided with the library, to define a custom allocator for specific
+ ** objects.
+ **
+ ** To use, set `alloc->cb` to a function with the bbre_alloc_cb signature, and
+ ** optionally set `alloc->user` to a context pointer. The library will pass
+ ** `alloc->user` to any call of `alloc->cb` that it makes.
+ **
+ ** The callback itself takes four parameters:
+ ** - `user` is the the pointer in `alloc->user`
+ ** - `old_ptr` is the pointer to the previous allocation (may be NULL)
+ ** - `old_size` is the size of the previous allocation
+ ** - `new_size` is the requested size for the next allocation
+ **
  ** This is a little different from the three-callback option provided by most
  ** libraries. If you are confused, this might help you understand:
  ** ```c
@@ -41,13 +55,15 @@ typedef BBRE_U32_TYPE bbre_u32;
  ** alloc_cb(user, old_ptr, old_size, new_size) = realloc(old_ptr, new_size)
  ** alloc_cb(user, old_ptr, old_size,        0) = free(old_ptr)
  ** ````
+ **
+ ** This approach was adapted from Lua's memory allocator API.
  ** Of course, the library uses stdlib malloc if possible, so chances are you
  ** don't need to worry about this part of the API. */
 typedef void *(*bbre_alloc_cb)(void *user, void *ptr, size_t prev, size_t next);
 
 typedef struct bbre_alloc {
-  void *user;
-  bbre_alloc_cb cb;
+  void *user;       /* User pointer */
+  bbre_alloc_cb cb; /* Allocator callback */
 } bbre_alloc;
 
 /** Regular expression flags.
@@ -149,12 +165,12 @@ typedef struct bbre_span {
  ** match will be stored should a match be found.
  **
  ** bbre_captures() works like bbre_find(), but it also extracts capturing
- ** groups. `num_captures` is the amount of groups to capture, and
+ ** groups. `out_captures_size` is the amount of groups to capture, and
  ** `out_captures` points to an array of bbre_span where the boundaries of each
  ** capture will be stored. Note that capture group 0 denotes the boundaries of
  ** the entire match (i.e., those retrieved by bbre_find()), so to retrieve the
- ** first capturing group, pass 2 for `num_captures`; to retrieve the second,
- ** pass 3, and so on.
+ ** first capturing group, pass 2 for `out_captures_size`; to retrieve the
+ ** second, pass 3, and so on.
  **
  ** Returns 0 if a match was not found anywhere in `text`, 1 if a match was
  ** found, in which case the relevant `out_bounds` or `out_captures` variable
@@ -164,8 +180,8 @@ int bbre_is_match(bbre *reg, const char *text, size_t text_size);
 int bbre_find(
     bbre *reg, const char *text, size_t text_size, bbre_span *out_bounds);
 int bbre_captures(
-    bbre *reg, const char *text, size_t text_size, bbre_u32 num_captures,
-    bbre_span *out_captures);
+    bbre *reg, const char *text, size_t text_size, bbre_span *out_captures,
+    bbre_u32 out_captures_size);
 
 /** Match text against a bbre, starting the match from a given position.
  ** These functions behave identically to the bbre_is_match(), bbre_find(), and
@@ -181,7 +197,7 @@ int bbre_find_at(
     bbre_span *out_bounds);
 int bbre_captures_at(
     bbre *reg, const char *text, size_t text_size, size_t pos,
-    bbre_u32 num_captures, bbre_span *out_captures);
+    bbre_span *out_captures, bbre_u32 out_captures_size);
 
 /** Builder class for regular expression sets. */
 typedef struct bbre_set_spec bbre_set_spec;
@@ -209,21 +225,83 @@ int bbre_set_spec_add(bbre_set_spec *set, const bbre *reg);
 
 int bbre_set_spec_config(bbre_set_spec *b, int option, ...);
 
+/** An object that concurrently matches sets of regular expressions.
+ ** A bbre_set is not able to extract bounds or capture information about its
+ ** individual patterns, but it can match many patterns at once very efficiently
+ ** and compute which pattern(s) match a given text. */
 typedef struct bbre_set bbre_set;
-bbre_set *bbre_set_init(const char *const *regexes_nt, size_t num_regexes);
+/** Initialize a bbre_set.
+ ** - `ppats_nt` is an array of null-terminated patterns to initialize the
+ **   set with.
+ ** - `num_pats` is the number of patterns in `pats_nt`.
+ **
+ ** Returns a newly-constructed bbre_set object, or NULL if there was not enough
+ ** memory to store the object. Internally, this function calls
+ ** bbre_set_init_spec(), which can return more than one error code if a pattern
+ ** is malformed: this function assumes that input patterns are correct and will
+ ** abort if these errors occur. If you require more robust error checking, use
+ ** bbre_set_init_spec() directly. */
+bbre_set *bbre_set_init(const char *const *ppats_nt, size_t num_pats);
+/** Initialize a bbre_set from a bbre_set_spec.
+ ** - `pset` is a pointer to a pointer that will contain the newly-constructed
+ **   bbre_set_spec object.
+ ** - `set_spec` is the bbre_set_spec to initialize this object with.
+ ** - `alloc` is the bbre_alloc memory allocator to use. Pass NULL to use the
+ **   default.
+ **
+ ** Returns BBRE_ERR_MEM if there was not enough memory to construct the object,
+ ** 0 otherwise. */
 int bbre_set_init_spec(
     bbre_set **pset, const bbre_set_spec *set_spec, const bbre_alloc *alloc);
+/** Destroy a bbre_set. */
 void bbre_set_destroy(bbre_set *set);
-int bbre_set_match(
-    bbre_set *set, const char *s, size_t n, size_t pos, bbre_u32 idxs_size,
-    bbre_u32 *out_idxs, bbre_u32 *out_num_idxs);
-/** Duplicate a \ref bbre without re-compiling it.
- * \param reg The \ref bbre to fork
- * \param[out] pout A pointer to the output \ref bbre object. *\p pout will be
- *   set to the newly-constructed \ref bbre object.
- * \return BBRE_ERR_MEM if there was not enough memory to represent the new \ref
- *   bbre, 0 otherwise */
-int bbre_fork(bbre *reg, bbre **pout);
-int bbre_set_fork(bbre_set *s, bbre_set **out);
+
+/** Match text against a bbre_set.
+ ** These functions perform multi-matching of patterns. They both take two
+ ** parameters, `text` and `text_size`, which denote the string to match
+ ** against.
+ **
+ ** bbre_set_is_match() simply checks if any of the individual patterns in `set`
+ ** match within `text`, returning 1 if so and 0 if not.
+ **
+ ** bbre_set_matches() checks which patterns in `set` matched within `text`.
+ ** - `out_idxs` is a pointer to an array that will hold the indices of the
+ **   patterns found in `text`.
+ ** - `out_idxs_size` is the maximum number of indices able to be written to
+ **   `out_idxs`.
+ ** - `out_num_idxs` is a pointer to an integer that will hold the number of
+ **   indices written to `out_idxs`.
+ **
+ ** Returns 1 if any pattern in `set` matched within `text`, 0 if not, or
+ ** BBRE_ERR_MEM if there was not enough memory to perform the match. */
+int bbre_set_is_match(bbre_set *set, const char *text, size_t text_size);
+int bbre_set_matches(
+    bbre_set *set, const char *text, size_t text_size, bbre_u32 *out_idxs,
+    bbre_u32 out_idxs_size, bbre_u32 *out_num_idxs);
+
+/** Match text against a bbre, starting the match from a given position.
+ ** These functions perform identically to the bbre_set_is_match() and
+ ** bbre_set_matches() functions, except they take an additional `pos` argument
+ ** that denotes where to start matching from.
+ **
+ ** See bbre_is_match_at() and its related functions for an explanation as to
+ ** why these functions are needed. */
+int bbre_set_is_match_at(
+    bbre_set *set, const char *text, size_t text_size, size_t pos);
+int bbre_set_matches_at(
+    bbre_set *set, const char *text, size_t text_size, size_t pos,
+    bbre_u32 *out_idxs, bbre_u32 out_idxs_size, bbre_u32 *out_num_idxs);
+
+/** Duplicate a bbre or bbre_set without recompiling it.
+ ** If you want to match a pattern using multiple threads, you will need to call
+ ** this function once per thread to obtain exclusive bbre/bbre_set objects to
+ ** use, as bbre and bbre_set objects cannot be used concurrently.
+ **
+ ** In a future update, these functions may become no-ops.
+ **
+ ** Returns BBRE_ERR_MEM if there was not enough memory to perform the match, 0
+ ** otherwise. */
+int bbre_dup(bbre *reg, bbre **pout);
+int bbre_set_dup(bbre_set *s, bbre_set **pout);
 
 #endif /* MN_BBRE_H */

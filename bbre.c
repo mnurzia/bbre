@@ -145,8 +145,8 @@ typedef enum bbre_assert_flag {
   BBRE_ASSERT_LINE_END = 2,   /* $ */
   BBRE_ASSERT_TEXT_BEGIN = 4, /* \A */
   BBRE_ASSERT_TEXT_END = 8,   /* \z */
-  BBRE_ASSERT_WORD = 16,      /* \w */
-  BBRE_ASSERT_NOT_WORD = 32   /* \W */
+  BBRE_ASSERT_WORD = 16,      /* \b */
+  BBRE_ASSERT_NOT_WORD = 32   /* \B */
 } bbre_assert_flag;
 
 /* How many bits inside of the `opcode_next` field we allocate to the opcode
@@ -339,8 +339,9 @@ struct bbre_exec {
 /* Default allocation function. Hooks stdlib malloc. */
 static void *bbre_default_alloc(void *user, void *ptr, size_t prev, size_t next)
 {
+  (void)user, (void)prev;
   if (next) {
-    (void)prev, assert(BBRE_IMPLIES(!prev, !ptr));
+    assert(BBRE_IMPLIES(!prev, !ptr));
     return realloc(ptr, next);
   } else if (ptr) {
     free(ptr);
@@ -3882,8 +3883,8 @@ int bbre_compile(bbre *r)
 }
 
 static int bbre_exec_match(
-    bbre_exec *exec, const char *s, size_t n, size_t pos, bbre_u32 max_span,
-    bbre_span *out_span)
+    bbre_exec *exec, const char *s, size_t n, size_t pos, bbre_span *out_span,
+    bbre_u32 max_span)
 {
   int err = 0;
   bbre_u32 entry = BBRE_PROG_ENTRY_DOTSTAR;
@@ -3917,62 +3918,57 @@ static int bbre_exec_match(
 }
 
 int bbre_match_internal(
-    bbre *r, const char *s, size_t n, size_t pos, bbre_u32 max_span,
-    bbre_span *out_span)
+    bbre *r, const char *s, size_t n, size_t pos, bbre_span *out_spans,
+    bbre_u32 out_spans_size)
 {
   int err = 0;
   if (!r->exec)
     if ((err = bbre_exec_init(&r->exec, &r->prog, &r->alloc)))
       return err;
   (void)pos;
-  if ((err = bbre_exec_match(r->exec, s, n, pos, max_span, out_span)))
+  if ((err = bbre_exec_match(r->exec, s, n, pos, out_spans, out_spans_size)))
     goto done;
 done:
   return err;
 }
 
-int bbre_match(
-    bbre *r, const char *s, size_t n, size_t pos, bbre_u32 num_captures,
-    bbre_span *captures)
-{
-  return bbre_match_internal(r, s, n, pos, num_captures, captures);
-}
-
 int bbre_is_match(bbre *reg, const char *text, size_t text_size)
 {
-  return bbre_match(reg, text, text_size, 0, 0, NULL);
+  return bbre_match_internal(reg, text, text_size, 0, NULL, 0);
 }
 
 int bbre_find(
     bbre *reg, const char *text, size_t text_size, bbre_span *out_bounds)
 {
-  return bbre_match(reg, text, text_size, 0, 1, out_bounds);
+  return bbre_match_internal(reg, text, text_size, 0, out_bounds, 1);
 }
 
 int bbre_captures(
-    bbre *reg, const char *text, size_t text_size, bbre_u32 num_captures,
-    bbre_span *out_captures)
+    bbre *reg, const char *text, size_t text_size, bbre_span *out_captures,
+    bbre_u32 out_captures_size)
 {
-  return bbre_match(reg, text, text_size, 0, num_captures, out_captures);
+  return bbre_match_internal(
+      reg, text, text_size, 0, out_captures, out_captures_size);
 }
 
 int bbre_is_match_at(bbre *reg, const char *text, size_t text_size, size_t pos)
 {
-  return bbre_match(reg, text, text_size, pos, 0, NULL);
+  return bbre_match_internal(reg, text, text_size, pos, NULL, 0);
 }
 
 int bbre_find_at(
     bbre *reg, const char *text, size_t text_size, size_t pos,
     bbre_span *out_bounds)
 {
-  return bbre_match(reg, text, text_size, pos, 1, out_bounds);
+  return bbre_match_internal(reg, text, text_size, pos, out_bounds, 1);
 }
 
 int bbre_captures_at(
     bbre *reg, const char *text, size_t text_size, size_t pos,
-    bbre_u32 num_captures, bbre_span *out_captures)
+    bbre_span *out_captures, bbre_u32 num_captures)
 {
-  return bbre_match(reg, text, text_size, pos, num_captures, out_captures);
+  return bbre_match_internal(
+      reg, text, text_size, pos, out_captures, num_captures);
 }
 
 int bbre_exec_set_match(
@@ -4000,26 +3996,45 @@ int bbre_exec_set_match(
 }
 
 int bbre_set_match_internal(
-    bbre_set *set, const char *s, size_t n, size_t pos, bbre_u32 idxs_size,
-    bbre_u32 *out_idxs, bbre_u32 *out_num_idxs)
+    bbre_set *set, const char *s, size_t n, size_t pos, bbre_u32 *out_idxs,
+    bbre_u32 out_idxs_size, bbre_u32 *out_num_idxs)
 {
   int err = 0;
   if (!set->exec)
     if ((err = bbre_exec_init(&set->exec, &set->prog, &set->alloc)))
       return err;
   if ((err = bbre_exec_set_match(
-           set->exec, s, n, pos, idxs_size, out_idxs, out_num_idxs)))
+           set->exec, s, n, pos, out_idxs_size, out_idxs, out_num_idxs)))
     goto done;
 done:
   return err;
 }
 
-int bbre_set_match(
-    bbre_set *set, const char *s, size_t n, size_t pos, bbre_u32 idxs_size,
-    bbre_u32 *out_idxs, bbre_u32 *out_num_idxs)
+int bbre_set_is_match(bbre_set *set, const char *text, size_t text_size)
+{
+  return bbre_set_match_internal(set, text, text_size, 0, NULL, 0, NULL);
+}
+
+int bbre_set_matches(
+    bbre_set *set, const char *text, size_t text_size, bbre_u32 *out_idxs,
+    bbre_u32 out_idxs_size, bbre_u32 *out_num_idxs)
 {
   return bbre_set_match_internal(
-      set, s, n, pos, idxs_size, out_idxs, out_num_idxs);
+      set, text, text_size, 0, out_idxs, out_idxs_size, out_num_idxs);
+}
+
+int bbre_set_is_match_at(
+    bbre_set *set, const char *text, size_t text_size, size_t pos)
+{
+  return bbre_set_match_internal(set, text, text_size, pos, NULL, 0, NULL);
+}
+
+int bbre_set_matches_at(
+    bbre_set *set, const char *s, size_t n, size_t pos, bbre_u32 *out_idxs,
+    bbre_u32 out_idxs_size, bbre_u32 *out_num_idxs)
+{
+  return bbre_set_match_internal(
+      set, s, n, pos, out_idxs, out_idxs_size, out_num_idxs);
 }
 
 /*{ Generated by `unicode_data.py gen_casefold` */

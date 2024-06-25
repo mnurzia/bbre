@@ -58,7 +58,7 @@ int check_match_results(
   bbre_span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
   bbre_u32 i;
   /* perform the match */
-  if ((err = bbre_captures_at(r, s, n, 0, max_span, found_span)) ==
+  if ((err = bbre_captures_at(r, s, n, 0, found_span, max_span)) ==
       BBRE_ERR_MEM)
     return err;
   ASSERT_GTEm(err, 0, "bbre_match() returned an error");
@@ -2366,8 +2366,8 @@ TEST(set_many)
     char text[] = {'a', 0};
     bbre_u32 nmatch = 0;
     text[0] += i;
-    if ((err = bbre_set_match(
-             set, text, 1, 0, sizeof(pat_ids) / sizeof(pat_ids[0]), pat_ids,
+    if ((err = bbre_set_matches(
+             set, text, 1, pat_ids, sizeof(pat_ids) / sizeof(pat_ids[0]),
              &nmatch)) == BBRE_ERR_MEM)
       goto oom;
     ASSERT_EQ(nmatch, 1);

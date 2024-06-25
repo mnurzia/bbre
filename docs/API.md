@@ -17,8 +17,14 @@
 <li><a href="#bbre_set_spec">bbre_set_spec</a></li>
 <li><a href="#bbre_set_spec_init">bbre_set_spec_init</a></li>
 <li><a href="#bbre_set_spec_destroy">bbre_set_spec_destroy</a></li>
-<li><a href="#bbre_set_spec_add">bbre_set_spec_add, bbre_set_spec_config, bbre_set, bbre_set_init, bbre_set_init_spec, bbre_set_destroy, bbre_set_match</a></li>
-<li><a href="#bbre_fork">bbre_fork, bbre_set_fork</a></li>
+<li><a href="#bbre_set_spec_add">bbre_set_spec_add, bbre_set_spec_config</a></li>
+<li><a href="#bbre_set">bbre_set</a></li>
+<li><a href="#bbre_set_init">bbre_set_init</a></li>
+<li><a href="#bbre_set_init_spec">bbre_set_init_spec</a></li>
+<li><a href="#bbre_set_destroy">bbre_set_destroy</a></li>
+<li><a href="#bbre_set_is_match">bbre_set_is_match, bbre_set_matches</a></li>
+<li><a href="#bbre_set_is_match_at">bbre_set_is_match_at, bbre_set_matches_at</a></li>
+<li><a href="#bbre_dup">bbre_dup, bbre_set_dup</a></li>
 </ul>
 <h2 id="BBRE_ERR_MEM"><code>BBRE_ERR_MEM</code>, <code>BBRE_ERR_PARSE</code>, <code>BBRE_ERR_LIMIT</code></h2>
 <p>Enumeration of error types.</p>
@@ -35,17 +41,31 @@
 ```c
 typedef void *(*bbre_alloc_cb)(void *user, void *ptr, size_t prev, size_t next);
 typedef struct bbre_alloc {
-  void *user;
-  bbre_alloc_cb cb;
+  void *user;       /* User pointer */
+  bbre_alloc_cb cb; /* Allocator callback */
 } bbre_alloc;
 ```
+<p>The <a href="#bbre_alloc_cb">bbre_alloc</a> type can be used with most of the bbre_*_init() functions
+provided with the library, to define a custom allocator for specific
+objects.</p>
+<p>To use, set  <code>alloc-&gt;cb</code> to a function with the <a href="#bbre_alloc_cb">bbre_alloc_cb</a> signature, and
+optionally set  <code>alloc-&gt;user</code> to a context pointer. The library will pass
+<code>alloc-&gt;user</code> to any call of  <code>alloc-&gt;cb</code> that it makes.</p>
+<p>The callback itself takes four parameters:</p>
+<ul>
+<li><code>user</code> is the the pointer in  <code>alloc-&gt;user</code></li>
+<li><code>old_ptr</code> is the pointer to the previous allocation (may be NULL)</li>
+<li><code>old_size</code> is the size of the previous allocation</li>
+<li><code>new_size</code> is the requested size for the next allocation</li>
+</ul>
 <p>This is a little different from the three-callback option provided by most
 libraries. If you are confused, this might help you understand:</p>
 <pre><code class="language-c">alloc_cb(user,    NULL,        0, new_size) = malloc(new_size)
 alloc_cb(user, old_ptr, old_size, new_size) = realloc(old_ptr, new_size)
 alloc_cb(user, old_ptr, old_size,        0) = free(old_ptr)
 </code></pre>
-<p>Of course, the library uses stdlib malloc if possible, so chances are you
+<p>This approach was adapted from Lua's memory allocator API.
+Of course, the library uses stdlib malloc if possible, so chances are you
 don't need to worry about this part of the API.</p>
 
 <h2 id="bbre_flags"><code>bbre_flags</code></h2>
@@ -76,7 +96,8 @@ example, if you want to use a non-null-terminated regex.</p>
 
 ```c
 int bbre_spec_init(
-    bbre_spec **pspec, const char *pat, size_t pat_size, bbre_alloc_cb alloc);
+    bbre_spec **pspec, const char *pat, size_t pat_size,
+    const bbre_alloc *alloc);
 ```
 <ul>
 <li><code>pspec</code> is a pointer to a pointer that will contain the newly-constructed
@@ -113,7 +134,7 @@ if these errors occur. If you require more robust error checking, use
 <p>Initialize a <a href="#bbre">bbre</a> from a <a href="#bbre_spec">bbre_spec</a>.</p>
 
 ```c
-int bbre_init_spec(bbre **preg, const bbre_spec *spec, bbre_alloc alloc);
+int bbre_init_spec(bbre **preg, const bbre_spec *spec, const bbre_alloc *alloc);
 ```
 <ul>
 <li><code>preg</code> is a pointer to a pointer that will contain the newly-constucted
@@ -174,8 +195,8 @@ int bbre_is_match(bbre *reg, const char *text, size_t text_size);
 int bbre_find(
     bbre *reg, const char *text, size_t text_size, bbre_span *out_bounds);
 int bbre_captures(
-    bbre *reg, const char *text, size_t text_size, bbre_u32 num_captures,
-    bbre_span *out_captures);
+    bbre *reg, const char *text, size_t text_size, bbre_span *out_captures,
+    bbre_u32 out_captures_size);
 ```
 <p>These functions perform matching operations using a <a href="#bbre">bbre</a> object. All of them
 take two parameters,  <code>text</code> and  <code>text_size</code>, which denote the string to
@@ -187,12 +208,12 @@ did not match anywhere in the string, or 1 if it did.</p>
 it occurs.  <code>out_bounds</code> points to a <a href="#bbre_span">bbre_span</a> where the boundaries of the
 match will be stored should a match be found.</p>
 <p><a href="#bbre_is_match">bbre_captures</a>() works like <a href="#bbre_is_match">bbre_find</a>(), but it also extracts capturing
-groups.  <code>num_captures</code> is the amount of groups to capture, and
+groups.  <code>out_captures_size</code> is the amount of groups to capture, and
 <code>out_captures</code> points to an array of <a href="#bbre_span">bbre_span</a> where the boundaries of each
 capture will be stored. Note that capture group 0 denotes the boundaries of
 the entire match (i.e., those retrieved by <a href="#bbre_is_match">bbre_find</a>()), so to retrieve the
-first capturing group, pass 2 for  <code>num_captures</code>; to retrieve the second,
-pass 3, and so on.</p>
+first capturing group, pass 2 for  <code>out_captures_size</code>; to retrieve the
+second, pass 3, and so on.</p>
 <p>Returns 0 if a match was not found anywhere in  <code>text</code>, 1 if a match was
 found, in which case the relevant  <code>out_bounds</code> or  <code>out_captures</code> variable
 will be written to, or <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to
@@ -208,7 +229,7 @@ int bbre_find_at(
     bbre_span *out_bounds);
 int bbre_captures_at(
     bbre *reg, const char *text, size_t text_size, size_t pos,
-    bbre_u32 num_captures, bbre_span *out_captures);
+    bbre_span *out_captures, bbre_u32 out_captures_size);
 ```
 <p>These functions behave identically to the <a href="#bbre_is_match">bbre_is_match</a>(), <a href="#bbre_is_match">bbre_find</a>(), and
 <a href="#bbre_is_match">bbre_captures</a>() functions, but they take an additional  <code>pos</code> parameter that
@@ -229,7 +250,7 @@ typedef struct bbre_set_spec bbre_set_spec;
 <p>Initialize a <a href="#bbre_set_spec">bbre_set_spec</a>.</p>
 
 ```c
-int bbre_set_spec_init(bbre_set_spec **pspec, bbre_alloc_cb alloc);
+int bbre_set_spec_init(bbre_set_spec **pspec, const bbre_alloc *alloc);
 ```
 <ul>
 <li><code>pspec</code> is a pointer to a pointer that will contain the newly-constructed
@@ -247,20 +268,12 @@ default.</li>
 void bbre_set_spec_destroy(bbre_set_spec *b);
 ```
 
-<h2 id="bbre_set_spec_add"><code>bbre_set_spec_add</code>, <code>bbre_set_spec_config</code>, <code>bbre_set</code>, <code>bbre_set_init</code>, <code>bbre_set_init_spec</code>, <code>bbre_set_destroy</code>, <code>bbre_set_match</code></h2>
+<h2 id="bbre_set_spec_add"><code>bbre_set_spec_add</code>, <code>bbre_set_spec_config</code></h2>
 <p>Add a pattern to a <a href="#bbre_set_spec">bbre_set_spec</a>.</p>
 
 ```c
 int bbre_set_spec_add(bbre_set_spec *set, const bbre *reg);
 int bbre_set_spec_config(bbre_set_spec *b, int option, ...);
-typedef struct bbre_set bbre_set;
-bbre_set *bbre_set_init(const char *const *regexes_nt, size_t num_regexes);
-int bbre_set_init_spec(
-    bbre_set **pset, const bbre_set_spec *set_spec, bbre_alloc_cb alloc);
-void bbre_set_destroy(bbre_set *set);
-int bbre_set_match(
-    bbre_set *set, const char *s, size_t n, size_t pos, bbre_u32 idxs_size,
-    bbre_u32 *out_idxs, bbre_u32 *out_num_idxs);
 ```
 <ul>
 <li><code>set</code> is the set to add the pattern to</li>
@@ -269,16 +282,111 @@ int bbre_set_match(
 <p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to add  <code>reg</code> to  <code>set</code>,
 0 otherwise.</p>
 
-<h2 id="bbre_fork"><code>bbre_fork</code>, <code>bbre_set_fork</code></h2>
-<p>Duplicate a \ref <a href="#bbre">bbre</a> without re-compiling it.</p>
+<h2 id="bbre_set"><code>bbre_set</code></h2>
+<p>An object that concurrently matches sets of regular expressions.</p>
 
 ```c
-int bbre_fork(bbre *reg, bbre **pout);
-int bbre_set_fork(bbre_set *s, bbre_set **out);
+typedef struct bbre_set bbre_set;
 ```
-<p>\param reg The \ref <a href="#bbre">bbre</a> to fork
-\param[out] pout A pointer to the output \ref <a href="#bbre">bbre</a> object. *\p pout will be
-set to the newly-constructed \ref <a href="#bbre">bbre</a> object.
-\return <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to represent the new \ref
-<a href="#bbre">bbre</a>, 0 otherwise</p>
+<p>A <a href="#bbre_set">bbre_set</a> is not able to extract bounds or capture information about its
+individual patterns, but it can match many patterns at once very efficiently
+and compute which pattern(s) match a given text.</p>
+
+<h2 id="bbre_set_init"><code>bbre_set_init</code></h2>
+<p>Initialize a <a href="#bbre_set">bbre_set</a>.</p>
+
+```c
+bbre_set *bbre_set_init(const char *const *ppats_nt, size_t num_pats);
+```
+<ul>
+<li><code>ppats_nt</code> is an array of null-terminated patterns to initialize the
+set with.</li>
+<li><code>num_pats</code> is the number of patterns in  <code>pats_nt</code>.</li>
+</ul>
+<p>Returns a newly-constructed <a href="#bbre_set">bbre_set</a> object, or NULL if there was not enough
+memory to store the object. Internally, this function calls
+<a href="#bbre_set_init_spec">bbre_set_init_spec</a>(), which can return more than one error code if a pattern
+is malformed: this function assumes that input patterns are correct and will
+abort if these errors occur. If you require more robust error checking, use
+<a href="#bbre_set_init_spec">bbre_set_init_spec</a>() directly.</p>
+
+<h2 id="bbre_set_init_spec"><code>bbre_set_init_spec</code></h2>
+<p>Initialize a <a href="#bbre_set">bbre_set</a> from a <a href="#bbre_set_spec">bbre_set_spec</a>.</p>
+
+```c
+int bbre_set_init_spec(
+    bbre_set **pset, const bbre_set_spec *set_spec, const bbre_alloc *alloc);
+```
+<ul>
+<li><code>pset</code> is a pointer to a pointer that will contain the newly-constructed
+<a href="#bbre_set_spec">bbre_set_spec</a> object.</li>
+<li><code>set_spec</code> is the <a href="#bbre_set_spec">bbre_set_spec</a> to initialize this object with.</li>
+<li><code>alloc</code> is the <a href="#bbre_alloc_cb">bbre_alloc</a> memory allocator to use. Pass NULL to use the
+default.</li>
+</ul>
+<p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to construct the object,
+0 otherwise.</p>
+
+<h2 id="bbre_set_destroy"><code>bbre_set_destroy</code></h2>
+<p>Destroy a <a href="#bbre_set">bbre_set</a>.</p>
+
+```c
+void bbre_set_destroy(bbre_set *set);
+```
+
+<h2 id="bbre_set_is_match"><code>bbre_set_is_match</code>, <code>bbre_set_matches</code></h2>
+<p>Match text against a <a href="#bbre_set">bbre_set</a>.</p>
+
+```c
+int bbre_set_is_match(bbre_set *set, const char *text, size_t text_size);
+int bbre_set_matches(
+    bbre_set *set, const char *text, size_t text_size, bbre_u32 *out_idxs,
+    bbre_u32 out_idxs_size, bbre_u32 *out_num_idxs);
+```
+<p>These functions perform multi-matching of patterns. They both take two
+parameters,  <code>text</code> and  <code>text_size</code>, which denote the string to match
+against.</p>
+<p><a href="#bbre_set_is_match">bbre_set_is_match</a>() simply checks if any of the individual patterns in  <code>set</code>
+match within  <code>text</code>, returning 1 if so and 0 if not.</p>
+<p><a href="#bbre_set_is_match">bbre_set_matches</a>() checks which patterns in  <code>set</code> matched within  <code>text</code>.</p>
+<ul>
+<li><code>out_idxs</code> is a pointer to an array that will hold the indices of the
+patterns found in  <code>text</code>.</li>
+<li><code>out_idxs_size</code> is the maximum number of indices able to be written to
+<code>out_idxs</code>.</li>
+<li><code>out_num_idxs</code> is a pointer to an integer that will hold the number of
+indices written to  <code>out_idxs</code>.</li>
+</ul>
+<p>Returns 1 if any pattern in  <code>set</code> matched within  <code>text</code>, 0 if not, or
+<a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to perform the match.</p>
+
+<h2 id="bbre_set_is_match_at"><code>bbre_set_is_match_at</code>, <code>bbre_set_matches_at</code></h2>
+<p>Match text against a <a href="#bbre">bbre</a>, starting the match from a given position.</p>
+
+```c
+int bbre_set_is_match_at(
+    bbre_set *set, const char *text, size_t text_size, size_t pos);
+int bbre_set_matches_at(
+    bbre_set *set, const char *text, size_t text_size, size_t pos,
+    bbre_u32 *out_idxs, bbre_u32 out_idxs_size, bbre_u32 *out_num_idxs);
+```
+<p>These functions perform identically to the <a href="#bbre_set_is_match">bbre_set_is_match</a>() and
+<a href="#bbre_set_is_match">bbre_set_matches</a>() functions, except they take an additional  <code>pos</code> argument
+that denotes where to start matching from.</p>
+<p>See <a href="#bbre_is_match_at">bbre_is_match_at</a>() and its related functions for an explanation as to
+why these functions are needed.</p>
+
+<h2 id="bbre_dup"><code>bbre_dup</code>, <code>bbre_set_dup</code></h2>
+<p>Duplicate a <a href="#bbre">bbre</a> or <a href="#bbre_set">bbre_set</a> without recompiling it.</p>
+
+```c
+int bbre_dup(bbre *reg, bbre **pout);
+int bbre_set_dup(bbre_set *s, bbre_set **pout);
+```
+<p>If you want to match a pattern using multiple threads, you will need to call
+this function once per thread to obtain exclusive <a href="#bbre">bbre</a>/<a href="#bbre_set">bbre_set</a> objects to
+use, as <a href="#bbre">bbre</a> and <a href="#bbre_set">bbre_set</a> objects cannot be used concurrently.</p>
+<p>In a future update, these functions may become no-ops.</p>
+<p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to perform the match, 0
+otherwise.</p>
 
