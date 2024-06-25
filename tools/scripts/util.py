@@ -5,6 +5,14 @@ from typing import IO, Iterator, NamedTuple, Protocol
 
 UTF_MAX = 0x10FFFF
 
+C_SPECIALS = {
+    ord("\n"): "\\n",
+    ord("\r"): "\\r",
+    ord("\t"): "\\t",
+    ord('"'): '\\"',
+    ord("\\"): "\\\\",
+}
+
 
 class DataType(NamedTuple):
     """Represents a C datatype."""

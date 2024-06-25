@@ -5,7 +5,7 @@
 # default profile: debug
 PROFILE=debug
 
-# For each profile, define a new CFLAGS and it will be used throughout the Makefile.
+# For each profile, define a new CFLAGS and it will be used throughout.
 CFLAGS_debug=-O0 -g -fsanitize=address,undefined
 CFLAGS_noopt=-O0 -g -DNDEBUG
 CFLAGS_bench=-O3 -g -DNDEBUG
@@ -252,6 +252,7 @@ docs: build $(OUT_DIR)/viz
 	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_C)\
 		internals/Charclass_Compiler.md
 	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_H) API.md
+	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_H) Syntax.md
 
 ## build a folder with bbre + tests for testing on other platforms
 port: build $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h\
@@ -269,4 +270,4 @@ precommit: test testoom
 ## show code size statistics
 loc: $(BBRE_C) $(BBRE_H)
 	wc -l $(BBRE_C) $(BBRE_H)
-	echo "$$(cat $(BBRE_C) | tr -dc ';' | wc -c) semicolons."
+	echo "  $$(cat $(BBRE_C) | tr -dc ';' | wc -c) semicolons"

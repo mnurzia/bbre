@@ -5,7 +5,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from logging import DEBUG, basicConfig, getLogger
 from pathlib import Path
-from re import match, split
+from re import match, split, escape
 from subprocess import run
 import sys
 from typing import BinaryIO
@@ -22,7 +22,11 @@ from util import (
     insert_file,
     make_appender_func,
     nranges_invert,
+    nranges_normalize,
+    ranges_expand,
+    C_SPECIALS,
 )
+from unicode_data import ASCII_CHARCLASSES
 
 logger = getLogger(__name__)
 
@@ -424,10 +428,49 @@ def _doc_api(args, lines: list[str]) -> int:
     return 0
 
 
+def _doc_syntax(args, lines: list[str]) -> int:
+    my_path: Path = args.file
+    output = StringIO()
+    with redirect_stdout(output):
+        print("```")
+        max_name = max(map(len, ASCII_CHARCLASSES))
+
+        def escape_one(ch):
+            if ord(ch) in C_SPECIALS:
+                return C_SPECIALS[ord(ch)]
+            elif ord(ch) < ord(" ") or ord(ch) == 0x7F:
+                return f"\\x{ord(ch):02X}"
+            else:
+                return escape(ch)
+
+        for name, cc in ASCII_CHARCLASSES.items():
+            norm = nranges_normalize(list(ranges_expand(cc)))
+            cc_desc = f"[:{name}:]"
+
+            def make_ranges():
+                for lo, hi in norm:
+                    if lo == hi:
+                        yield escape_one(chr(lo))
+                    else:
+                        yield f"{escape_one(chr(lo))}-{escape_one(chr(hi))}"
+
+            print(f"{cc_desc:{max_name + 4}} [{''.join(make_ranges())}]")
+        print("```")
+    with open(my_path, "r+", encoding="utf-8") as my_file:
+        insert_file(
+            my_file,
+            output.getvalue().splitlines(keepends=True),
+            "## Builtin Character Classes",
+            "## Quantifiers",
+        )
+    return 0
+
+
 PATH_FUNCS = {
     "internals/AST.md": _doc_ast,
     "internals/Charclass_Compiler.md": _doc_cccomp,
     "API.md": _doc_api,
+    "Syntax.md": _doc_syntax,
 }
 
 
