@@ -195,7 +195,8 @@ anal_html_one: anal
 	$(OPEN_URL) file://\
 		$$(realpath $$(ls -1 $(OUT_DIR)/anal/* | head -n1 | tr -d '\n'))
 
-build/fuzzington/release/fuzzington: fuzzington/src/main.rs fuzzington/build.rs $(BBRE_C) $(BBRE_H) 
+build/fuzzington/release/fuzzington: fuzzington/src/main.rs fuzzington/build.rs\
+		$(BBRE_C) $(BBRE_H) 
 	cd fuzzington;RUSTFLAGS="-C link-dead-code" cargo build --release\
 		--target-dir ../build/fuzzington
 
@@ -204,7 +205,7 @@ fuzzington_run: build build/fuzzington/release/fuzzington
 	$(PYTHON) scripts/fuzz_tool.py --debug fuzz_db.json run_fuzzington\
 		--num-iterations $(FUZZINGTON_ITERS)
 
-## generate data tables for re.c
+## generate data tables for bbre.c
 tables:
 	$(UDATA) gen_casefold $(BBRE_C)
 	$(PYTHON) scripts/charclass_tree.py dfa $(BBRE_C)
@@ -263,6 +264,7 @@ port: build $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h\
 
 ## run sanity tests before committing
 precommit: test testoom
+	$(PYTHON) scripts/check_sources.py $(BBRE_C) $(BBRE_H)
 
 ## show code size statistics
 loc: $(BBRE_C) $(BBRE_H)

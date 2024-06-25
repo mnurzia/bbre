@@ -1,11 +1,11 @@
-"""Check function visibility in re.c to ensure that all internal functions are static."""
+"""Check function visibility and encoding in bbre.[ch]."""
 
-from typing import dataclass_transform
 import tree_sitter_c as tsc
 from tree_sitter import Language, Parser, Node, Point
 from argparse import ArgumentParser, FileType
 from dataclasses import dataclass
-from typing import Iterator
+from typing import Iterator, NamedTuple
+from pathlib import Path
 
 C_LANGUAGE = Language(tsc.language())
 
@@ -90,6 +90,16 @@ def warn(symbol: Symbol, header_symbols: dict[str, Symbol]) -> Iterator[str]:
         yield f"{symbol.name} does not start with 'bbre_'"
 
 
+class Warning(NamedTuple):
+    file: Path
+    row: int
+    col: int
+    warning: str
+
+    def __str__(self):
+        return f"{self.file}:{self.row}:{self.col}: {self.warning}"
+
+
 if __name__ == "__main__":
     ap = ArgumentParser()
     ap.add_argument("header", type=FileType("rb"))
@@ -97,6 +107,8 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     parser = Parser(C_LANGUAGE)
+
+    files = {args.header.name: args.header.read(), args.source.name: args.source.read()}
 
     header_tree = parser.parse(args.header.read())
     source_tree = parser.parse(args.source.read())
@@ -111,12 +123,28 @@ if __name__ == "__main__":
         symbol.name: symbol for symbol in _find_top_level_nodes(header_tree.root_node)
     }
 
-    any_warning = False
+    warnings: list[Warning] = []
+
     for symbol in _find_top_level_nodes(source_tree.root_node):
         for warning in warn(symbol, header_symbols):
-            print(
-                f"{args.source.name}:{symbol.location.row+1}:{symbol.location.column}: {warning}"
+            warnings.append(
+                Warning(
+                    args.source.name,
+                    symbol.location.row + 1,
+                    symbol.location.column,
+                    warning,
+                )
             )
-            any_warning = True
 
-    exit(1 if any_warning else 0)
+    for name, contents in files.items():
+        for row, line in enumerate(contents.decode().splitlines()):
+            for col, ch in enumerate(line):
+                if ord(ch) > 127 or (ord(ch) < 0x20 and ch != "\n"):
+                    warnings.append(
+                        Warning(name, row + 1, col, f"bad ordinal {ord(ch)}")
+                    )
+
+    for warning in sorted(warnings):
+        print(warning)
+
+    exit(1 if len(warnings) else 0)
