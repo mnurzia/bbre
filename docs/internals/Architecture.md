@@ -16,23 +16,38 @@ digraph G {
     rankdir=LR;
     input[label="regexp",shape=plaintext]
     input -> parser
-    parser[label="Parser\nre_parse()",shape=box]
-    parser -> compiler[label="AST\nre_ast"]
-    compiler[label="Compiler\nre_compile()",shape=box]
-    compiler -> NFA[label="Program\nre_inst[]"]
-    NFA[label="NFA Executor\nre_nfa_*()",shape=box]
-    NFA -> DFA[label="NFA State Set\nre_sset"]
-    DFA[label="DFA Executor\nre_dfa_*()",shape=box]
+    parser[label="Parser\nbbre_parse()",shape=box]
+    parser -> compiler[label="AST\nbbre_ast"]
+    compiler[label="Compiler\nbbre_compile()",shape=box]
+    compiler -> NFA[label="Program\nbbre_prog"]
+    NFA[label="NFA Executor\nbbre_nfa_*()",shape=box]
+    NFA -> DFA[label="NFA State Set\nbbre_sset"]
+    DFA[label="DFA Executor\nbbre_dfa_*()",shape=box]
 }
 ```
 
 ## Parser
 
-The first stage of any compiler is the parser. The parser (the [`re_parse()`]() function) accepts a regexp string as input (`const char *`) and produces an [AST (abstract syntax tree)](https://en.wikipedia.org/wiki/Abstract_syntax_tree) as output.
+The first stage of any compiler is the parser. The parser accepts a regexp string as input (`const char *`) and produces an [AST (abstract syntax tree)](https://en.wikipedia.org/wiki/Abstract_syntax_tree) as output.
 
 The AST is stored in an arena allocator -- nodes and their data live in one big contiguous array. This is a good choice for the AST, because it is a complex graph that only grows in size, and it is freed all at once. Since ASTs are hierarchical, freeing a manually-allocated tree involves recursive traversal, which is undesirable as the depth of the AST is a property controlled by the user: a malicious input string could blow out the stack. The index 0 is reserved as a sentinel node in place of `NULL`.
 
-The parser resembles a [Shunting-yard parser](https://en.wikipedia.org/wiki/Shunting_yard_algorithm) if squinted at. It maintains an argument stack and an operator stack. The operator stack tracks nested groups and alternations, while the argument stack tracks concatenations of adjacent expressions within a group or alternation. This approach was chosen as it is simple, so illegal states are easy to catch. Since writing a parser in C is possibly the most dangerous thing a programmer can attempt, great care was taken to reduce complexity in the parser. See [Testing]() for more details on how I ensure that the parser is reasonably safe.
+The parser resembles a [Shunting-yard parser](https://en.wikipedia.org/wiki/Shunting_yard_algorithm) if squinted at. It maintains an argument stack and an operator stack. The operator stack tracks nested groups and alternations, while the argument stack tracks concatenations of adjacent expressions within a group or alternation. This approach was chosen as it is simple, so illegal states are easy to catch. Since writing a parser in C is possibly the most dangerous thing a programmer can attempt, great care was taken to reduce complexity in the parser. See [Testing](Testing.md) for more details on how I test the safety of the parser.
 
+## Code Generation
 
+After the parser generates an AST, the `bbre_compile()` function kicks in, and walks the AST, transforming each node into a sequence of instructions. The instructions are later run by a set of threads in a [Pike VM](https://swtch.com/~rsc/regexp/regexp2.html).
 
+There are four instruction opcodes:
+```c
+typedef enum bbre_opcode {
+  BBRE_OPCODE_RANGE, /* matches a range of bytes */
+  BBRE_OPCODE_SPLIT, /* forks execution into two paths */
+  BBRE_OPCODE_MATCH, /* writes the current string position into a submatch */
+  BBRE_OPCODE_ASSERT /* continue execution if zero-width assertion */
+} bbre_opcode;
+```
+
+The compiler maintains an explicit stack, so that arbitrarily-nested regular expressions don't cause a stackoverflow. This stack is comprised of `bbre_compframe` objects that track the segment of the program corresponding to the currently-compiled AST node.
+
+Each AST node's sequence of instruction has zero or one entry points and zero or more exit points. These exit points are referred to as "patches" in the code, because they are "patched" into another AST node by the compiler.
