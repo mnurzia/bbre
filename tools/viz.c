@@ -37,7 +37,7 @@ int main(int argc, const char *const *argv)
   ast = !strcmp(argv[1], "ast");
   res = fgets(buf, sizeof(buf), stdin);
   assert(res);
-  r = bbre_init(buf);
+  r = bbre_init_pattern(buf);
   assert(r);
   printf(
       "digraph D { label=\"%s for \\\"%s\\\"\"; labelloc=\"t\";\n",

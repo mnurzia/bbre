@@ -639,14 +639,14 @@ error:
   return err;
 }
 
-bbre *bbre_init(const char *regex)
+bbre *bbre_init_pattern(const char *pat_nt)
 {
   int err = 0;
   bbre *r = NULL;
   bbre_spec *spec = NULL;
-  if ((err = bbre_spec_init(&spec, regex, strlen(regex), NULL)))
+  if ((err = bbre_spec_init(&spec, pat_nt, strlen(pat_nt), NULL)))
     goto error;
-  if ((err = bbre_init_spec(&r, spec, NULL)))
+  if ((err = bbre_init(&r, spec, NULL)))
     goto error;
 error:
   /* bbre_spec_destroy() accepts NULL */
@@ -683,7 +683,7 @@ error:
   return err;
 }
 
-int bbre_init_spec(bbre **pr, const bbre_spec *spec, const bbre_alloc *palloc)
+int bbre_init(bbre **pr, const bbre_spec *spec, const bbre_alloc *palloc)
 {
   int err = 0;
   if ((err = bbre_init_internal(pr, palloc)))
@@ -3023,7 +3023,7 @@ error:
   return err;
 }
 
-int bbre_set_init_spec(
+int bbre_set_init(
     bbre_set **pset, const bbre_set_spec *spec, const bbre_alloc *palloc)
 {
   int err = 0;

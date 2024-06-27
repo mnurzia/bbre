@@ -124,7 +124,7 @@ void pointer_chase(void)
 
 void bool_match(void)
 {
-  bbre *r = bbre_init("123456789123456789*");
+  bbre *r = bbre_init_pattern("123456789123456789*");
   char *buf = rand_buf(BENCH_SIZE);
   bench_start();
   bbre_is_match(r, buf, BENCH_SIZE);
@@ -135,7 +135,7 @@ void bool_match(void)
 
 void bounds_match(void)
 {
-  bbre *r = bbre_init("123456789123456789*");
+  bbre *r = bbre_init_pattern("123456789123456789*");
   char *buf = rand_buf(BENCH_SIZE);
   bbre_span capture;
   bench_start();
@@ -157,13 +157,13 @@ void set_match(void)
   char *buf = rand_buf(BENCH_SIZE);
   size_t i;
   for (i = 0; i < arrsize(regs); i++) {
-    regs[i] = bbre_init("123456789123456789*");
+    regs[i] = bbre_init_pattern("123456789123456789*");
   }
   bbre_set_spec_init(&spec, NULL);
   for (i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
     bbre_set_spec_add(spec, regs[i]);
   }
-  bbre_set_init_spec(&set, spec, NULL);
+  bbre_set_init(&set, spec, NULL);
   bench_start();
   bbre_set_matches(set, buf, BENCH_SIZE, idxs, arrsize(idxs), &nidx);
   bench_end(BENCH_SIZE);
@@ -207,7 +207,7 @@ void threaded_bool_match(void)
   char dummy;
   int to_threads[2] = {0};
   int from_threads[2] = {0};
-  bbre *reg = bbre_init("123456789123456789*");
+  bbre *reg = bbre_init_pattern("123456789123456789*");
   pipe(to_threads);
   pipe(from_threads);
   arg.read_pipe = to_threads[0];

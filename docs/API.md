@@ -7,8 +7,8 @@
 <li><a href="#bbre_spec">bbre_spec</a></li>
 <li><a href="#bbre_spec_init">bbre_spec_init</a></li>
 <li><a href="#bbre">bbre</a></li>
+<li><a href="#bbre_init_pattern">bbre_init_pattern</a></li>
 <li><a href="#bbre_init">bbre_init</a></li>
-<li><a href="#bbre_init_spec">bbre_init_spec</a></li>
 <li><a href="#bbre_destroy">bbre_destroy</a></li>
 <li><a href="#bbre_get_error">bbre_get_error</a></li>
 <li><a href="#bbre_span">bbre_span</a></li>
@@ -19,8 +19,8 @@
 <li><a href="#bbre_set_spec_destroy">bbre_set_spec_destroy</a></li>
 <li><a href="#bbre_set_spec_add">bbre_set_spec_add, bbre_set_spec_config</a></li>
 <li><a href="#bbre_set">bbre_set</a></li>
+<li><a href="#bbre_set_init_patterns">bbre_set_init_patterns</a></li>
 <li><a href="#bbre_set_init">bbre_set_init</a></li>
-<li><a href="#bbre_set_init_spec">bbre_set_init_spec</a></li>
 <li><a href="#bbre_set_destroy">bbre_set_destroy</a></li>
 <li><a href="#bbre_set_is_match">bbre_set_is_match, bbre_set_matches</a></li>
 <li><a href="#bbre_set_is_match_at">bbre_set_is_match_at, bbre_set_matches_at</a></li>
@@ -116,25 +116,25 @@ object, 0 otherwise. If there was not enough memory,  <code>*pspec</code> is NUL
 typedef struct bbre bbre;
 ```
 
-<h2 id="bbre_init"><code>bbre_init</code></h2>
+<h2 id="bbre_init_pattern"><code>bbre_init_pattern</code></h2>
 <p>Initialize a <a href="#bbre">bbre</a>.</p>
 
 ```c
-bbre *bbre_init(const char *pat_nt);
+bbre *bbre_init_pattern(const char *pat_nt);
 ```
 <p><code>pat_nt</code> is a null-terminated string containing the pattern.</p>
 <p>Returns a newly-constructed <a href="#bbre">bbre</a> object, or NULL if there was not enough
 memory to store the object. Internally, this function calls
-<a href="#bbre_init_spec">bbre_init_spec</a>(), which can return more than one error code if the pattern
-is malformed: this function assumes the pattern is correct and will abort
-if these errors occur. If you require more robust error checking, use
-<a href="#bbre_init_spec">bbre_init_spec</a>() directly.</p>
+<a href="#bbre_init">bbre_init</a>(), which can return more than one error code if the pattern is
+malformed: this function assumes the pattern is correct and will abort if
+these errors occur. If you require more robust error checking, use
+<a href="#bbre_init">bbre_init</a>() directly.</p>
 
-<h2 id="bbre_init_spec"><code>bbre_init_spec</code></h2>
+<h2 id="bbre_init"><code>bbre_init</code></h2>
 <p>Initialize a <a href="#bbre">bbre</a> from a <a href="#bbre_spec">bbre_spec</a>.</p>
 
 ```c
-int bbre_init_spec(bbre **preg, const bbre_spec *spec, const bbre_alloc *alloc);
+int bbre_init(bbre **preg, const bbre_spec *spec, const bbre_alloc *alloc);
 ```
 <ul>
 <li><code>preg</code> is a pointer to a pointer that will contain the newly-constucted
@@ -309,11 +309,11 @@ typedef struct bbre_set bbre_set;
 individual patterns, but it can match many patterns at once very efficiently
 and compute which pattern(s) match a given text.</p>
 
-<h2 id="bbre_set_init"><code>bbre_set_init</code></h2>
+<h2 id="bbre_set_init_patterns"><code>bbre_set_init_patterns</code></h2>
 <p>Initialize a <a href="#bbre_set">bbre_set</a>.</p>
 
 ```c
-bbre_set *bbre_set_init(const char *const *ppats_nt, size_t num_pats);
+bbre_set *bbre_set_init_patterns(const char *const *ppats_nt, size_t num_pats);
 ```
 <ul>
 <li><code>ppats_nt</code> is an array of null-terminated patterns to initialize the
@@ -322,16 +322,15 @@ set with.</li>
 </ul>
 <p>Returns a newly-constructed <a href="#bbre_set">bbre_set</a> object, or NULL if there was not enough
 memory to store the object. Internally, this function calls
-<a href="#bbre_set_init_spec">bbre_set_init_spec</a>(), which can return more than one error code if a pattern
-is malformed: this function assumes that input patterns are correct and will
-abort if these errors occur. If you require more robust error checking, use
-<a href="#bbre_set_init_spec">bbre_set_init_spec</a>() directly.</p>
+<a href="#bbre_set_init">bbre_set_init</a>(), which can return more than one error code: this function
+assumes that input patterns are correct and will abort if these errors occur
+If you require more robust error checking, use <a href="#bbre_set_init">bbre_set_init</a>() directly.</p>
 
-<h2 id="bbre_set_init_spec"><code>bbre_set_init_spec</code></h2>
+<h2 id="bbre_set_init"><code>bbre_set_init</code></h2>
 <p>Initialize a <a href="#bbre_set">bbre_set</a> from a <a href="#bbre_set_spec">bbre_set_spec</a>.</p>
 
 ```c
-int bbre_set_init_spec(
+int bbre_set_init(
     bbre_set **pset, const bbre_set_spec *set_spec, const bbre_alloc *alloc);
 ```
 <ul>
@@ -378,7 +377,7 @@ indices written to  <code>out_idxs</code>.</li>
 <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to perform the match.</p>
 
 <h2 id="bbre_set_is_match_at"><code>bbre_set_is_match_at</code>, <code>bbre_set_matches_at</code></h2>
-<p>Match text against a <a href="#bbre">bbre</a>, starting the match from a given position.</p>
+<p>Match text against a <a href="#bbre_set">bbre_set</a>, starting the match from a given position.</p>
 
 ```c
 int bbre_set_is_match_at(

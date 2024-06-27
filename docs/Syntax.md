@@ -112,7 +112,7 @@ xy      concatenation: match x then y
 i   insensitive matching (Unicode-aware)
 m   multiline matching (^$ match the beginning and end of lines)
 s   stream mode (. matches \n)
-u   swap quantifier greediness (x* becomes x*?, x+? becomes x+, etc.)
+U   swap quantifier greediness (x* becomes x*?, x+? becomes x+, etc.)
 ```
 
 ## Empty Assertions

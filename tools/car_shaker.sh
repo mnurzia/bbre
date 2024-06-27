@@ -41,6 +41,7 @@ step "Build Tests" make test_build
 step "Run Tests" make test
 step "Run OOM Tests" make testoom
 # step "Run and Check Coverage" make check_cov
+step "Run Benchmarks" make PROFILE=bench bench
 step "Run Hello World" make port_build
 step "Generate Docs" make docs
 step "Run fuzzington for 10000000 iterations" make fuzzington_run

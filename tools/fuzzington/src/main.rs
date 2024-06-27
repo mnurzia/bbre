@@ -605,7 +605,7 @@ use std::ffi::{c_char, c_int, c_void};
 use crate::nfa::Label;
 
 #[repr(C)]
-struct bbre_span {
+struct BbreSpan {
     begin: usize,
     end: usize,
 }
@@ -617,13 +617,13 @@ extern "C" {
         alloc: *mut c_void,
     ) -> c_int;
     fn bbre_spec_destroy(spec: *mut c_void);
-    fn bbre_init_spec(pregex: *mut *mut c_void, spec: *mut c_void, alloc: *mut c_void) -> c_int;
+    fn bbre_init(pregex: *mut *mut c_void, spec: *mut c_void, alloc: *mut c_void) -> c_int;
     fn bbre_destroy(regex: *mut c_void);
     fn bbre_which_captures(
         regex: *mut c_void,
         s: *const c_char,
         n: usize,
-        captures: *mut bbre_span,
+        captures: *mut BbreSpan,
         did_match: *mut c_int,
         num_captures: c_int,
     ) -> c_int;
@@ -684,11 +684,11 @@ fn main() -> std::io::Result<()> {
         }
         assert!(saves.len() % 2 == 0);
         let mut match_spans = Vec::<(usize, usize)>::new();
-        let mut found_spans = Vec::<bbre_span>::new();
+        let mut found_spans = Vec::<BbreSpan>::new();
         let mut did_match = Vec::<bool>::new();
         let mut found_did_match = Vec::<c_int>::new();
         match_spans.push((0, example.len()));
-        found_spans.push(bbre_span { begin: 0, end: 0 });
+        found_spans.push(BbreSpan { begin: 0, end: 0 });
         did_match.push(true);
         found_did_match.push(1);
         for idx in (0..saves.len()).step_by(2) {
@@ -699,7 +699,7 @@ fn main() -> std::io::Result<()> {
                 match_spans.push((saves[idx], saves[idx + 1]));
                 did_match.push(true);
             }
-            found_spans.push(bbre_span { begin: 0, end: 0 });
+            found_spans.push(BbreSpan { begin: 0, end: 0 });
             found_did_match.push(0);
         }
         let test = Test {
@@ -727,7 +727,7 @@ fn main() -> std::io::Result<()> {
             );
             let mut c_re_ptr: *mut c_void = null_mut();
             assert_eq!(
-                bbre_init_spec(ptr::addr_of_mut!(c_re_ptr), spec_ptr, null_mut()),
+                bbre_init(ptr::addr_of_mut!(c_re_ptr), spec_ptr, null_mut()),
                 0
             );
             bbre_spec_destroy(spec_ptr);

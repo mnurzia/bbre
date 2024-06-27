@@ -2,7 +2,7 @@
 
 Most of the techniques used in this library are not original. I would have been unable to write this library if not for the following people, all of whom have contributed ideas:
 
-[Ken Thompson](https://en.wikipedia.org/wiki/Ken_Thompson): Pioneered the [compilation of regular expressions.](https://dl.acm.org/doi/10.1145/363347.363387), paving the way for efficient, non-backtracking regular expression algorithms.
+[Ken Thompson](https://en.wikipedia.org/wiki/Ken_Thompson): Pioneered the [compilation of regular expressions](https://dl.acm.org/doi/10.1145/363347.363387), paving the way for efficient, non-backtracking regular expression algorithms.
 
 [Rob Pike](http://herpolhode.com/rob/): Refined Thompson's algorithm by developing a technique for matching regular expressions using a virtual machine; this technique is used for this library.
 

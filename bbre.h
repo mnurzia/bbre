@@ -80,11 +80,11 @@ typedef struct bbre bbre;
  **
  ** Returns a newly-constructed bbre object, or NULL if there was not enough
  ** memory to store the object. Internally, this function calls
- ** bbre_init_spec(), which can return more than one error code if the pattern
- ** is malformed: this function assumes the pattern is correct and will abort
- ** if these errors occur. If you require more robust error checking, use
- ** bbre_init_spec() directly. */
-bbre *bbre_init(const char *pat_nt);
+ ** bbre_init(), which can return more than one error code if the pattern is
+ ** malformed: this function assumes the pattern is correct and will abort if
+ ** these errors occur. If you require more robust error checking, use
+ ** bbre_init() directly. */
+bbre *bbre_init_pattern(const char *pat_nt);
 
 /** Initialize a bbre from a bbre_spec.
  ** - `preg` is a pointer to a pointer that will contain the newly-constucted
@@ -99,7 +99,7 @@ bbre *bbre_init(const char *pat_nt);
  ** If this function returns BBRE_ERR_PARSE, you can use the bbre_get_error()
  ** function to retrieve a detailed error message, and an index into the pattern
  ** where the error occurred. */
-int bbre_init_spec(bbre **preg, const bbre_spec *spec, const bbre_alloc *alloc);
+int bbre_init(bbre **preg, const bbre_spec *spec, const bbre_alloc *alloc);
 
 /** Destroy a bbre. */
 void bbre_destroy(bbre *reg);
@@ -230,11 +230,10 @@ typedef struct bbre_set bbre_set;
  **
  ** Returns a newly-constructed bbre_set object, or NULL if there was not enough
  ** memory to store the object. Internally, this function calls
- ** bbre_set_init_spec(), which can return more than one error code if a pattern
- ** is malformed: this function assumes that input patterns are correct and will
- ** abort if these errors occur. If you require more robust error checking, use
- ** bbre_set_init_spec() directly. */
-bbre_set *bbre_set_init(const char *const *ppats_nt, size_t num_pats);
+ ** bbre_set_init(), which can return more than one error code: this function
+ ** assumes that input patterns are correct and will abort if these errors occur
+ ** If you require more robust error checking, use bbre_set_init() directly. */
+bbre_set *bbre_set_init_patterns(const char *const *ppats_nt, size_t num_pats);
 /** Initialize a bbre_set from a bbre_set_spec.
  ** - `pset` is a pointer to a pointer that will contain the newly-constructed
  **   bbre_set_spec object.
@@ -244,7 +243,7 @@ bbre_set *bbre_set_init(const char *const *ppats_nt, size_t num_pats);
  **
  ** Returns BBRE_ERR_MEM if there was not enough memory to construct the object,
  ** 0 otherwise. */
-int bbre_set_init_spec(
+int bbre_set_init(
     bbre_set **pset, const bbre_set_spec *set_spec, const bbre_alloc *alloc);
 /** Destroy a bbre_set. */
 void bbre_set_destroy(bbre_set *set);
