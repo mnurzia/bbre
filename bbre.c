@@ -2277,8 +2277,7 @@ static int bbre_compcc_tree_render(
  * the optimal DFA representing the reversed form of the charclass, but it
  * contains roughly the same number of instructions as the forward program, so
  * it is still compact. */
-
-static void bbre_compcc_tree_xpose_2(
+static void bbre_compcc_tree_xpose(
     bbre_buf(bbre_compcc_tree) cc_tree_in,
     bbre_buf(bbre_compcc_tree) cc_tree_out, bbre_uint node_ref,
     bbre_uint root_ref, bbre_uint is_root)
@@ -2300,57 +2299,13 @@ static void bbre_compcc_tree_xpose_2(
   while (child_sibling_ref) {
     bbre_compcc_tree *child_sibling_node = cc_tree_in + child_sibling_ref;
     parent_node = cc_tree_out + child_sibling_ref;
-    bbre_compcc_tree_xpose_2(
+    bbre_compcc_tree_xpose(
         cc_tree_in, cc_tree_out, child_sibling_ref, root_ref, 0);
     if (!is_root) {
       assert(parent_node->child_ref == BBRE_REF_NONE);
       parent_node->child_ref = node_ref;
     }
     child_sibling_ref = child_sibling_node->sibling_ref;
-  }
-}
-
-/* what needs to be done:
- * - parent should iterate over all of its children, rather than a child
- * iterating over itself and its siblings.
- * - on each iteration, link child -> parent.*/
-void bbre_compcc_tree_xpose(
-    bbre_buf(bbre_compcc_tree) cc_tree_in,
-    bbre_buf(bbre_compcc_tree) cc_tree_out, bbre_uint node_ref,
-    bbre_uint root_ref)
-{
-  bbre_compcc_tree *src_node;
-  bbre_compcc_tree *dst_node, *parent_node;
-  assert(node_ref != BBRE_REF_NONE);
-  /* There needs to be enough space in the output tree. This space is
-   * preallocated to simplify this function's error checking. */
-  assert(bbre_buf_size(cc_tree_out) == bbre_buf_size(cc_tree_in));
-  while (node_ref) {
-    bbre_uint parent_ref = root_ref;
-    src_node = cc_tree_in + node_ref;
-    dst_node = cc_tree_out + node_ref;
-
-    if (src_node->aux.xposed)
-      goto cont;
-
-    dst_node->sibling_ref = dst_node->child_ref = BBRE_REF_NONE;
-
-    if (src_node->child_ref != BBRE_REF_NONE)
-      /* if there is a child, reverse it first */
-      bbre_compcc_tree_xpose(
-          cc_tree_in, cc_tree_out,
-          /* if we had a child, then it becomes our parent, since node -> child
-             relationships are concatenative */
-          (parent_ref = src_node->child_ref), root_ref);
-    /* append ourselves to our new parent, which is either the root of the tree
-     * if we didn't have children, or our old child */
-    parent_node = cc_tree_out + parent_ref;
-    dst_node->sibling_ref = parent_node->child_ref;
-    parent_node->child_ref = node_ref;
-    /* continue on to our sibling */
-    src_node->aux.xposed = 1;
-  cont:
-    node_ref = src_node->sibling_ref;
   }
 }
 
@@ -2514,7 +2469,7 @@ bbre_compcc(bbre *r, bbre_uint ast_root, bbre_compframe *frame, int reversed)
     /* detach new root */
     r->compcc.tree_2[1].child_ref = BBRE_REF_NONE;
     /* reverse all concatenation edges in the tree */
-    bbre_compcc_tree_xpose_2(r->compcc.tree, r->compcc.tree_2, 1, 1, 1);
+    bbre_compcc_tree_xpose(r->compcc.tree, r->compcc.tree_2, 1, 1, 1);
     tmp = r->compcc.tree;
     r->compcc.tree = r->compcc.tree_2;
     r->compcc.tree_2 = tmp;
