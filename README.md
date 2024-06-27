@@ -8,7 +8,7 @@ Features:
 - Supports matching many distinct patterns at once
 - Syntax parity with [re2](https://github.com/google/re2/wiki/Syntax)
 - ~5000 lines of code (only ~1500 semicolons)
-- Extensively tested (XXX.XX% line / branch coverage)
+- Extensively tested 
 - Pluggable allocator support
 
 ## FAQ

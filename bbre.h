@@ -293,10 +293,10 @@ int bbre_set_matches_at(
  **
  ** In a future update, these functions may become no-ops.
  **
- ** Returns BBRE_ERR_MEM if there was not enough memory to perform the match, 0
+ ** Returns BBRE_ERR_MEM if there was not enough memory to clone the object, 0
  ** otherwise. */
-int bbre_dup(bbre *reg, bbre **pout);
-int bbre_set_dup(bbre_set *s, bbre_set **pout);
+int bbre_clone(bbre **pout, bbre *reg, const bbre_alloc *alloc);
+int bbre_set_clone(bbre_set **pout, bbre_set *set, const bbre_alloc *alloc);
 
 #endif /* MN_BBRE_H */
 

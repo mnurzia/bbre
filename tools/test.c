@@ -84,7 +84,7 @@ int check_matches_n(
     const char *regex, size_t regex_n, const char *s, size_t n,
     unsigned int max_span, bbre_span *check_span, unsigned int *did_match)
 {
-  bbre *r = NULL;
+  bbre *r = NULL, *r2 = NULL;
   bbre_spec *spec = NULL;
   int err;
   ASSERT_LTEm(max_span, TEST_MAX_SPAN, "too many spans to match");
@@ -100,12 +100,22 @@ int check_matches_n(
   ASSERT(!err);
   if ((err = check_match_results(r, s, n, 0, NULL, NULL, !!max_span)))
     goto oom_re;
+  if ((err = bbre_clone(&r2, r, NULL)))
+    goto oom_re;
+  if ((err = check_match_results(
+           r2, s, n, max_span, check_span, did_match, !!max_span)))
+    goto oom_re;
+  ASSERT(!err);
+  if ((err = check_match_results(r2, s, n, 0, NULL, NULL, !!max_span)))
+    goto oom_re;
   ASSERT(!err);
   bbre_destroy(r);
+  bbre_destroy(r2);
   bbre_spec_destroy(spec);
   PASS();
 oom_re:
   bbre_destroy(r);
+  bbre_destroy(r2);
   bbre_spec_destroy(spec);
   OOM();
 }

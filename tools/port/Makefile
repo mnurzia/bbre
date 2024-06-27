@@ -10,3 +10,7 @@ test: bbre_test
 
 testoom: bbre_test
 	./bbre_test --fault-check --leak-check
+
+hello_world: bbre.c bbre.h hello_world.c
+	$(CC) $(CFLAGS) bbre.c hello_world.c -o $@
+	./hello_world

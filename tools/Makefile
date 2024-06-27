@@ -77,11 +77,14 @@ $(OUT_DIR)/bbre_test: $(OUT_DIR)/mptest.o $(OUT_DIR)/bbre.o $(OUT_DIR)/test.o\
 	$(CC) $(CFLAGS) $(OUT_DIR)/mptest.o $(OUT_DIR)/bbre.o $(OUT_DIR)/test.o\
 		$(OUT_DIR)/test_gen.o -o $@
 
-$(OUT_DIR)/re.S: $(OUT_DIR) $(BBRE_C)
+$(OUT_DIR)/bbre.S: $(OUT_DIR) $(BBRE_C)
 	$(CC) $(CFLAGS) $(BBRE_C) -S -fverbose-asm -o $@
 
+## build tests
+test_build: $(OUT_DIR)/bbre_test
+
 ## run tests
-test: $(OUT_DIR)/bbre_test
+test: test_build
 	./$(OUT_DIR)/bbre_test
 
 ## run tests in a debugger
@@ -97,7 +100,7 @@ testdbgoom: $(OUT_DIR)/bbre_test
 	$(GDB) ./$(OUT_DIR)/bbre_test --leak-check --fault-check
 
 ## run the given test
-test_%: $(OUT_DIR)/bbre_test
+testrun_%: $(OUT_DIR)/bbre_test
 	./$(OUT_DIR)/bbre_test -t $(subst test_,,$@)
 
 ## run the given test in a debugger
@@ -149,6 +152,7 @@ parser_fuzz: build build/parser_fuzz
 		build/fuzz build/fuzz/new\
 		|| python scripts/fuzz_tool.py fuzz_db.json import_parser\
 			build/fuzz/artifact/*
+	$(MAKE) parser_fuzz_import
 
 ## import generated LLVM fuzzer artifacts as tests
 parser_fuzz_import: build
@@ -262,17 +266,28 @@ docs: build $(OUT_DIR)/viz
 	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_H) Syntax.md
 
 ## build a folder with bbre + tests for testing on other platforms
-port: build $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h\
+build/port: build $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h\
 		test_config.h
 	mkdir -p build/port
 	mkdir -p build/port/tools
 	cp port/Makefile build/port
+	cp port/hello_world.c build/port
 	cp -f $(BBRE_C) $(BBRE_H) build/port
 	cp -f test.c test_gen.c mptest.c mptest.h test_config.h build/port/tools
 
-## run sanity tests before committing
-precommit: test testoom
+port: build/port
+
+## compile bbre "in situ" (without test harness, etc.)
+port_build: port
+	$(MAKE) -C build/port hello_world
+
+## run automated custom checks on sources
+check_sources:
 	$(PYTHON) scripts/check_sources.py $(BBRE_C) $(BBRE_H)
+
+## run all soak tests and checks
+car_shaker:
+	./car_shaker.sh
 
 ## show code size statistics
 loc: $(BBRE_C) $(BBRE_H)

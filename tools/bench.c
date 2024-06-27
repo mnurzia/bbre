@@ -8,9 +8,9 @@
 
 #include "../bbre.h"
 
-bbre_u32 xorshift32(bbre_u32 *state)
+unsigned int xorshift32(unsigned int *state)
 {
-  bbre_u32 x = *state;
+  unsigned int x = *state;
   x ^= x << 13;
   x ^= x >> 17;
   x ^= x << 5;
@@ -19,9 +19,9 @@ bbre_u32 xorshift32(bbre_u32 *state)
 
 void fill_rand(char *buf, size_t buf_size)
 {
-  bbre_u32 rng_state = 5;
+  unsigned int rng_state = 5;
   size_t i;
-  bbre_u32 *buf_4 = (bbre_u32 *)buf;
+  unsigned int *buf_4 = (unsigned int *)buf;
   assert(!(buf_size % 4));
   for (i = 0; i < buf_size / 4; i++) {
     buf_4[i] = xorshift32(&rng_state);
@@ -75,7 +75,7 @@ void bench_run(bench_func f, const char *bench_name)
 
 char run_pointer_chase(char *buf, size_t buf_size)
 {
-  bbre_u32 state = 10;
+  unsigned int state = 10;
   static char *pointers[256];
   size_t i;
   char *end = buf + buf_size;
@@ -84,8 +84,8 @@ char run_pointer_chase(char *buf, size_t buf_size)
     pointers[i] = (char *)(pointers + i);
   }
   for (i = 0; i < 65536; i++) {
-    bbre_u32 a = xorshift32(&state) & 0xFF;
-    bbre_u32 b = xorshift32(&state) & 0xFF;
+    unsigned int a = xorshift32(&state) & 0xFF;
+    unsigned int b = xorshift32(&state) & 0xFF;
     char *temp = pointers[a];
     pointers[a] = pointers[b];
     pointers[b] = temp;
@@ -122,7 +122,7 @@ void bool_match(void)
   bbre *r = bbre_init("123456789123456789*");
   char *buf = rand_buf(BENCH_SIZE);
   bench_start();
-  bbre_match(r, buf, BENCH_SIZE, 0, 0, NULL);
+  bbre_is_match(r, buf, BENCH_SIZE);
   bench_end(BENCH_SIZE);
   bbre_destroy(r);
   free(buf);
@@ -132,9 +132,9 @@ void bounds_match(void)
 {
   bbre *r = bbre_init("123456789123456789*");
   char *buf = rand_buf(BENCH_SIZE);
-  span capture;
+  bbre_span capture;
   bench_start();
-  bbre_match(r, buf, BENCH_SIZE, 0, 1, &capture);
+  bbre_find(r, buf, BENCH_SIZE, &capture);
   bench_end(BENCH_SIZE);
   bbre_destroy(r);
   free(buf);
@@ -145,8 +145,8 @@ void bounds_match(void)
 void set_match(void)
 {
   bbre *regs[20] = {0};
-  bbre_u32 idxs[20] = {0};
-  bbre_u32 nidx;
+  unsigned int idxs[20] = {0};
+  unsigned int nidx;
   bbre_set_spec *spec = NULL;
   bbre_set *set = NULL;
   char *buf = rand_buf(BENCH_SIZE);
@@ -160,7 +160,7 @@ void set_match(void)
   }
   bbre_set_init_spec(&set, spec, NULL);
   bench_start();
-  bbre_set_match(set, buf, BENCH_SIZE, 0, arrsize(regs), idxs, &nidx);
+  bbre_set_matches(set, buf, BENCH_SIZE, idxs, arrsize(idxs), &nidx);
   bench_end(BENCH_SIZE);
   bbre_set_destroy(set);
   bbre_set_spec_destroy(spec);
