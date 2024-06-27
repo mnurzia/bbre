@@ -619,7 +619,7 @@ static void bbre_prog_destroy(bbre_prog *prog)
       bbre_buf_destroy(&prog->alloc, &prog->set_idxs);
 }
 
-static int bbre_prog_clone(bbre_prog *out, bbre_prog *in)
+static int bbre_prog_clone(bbre_prog *out, const bbre_prog *in)
 {
   int err = 0;
   assert(bbre_buf_size(out->prog) == 0);
@@ -4154,7 +4154,7 @@ int bbre_set_matches_at(
       set, s, n, pos, out_idxs, out_idxs_size, out_num_idxs);
 }
 
-int bbre_clone(bbre **pout, bbre *reg, const bbre_alloc *alloc)
+int bbre_clone(bbre **pout, const bbre *reg, const bbre_alloc *alloc)
 {
   int err = 0;
   if ((err = bbre_init_internal(pout, alloc)))
@@ -4165,7 +4165,8 @@ error:
   return err;
 }
 
-int bbre_set_clone(bbre_set **pout, bbre_set *set, const bbre_alloc *alloc)
+int bbre_set_clone(
+    bbre_set **pout, const bbre_set *set, const bbre_alloc *alloc)
 {
   int err = 0;
   if ((err = bbre_set_init_internal(pout, alloc)))

@@ -1,10 +1,12 @@
 /* Benchmarks. */
 
 #include <assert.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "../bbre.h"
 
@@ -37,7 +39,7 @@ char *rand_buf(size_t buf_size)
 }
 
 clock_t start_time = 0, end_time = 0;
-size_t num_units = 0;
+size_t num_units = 0, num_thrds = 0;
 
 const char *bench_select = NULL;
 const char *bench_current = NULL;
@@ -49,11 +51,14 @@ void bench_start(void)
   fflush(stdout);
 }
 
-void bench_end(size_t num_units_in)
+void bench_end_thrds(size_t num_units_in, size_t num_thrds_in)
 {
   end_time = clock();
   num_units = num_units_in;
+  num_thrds = num_thrds_in;
 }
+
+void bench_end(size_t num_units_in) { bench_end_thrds(num_units_in, 1); }
 
 typedef void (*bench_func)(void);
 
@@ -66,7 +71,7 @@ void bench_run(bench_func f, const char *bench_name)
   printf("%30s: setup...", bench_name);
   fflush(stdout);
   f();
-  sec = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;
+  sec = ((double)(end_time - start_time)) / CLOCKS_PER_SEC / num_thrds;
   ups = ((double)num_units) / sec;
   printf(
       "\r\x1b[K%30s: %.2fs %7.2fMB/s\n", bench_name, sec,
@@ -168,6 +173,61 @@ void set_match(void)
     bbre_destroy(regs[i]);
 }
 
+typedef struct thread_arg {
+  bbre *reg;
+  int write_pipe, read_pipe;
+} thread_arg;
+
+void *threaded_bool_match_main(void *a)
+{
+  thread_arg *arg = (thread_arg *)a;
+  bbre *newreg = NULL;
+  char dummy = 0;
+  char *buf = rand_buf(BENCH_SIZE);
+  int err = 0;
+  err = bbre_clone(&newreg, arg->reg, NULL);
+  assert(!err);
+  (void)err;
+  assert(newreg && arg->reg);
+  write(arg->write_pipe, "R", 1);
+  read(arg->read_pipe, &dummy, 1);
+  bbre_is_match(newreg, buf, BENCH_SIZE);
+  bbre_destroy(newreg);
+  free(buf);
+  return NULL;
+}
+
+#define NTHREAD 8
+
+void threaded_bool_match(void)
+{
+  pthread_t threads[NTHREAD] = {0};
+  thread_arg arg;
+  int i;
+  char dummy;
+  int to_threads[2] = {0};
+  int from_threads[2] = {0};
+  bbre *reg = bbre_init("123456789123456789*");
+  pipe(to_threads);
+  pipe(from_threads);
+  arg.read_pipe = to_threads[0];
+  arg.write_pipe = from_threads[1];
+  arg.reg = reg;
+  for (i = 0; i < NTHREAD; i++)
+    pthread_create(&threads[i], NULL, threaded_bool_match_main, &arg);
+  for (i = 0; i < NTHREAD; i++)
+    read(from_threads[0], &dummy, 1);
+  for (i = 0; i < NTHREAD; i++)
+    write(to_threads[1], "R", 1);
+  bench_start();
+  for (i = 0; i < NTHREAD; i++)
+    pthread_join(threads[i], NULL);
+  bench_end_thrds((size_t)NTHREAD * (size_t)BENCH_SIZE, NTHREAD);
+  bbre_destroy(reg);
+  close(from_threads[0]), close(from_threads[1]);
+  close(to_threads[0]), close(to_threads[1]);
+}
+
 #define BENCH_RUN(b) bench_run(b, #b)
 
 int main(int argc, const char *const *argv)
@@ -178,5 +238,6 @@ int main(int argc, const char *const *argv)
   BENCH_RUN(bool_match);
   BENCH_RUN(bounds_match);
   BENCH_RUN(set_match);
+  BENCH_RUN(threaded_bool_match);
   return 0;
 }

@@ -295,8 +295,9 @@ int bbre_set_matches_at(
  **
  ** Returns BBRE_ERR_MEM if there was not enough memory to clone the object, 0
  ** otherwise. */
-int bbre_clone(bbre **pout, bbre *reg, const bbre_alloc *alloc);
-int bbre_set_clone(bbre_set **pout, bbre_set *set, const bbre_alloc *alloc);
+int bbre_clone(bbre **pout, const bbre *reg, const bbre_alloc *alloc);
+int bbre_set_clone(
+    bbre_set **pout, const bbre_set *set, const bbre_alloc *alloc);
 
 #endif /* MN_BBRE_H */
 

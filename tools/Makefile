@@ -289,7 +289,11 @@ check_sources:
 car_shaker:
 	./car_shaker.sh
 
-## show code size statistics
+## show code complexity statistics
 loc: $(BBRE_C) $(BBRE_H)
 	wc -l $(BBRE_C) $(BBRE_H)
 	echo "  $$(cat $(BBRE_C) | tr -dc ';' | wc -c) semicolons"
+
+## show binary size statistics
+bin_size: $(OUT_DIR)/bbre.o
+	size $(OUT_DIR)/bbre.o
