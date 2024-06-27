@@ -251,17 +251,18 @@ class MatchTest(Test):
         stamp: TestStamp | None,
         extra: Any | None,
         regex: bytes,
-        num_spans: int,
-        match_string: bytes,
-        match: bool,
-        match_spans: tuple[tuple[int, int], ...],
+        text: bytes,
+        spans: tuple[tuple[int, int], ...],
+        did_match: tuple[bool, ...],
     ):
         super().__init__(stamp, extra)
         self.regex = regex
-        self.num_spans = num_spans
-        self.match_string = match_string
-        self.match = match
-        self.match_spans = match_spans
+        self.text = text
+        self.spans = spans
+        self.did_match = did_match
+        if len(self.spans) != len(self.did_match):
+            print(self.spans, self.did_match)
+            raise ValueError("spans must have the same number of elements as did_match")
 
     @classmethod
     def from_dict(cls, obj: dict) -> Self:
@@ -269,20 +270,17 @@ class MatchTest(Test):
             TestStamp.from_dict(obj),
             obj.get("extra", None),
             deserialize_bytes(obj["regex"]),
-            obj["num_spans"],
-            deserialize_bytes(obj["match_string"]),
-            obj["match"],
-            obj["match_spans"],
+            deserialize_bytes(obj["text"]),
+            obj["spans"],
+            obj["did_match"],
         )
 
     def to_dict(self) -> dict:
         return super().to_dict() | {
             "regex": serialize_bytes(self.regex),
-            "match": self.match,
-            "num_spans": self.num_spans,
-            "match_string": serialize_bytes(self.match_string),
-            "match": self.match,
-            "match_spans": self.match_spans,
+            "text": serialize_bytes(self.text),
+            "spans": self.spans,
+            "did_match": self.did_match,
         }
 
     def to_c_code(self) -> list[str]:
@@ -290,13 +288,15 @@ class MatchTest(Test):
         out("const char *regex = ")
         out(_escape_cstr(self.regex))
         out(";")
-        out(_declare_cstr("text", self.match_string))
+        out(_declare_cstr("text", self.text))
         out("size_t regex_n  = ")
         out(str(len(self.regex)))
         out(";")
-        if self.num_spans != 0:
+        if len(self.spans) != 0:
             out("bbre_span spans[] = {")
-            out(",".join(f"{{{s[0]}, {s[1]}}}" for s in self.match_spans) + "};")
+            out(",".join(f"{{{s[0]}, {s[1]}}}" for s in self.spans) + "};")
+            out("unsigned int did_match[] = {")
+            out(",".join(f"{1 if v else 0}" for v in self.did_match) + "};")
         out("PROPAGATE(check_matches_n(")
         out(
             ",".join(
@@ -304,10 +304,10 @@ class MatchTest(Test):
                     "regex",
                     "regex_n",
                     "(const char*)text",
-                    f"{len(self.match_string)}",
-                    f"{self.num_spans}",
-                    "spans" if self.num_spans != 0 else "NULL",
-                    f"{1 if self.match else 0}",
+                    f"{len(self.text)}",
+                    f"{len(self.spans)}",
+                    "spans" if len(self.spans) != 0 else "NULL",
+                    "did_match" if len(self.spans) != 0 else "NULL",
                 ]
             ),
         )

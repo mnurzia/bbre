@@ -2277,12 +2277,49 @@ static int bbre_compcc_tree_render(
  * the optimal DFA representing the reversed form of the charclass, but it
  * contains roughly the same number of instructions as the forward program, so
  * it is still compact. */
-static void bbre_compcc_tree_xpose(
+
+static void bbre_compcc_tree_xpose_2(
+    bbre_buf(bbre_compcc_tree) cc_tree_in,
+    bbre_buf(bbre_compcc_tree) cc_tree_out, bbre_uint node_ref,
+    bbre_uint root_ref, bbre_uint is_root)
+{
+  bbre_compcc_tree *src_node = cc_tree_in + node_ref;
+  bbre_compcc_tree *dst_node = cc_tree_out + node_ref, *parent_node;
+  bbre_uint child_sibling_ref = src_node->child_ref;
+  assert(node_ref != BBRE_REF_NONE);
+  /* There needs to be enough space in the output tree. This space is
+   * preallocated to simplify this function's error checking. */
+  assert(bbre_buf_size(cc_tree_out) == bbre_buf_size(cc_tree_in));
+  dst_node->sibling_ref = dst_node->child_ref = BBRE_REF_NONE;
+  dst_node->aux.pc = 0;
+  if (!child_sibling_ref) {
+    parent_node = cc_tree_out + root_ref;
+    dst_node->sibling_ref = parent_node->child_ref;
+    parent_node->child_ref = node_ref;
+  }
+  while (child_sibling_ref) {
+    bbre_compcc_tree *child_sibling_node = cc_tree_in + child_sibling_ref;
+    parent_node = cc_tree_out + child_sibling_ref;
+    bbre_compcc_tree_xpose_2(
+        cc_tree_in, cc_tree_out, child_sibling_ref, root_ref, 0);
+    if (!is_root) {
+      assert(parent_node->child_ref == BBRE_REF_NONE);
+      parent_node->child_ref = node_ref;
+    }
+    child_sibling_ref = child_sibling_node->sibling_ref;
+  }
+}
+
+/* what needs to be done:
+ * - parent should iterate over all of its children, rather than a child
+ * iterating over itself and its siblings.
+ * - on each iteration, link child -> parent.*/
+void bbre_compcc_tree_xpose(
     bbre_buf(bbre_compcc_tree) cc_tree_in,
     bbre_buf(bbre_compcc_tree) cc_tree_out, bbre_uint node_ref,
     bbre_uint root_ref)
 {
-  const bbre_compcc_tree *src_node;
+  bbre_compcc_tree *src_node;
   bbre_compcc_tree *dst_node, *parent_node;
   assert(node_ref != BBRE_REF_NONE);
   /* There needs to be enough space in the output tree. This space is
@@ -2290,11 +2327,12 @@ static void bbre_compcc_tree_xpose(
   assert(bbre_buf_size(cc_tree_out) == bbre_buf_size(cc_tree_in));
   while (node_ref) {
     bbre_uint parent_ref = root_ref;
-    if (cc_tree_in[node_ref].aux.xposed)
-      return;
-
     src_node = cc_tree_in + node_ref;
     dst_node = cc_tree_out + node_ref;
+
+    if (src_node->aux.xposed)
+      goto cont;
+
     dst_node->sibling_ref = dst_node->child_ref = BBRE_REF_NONE;
 
     if (src_node->child_ref != BBRE_REF_NONE)
@@ -2310,7 +2348,8 @@ static void bbre_compcc_tree_xpose(
     dst_node->sibling_ref = parent_node->child_ref;
     parent_node->child_ref = node_ref;
     /* continue on to our sibling */
-    cc_tree_in[node_ref].aux.xposed = 1;
+    src_node->aux.xposed = 1;
+  cont:
     node_ref = src_node->sibling_ref;
   }
 }
@@ -2459,8 +2498,6 @@ bbre_compcc(bbre *r, bbre_uint ast_root, bbre_compframe *frame, int reversed)
   if ((err = bbre_compcc_hash_init(r, r->compcc.tree, &r->compcc.hash)))
     return err;
   bbre_compcc_tree_hash(r, r->compcc.tree, 1);
-  /* reduce the tree */
-  bbre_compcc_tree_reduce(r, r->compcc.tree, r->compcc.hash, 2, &start_pc);
   if (reversed) {
     /* optionally reverse the tree, if we're compiling in reverse mode */
     bbre_uint i;
@@ -2477,11 +2514,15 @@ bbre_compcc(bbre *r, bbre_uint ast_root, bbre_compframe *frame, int reversed)
     /* detach new root */
     r->compcc.tree_2[1].child_ref = BBRE_REF_NONE;
     /* reverse all concatenation edges in the tree */
-    bbre_compcc_tree_xpose(r->compcc.tree, r->compcc.tree_2, 2, 1);
+    bbre_compcc_tree_xpose_2(r->compcc.tree, r->compcc.tree_2, 1, 1, 1);
     tmp = r->compcc.tree;
     r->compcc.tree = r->compcc.tree_2;
     r->compcc.tree_2 = tmp;
   }
+  /* reduce the tree */
+  bbre_compcc_tree_reduce(
+      r, r->compcc.tree, r->compcc.hash, r->compcc.tree[1].child_ref,
+      &start_pc);
   /* finally, generate the charclass' instructions */
   if ((err = bbre_compcc_tree_render(
            r, r->compcc.tree, r->compcc.tree[1].child_ref, &start_pc, frame)))
@@ -2785,7 +2826,12 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
          *       \             out
          *        +-----------------> */
         assert(frame.idx == min + 1);
-        bbre_patch_apply(r, &returned_frame, frame.pc);
+        bbre_patch_apply(r, &returned_frame, my_pc);
+        if ((err = bbre_prog_emit(
+                 &r->prog, bbre_inst_make(BBRE_OPCODE_SPLIT, frame.pc + 1, 0),
+                 frame.set_idx)))
+          return err;
+        bbre_patch_add(r, &frame, my_pc, 1);
       } else if (frame.idx) {
         /* after maximum bound, finalize patches */
         /*  in            out
@@ -2891,10 +2937,25 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
       /* assertions: add a single ASSERT instruction */
       /*  in     out
        * ---> A ----> */
-      bbre_uint assert_flag = args[0];
+      bbre_uint assert_flag = args[0], real_assert_flag = 0;
       bbre_patch_apply(r, &frame, my_pc);
+      if (reverse) {
+        if (assert_flag & BBRE_ASSERT_TEXT_BEGIN)
+          real_assert_flag |= BBRE_ASSERT_TEXT_END;
+        if (assert_flag & BBRE_ASSERT_TEXT_END)
+          real_assert_flag |= BBRE_ASSERT_TEXT_BEGIN;
+        if (assert_flag & BBRE_ASSERT_LINE_BEGIN)
+          real_assert_flag |= BBRE_ASSERT_LINE_END;
+        if (assert_flag & BBRE_ASSERT_LINE_END)
+          real_assert_flag |= BBRE_ASSERT_LINE_BEGIN;
+        real_assert_flag |=
+            (assert_flag & (BBRE_ASSERT_WORD | BBRE_ASSERT_NOT_WORD));
+      } else {
+        real_assert_flag = assert_flag;
+      }
       if ((err = bbre_prog_emit(
-               &r->prog, bbre_inst_make(BBRE_OPCODE_ASSERT, 0, assert_flag),
+               &r->prog,
+               bbre_inst_make(BBRE_OPCODE_ASSERT, 0, real_assert_flag),
                frame.set_idx)))
         return err;
       bbre_patch_add(r, &frame, my_pc, 0);
@@ -3098,9 +3159,12 @@ static void bbre_save_slots_clear(bbre_save_slots *s, size_t per_thrd)
   s->per_thrd = per_thrd + 1 /* for refcnt */;
 }
 
+#define BBRE_UNSET_POSN (((size_t)0 - (size_t)1))
+
 static int
 bbre_save_slots_new(bbre_exec *exec, bbre_save_slots *s, bbre_uint *next)
 {
+  bbre_uint i;
   assert(s->per_thrd);
   if (s->last_empty) {
     /* reclaim */
@@ -3126,7 +3190,8 @@ bbre_save_slots_new(bbre_exec *exec, bbre_save_slots *s, bbre_uint *next)
     *next = s->slots_size++;
     assert(s->slots_size * s->per_thrd <= s->slots_alloc);
   }
-  memset(s->slots + *next * s->per_thrd, 0, sizeof(*s->slots) * s->per_thrd);
+  for (i = 0; i < s->per_thrd - 1; i++)
+    (s->slots + *next * s->per_thrd)[i] = BBRE_UNSET_POSN;
   s->slots[*next * s->per_thrd + s->per_thrd - 1] =
       1; /* initial refcount = 1 */
   return 0;
@@ -3190,7 +3255,7 @@ static int bbre_save_slots_set(
   return bbre_save_slots_set_internal(exec, s, ref, idx, v, out);
 }
 
-static bbre_uint
+static size_t
 bbre_save_slots_get(bbre_save_slots *s, bbre_uint ref, bbre_uint idx)
 {
   assert(idx < bbre_save_slots_per_thrd(s));
@@ -3296,7 +3361,7 @@ bbre_nfa_eps(bbre_exec *exec, bbre_nfa *n, size_t pos, bbre_assert_flag ass)
       assert(thrd.pc);
       if (bbre_sset_is_memb(&n->c, thrd.pc)) {
         /* we already processed this thread */
-        (void)bbre_buf_pop(&n->thrd_stk);
+        bbre_buf_pop(&n->thrd_stk);
         continue;
       }
       bbre_sset_add(&n->c, thrd);
@@ -3328,7 +3393,14 @@ bbre_nfa_eps(bbre_exec *exec, bbre_nfa *n, size_t pos, bbre_assert_flag ass)
         pri.pc = bbre_inst_next(op), pri.slot = thrd.slot;
         sec.pc = bbre_inst_param(op),
         sec.slot = bbre_save_slots_fork(&n->slots, thrd.slot);
-        assert(pri.pc != thrd.pc && sec.pc != thrd.pc);
+        /* In rare situations, the compiler will emit a SPLIT instruction with
+         * one of its branch targets set to the address of the instruction
+         * itself. I observed this happening after a fuzzington run that
+         * produced a regexp with nested empty-width quantifiers: a{0,0}*.
+         * The way that bbre works now, this is harmless. Preventing these
+         * instructions from being emitted would add some complexity to the
+         * program for no clear benefit. */
+        /* assert(pri.pc != thrd.pc && sec.pc != thrd.pc); */
         *bbre_buf_peek(&n->thrd_stk, 0) = sec;
         if ((err = bbre_buf_push(&exec->alloc, &n->thrd_stk, pri)))
           /* sec is pushed first because it needs to be processed after pri.
@@ -3452,12 +3524,6 @@ bbre_make_assert_flag(bbre_uint prev_ch, bbre_uint next_ch)
       bbre_is_word_char(prev_ch), next_ch);
 }
 
-/* return number of sets matched, -n otherwise */
-/* 0th span is the full bounds, 1st is first group, etc. */
-/* if max_set == 0 and max_span == 0 */
-/* if max_set != 0 and max_span == 0 */
-/* if max_set == 0 and max_span != 0 */
-/* if max_set != 0 and max_span != 0 */
 static int bbre_nfa_end(
     bbre_exec *exec, size_t pos, bbre_nfa *n, bbre_uint max_span,
     bbre_uint max_set, bbre_span *out_span, bbre_uint *out_set,
@@ -3820,7 +3886,7 @@ static int bbre_dfa_match(
             out = start;
           if (!state->nstate) {
             *out_pos = reversed ? out - end - increment : out - s - increment;
-            goto done;
+            goto done_success;
           }
         }
         if (many)
@@ -3834,6 +3900,22 @@ static int bbre_dfa_match(
       }
       state = next;
     }
+    if (exit_early) {
+      if (state->nset) {
+        return 1;
+      }
+    } else {
+      if (pri) {
+        if (state->nset)
+          out = start;
+        if (!state->nstate) {
+          *out_pos = reversed ? out - end - increment : out - s - increment;
+          goto done_success;
+        }
+      }
+      if (many)
+        bbre_dfa_save_matches(&exec->dfa, state);
+    }
   }
   if (!state->ptrs[BBRE_SENTINEL_CH]) {
     if ((err = bbre_dfa_construct_chr(
@@ -3845,9 +3927,10 @@ static int bbre_dfa_match(
     bbre_dfa_save_matches(&exec->dfa, state);
   if (out_pos && state->nset)
     *out_pos = reversed ? 0 : n;
-done:
   assert(state);
   return !!state->nset;
+done_success:
+  return 1;
 }
 
 static int bbre_exec_init(
@@ -3890,13 +3973,13 @@ static int bbre_compile(bbre *r)
 
 static int bbre_exec_match(
     bbre_exec *exec, const char *s, size_t n, size_t pos, bbre_span *out_span,
-    bbre_uint max_span)
+    unsigned int *which_spans, bbre_uint max_span)
 {
   int err = 0;
   bbre_uint entry = BBRE_PROG_ENTRY_DOTSTAR;
   size_t i;
   bbre_uint prev_ch = BBRE_SENTINEL_CH;
-  (void)pos;
+  assert(BBRE_IMPLIES(max_span, out_span));
   if (max_span == 0) {
     return bbre_dfa_match(exec, (bbre_byte *)s, n, pos, NULL, 0, 0, 1, 0);
   } else if (max_span == 1) {
@@ -3904,13 +3987,18 @@ static int bbre_exec_match(
         exec, (bbre_byte *)s, n, 0, &out_span[0].end, 0, 1, 0, 0);
     if (err <= 0)
       return err;
-    return bbre_dfa_match(
+    err = bbre_dfa_match(
         exec, (bbre_byte *)s, n, out_span[0].end, &out_span[0].begin, 1, 0, 0,
         0);
+    if (err < 0)
+      return err;
+    assert(err == 1);
+    if (which_spans)
+      *which_spans = 1;
+    return 1;
   }
   if ((err = bbre_nfa_start(
-           exec, &exec->nfa, exec->prog->entry[entry], max_span * 2,
-           entry & BBRE_PROG_ENTRY_REVERSE, 1)))
+           exec, &exec->nfa, exec->prog->entry[entry], max_span * 2, 0, 1)))
     return err;
   for (i = 0; i < n; i++) {
     if ((err = bbre_nfa_run(
@@ -3919,21 +4007,29 @@ static int bbre_exec_match(
     prev_ch = ((const bbre_byte *)s)[i];
   }
   if ((err = bbre_nfa_end(
-           exec, n, &exec->nfa, max_span, 0, out_span, NULL, prev_ch)))
+           exec, n, &exec->nfa, max_span, 0, out_span, NULL, prev_ch)) <= 0)
     return err;
+  for (i = 0; i < max_span; i++) {
+    int span_bad = out_span[i].begin == BBRE_UNSET_POSN ||
+                   out_span[i].end == BBRE_UNSET_POSN;
+    if (span_bad)
+      out_span[i].begin = 0, out_span[i].end = 0;
+    if (which_spans)
+      which_spans[i] = !span_bad;
+  }
   return err;
 }
 
 static int bbre_match_internal(
     bbre *r, const char *s, size_t n, size_t pos, bbre_span *out_spans,
-    bbre_uint out_spans_size)
+    bbre_uint *which_spans, bbre_uint out_spans_size)
 {
   int err = 0;
   if (!r->exec)
     if ((err = bbre_exec_init(&r->exec, &r->prog, &r->alloc)))
       return err;
-  (void)pos;
-  if ((err = bbre_exec_match(r->exec, s, n, pos, out_spans, out_spans_size)))
+  if ((err = bbre_exec_match(
+           r->exec, s, n, pos, out_spans, which_spans, out_spans_size)))
     goto done;
 done:
   return err;
@@ -3941,13 +4037,13 @@ done:
 
 int bbre_is_match(bbre *reg, const char *text, size_t text_size)
 {
-  return bbre_match_internal(reg, text, text_size, 0, NULL, 0);
+  return bbre_match_internal(reg, text, text_size, 0, NULL, NULL, 0);
 }
 
 int bbre_find(
     bbre *reg, const char *text, size_t text_size, bbre_span *out_bounds)
 {
-  return bbre_match_internal(reg, text, text_size, 0, out_bounds, 1);
+  return bbre_match_internal(reg, text, text_size, 0, out_bounds, NULL, 1);
 }
 
 int bbre_captures(
@@ -3955,19 +4051,28 @@ int bbre_captures(
     bbre_uint out_captures_size)
 {
   return bbre_match_internal(
-      reg, text, text_size, 0, out_captures, out_captures_size);
+      reg, text, text_size, 0, out_captures, NULL, out_captures_size);
+}
+
+int bbre_which_captures(
+    bbre *reg, const char *text, size_t text_size, bbre_span *out_captures,
+    unsigned int *out_captures_did_match, unsigned int out_captures_size)
+{
+  return bbre_match_internal(
+      reg, text, text_size, 0, out_captures, out_captures_did_match,
+      out_captures_size);
 }
 
 int bbre_is_match_at(bbre *reg, const char *text, size_t text_size, size_t pos)
 {
-  return bbre_match_internal(reg, text, text_size, pos, NULL, 0);
+  return bbre_match_internal(reg, text, text_size, pos, NULL, NULL, 0);
 }
 
 int bbre_find_at(
     bbre *reg, const char *text, size_t text_size, size_t pos,
     bbre_span *out_bounds)
 {
-  return bbre_match_internal(reg, text, text_size, pos, out_bounds, 1);
+  return bbre_match_internal(reg, text, text_size, pos, out_bounds, NULL, 1);
 }
 
 int bbre_captures_at(
@@ -3975,7 +4080,17 @@ int bbre_captures_at(
     bbre_span *out_captures, bbre_uint num_captures)
 {
   return bbre_match_internal(
-      reg, text, text_size, pos, out_captures, num_captures);
+      reg, text, text_size, pos, out_captures, NULL, num_captures);
+}
+
+int bbre_which_captures_at(
+    bbre *reg, const char *text, size_t text_size, size_t pos,
+    bbre_span *out_captures, unsigned int *out_captures_did_match,
+    unsigned int out_captures_size)
+{
+  return bbre_match_internal(
+      reg, text, text_size, pos, out_captures, out_captures_did_match,
+      out_captures_size);
 }
 
 static int bbre_exec_set_match(

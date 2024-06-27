@@ -25,42 +25,60 @@
     "type": "match",
     "commit_hash": "f51a04d2f490bdfae7c325128fbbfb0288529745",
     "created": "2024-05-15T14:54:16.433885",
-    "match": true,
-    "match_spans": [],
-    "match_string": "+",
-    "num_spans": 0,
     "regex": "\\+|(?:\u0014|\u001f){0,0}",
     "should_parse": [
       true
-    ]
+    ],
+    "spans": [
+      [
+        0,
+        1
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "+"
   },
   {
     "identifier": "0002",
     "type": "match",
     "commit_hash": "f51a04d2f490bdfae7c325128fbbfb0288529745",
     "created": "2024-05-15T20:52:13.284283",
-    "match": true,
-    "match_spans": [],
-    "match_string": "$",
-    "num_spans": 0,
     "regex": "\u00da|\\$|\u0081|e*",
     "should_parse": [
       true
-    ]
+    ],
+    "spans": [
+      [
+        0,
+        1
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "$"
   },
   {
     "identifier": "0003",
     "type": "match",
     "commit_hash": "a96412a4a625a8fecebe4c59c077358b24fa621a",
     "created": "2024-05-16T11:50:18.637040",
-    "match": true,
-    "match_spans": [],
-    "match_string": "\u9ca0",
-    "num_spans": 0,
     "regex": "[\u0427-V\u0017-k\ubc18-\u001f\u0ff9-:\ua2d1-\u4b57\u8338-~\\--\u3388U-\u04261-\u9a4f]",
     "should_parse": [
       true
-    ]
+    ],
+    "spans": [
+      [
+        0,
+        3
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "\u9ca0"
   },
   {
     "identifier": "0004",
@@ -68,10 +86,16 @@
     "created": "2024-05-22T14:22:37.624103",
     "type": "match",
     "regex": "(?:\u00d6*)*",
-    "num_spans": 0,
-    "match_string": "\u00d6\u00d6\u00d6\u00d6\u00d6\u00d6\u00d6\u00d6",
-    "match_spans": [],
-    "match": true
+    "spans": [
+      [
+        0,
+        16
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "\u00d6\u00d6\u00d6\u00d6\u00d6\u00d6\u00d6\u00d6"
   },
   {
     "identifier": "0005",
@@ -79,10 +103,16 @@
     "created": "2024-05-22T14:36:23.277614",
     "type": "match",
     "regex": "[\u02c9-\uda84\udf63\ud82a\udecc-\u0230m-\u1775\u0765-\u0004B-\u9593\u07d5-\ud888\udddf]",
-    "num_spans": 0,
-    "match_string": "\ud803\udd25",
-    "match_spans": [],
-    "match": true
+    "spans": [
+      [
+        0,
+        4
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "\ud803\udd25"
   },
   {
     "identifier": "0006",
@@ -90,10 +120,16 @@
     "created": "2024-05-22T19:22:20.320579",
     "type": "match",
     "regex": "\r|\u0091|\u00be\u00b9|[\udabe\udf4f-\udbac\udf7f]",
-    "num_spans": 0,
-    "match_string": "\udb93\ude4d",
-    "match_spans": [],
-    "match": true
+    "spans": [
+      [
+        0,
+        4
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "\udb93\ude4d"
   },
   {
     "identifier": "0007",
@@ -101,10 +137,16 @@
     "created": "2024-05-22T20:34:12.119314",
     "type": "match",
     "regex": "(?:[T-\"\\--\u01ff\\^-\u001a\uda1b\uddb1-\udb4d\uddf8\r-\u0657\u0382-\u8765\udb87\udeee-\ue7ed\ue611-\f])*G(?:\u009d|\u00f3)",
-    "num_spans": 0,
-    "match_string": "%G\u1bc3G\uab36%S\u00d2GG\u009d\u7d3f\u3a02G<\ud874\udf3e\u01baQ\ud826\udcf0\udb4f\udfd4\u5818\u0164Z\udac6\udfa2\u6fbc\u4265\ud855\udd27\u05df'y\u012d3\udb1f\udefa\u031dGB\u0150EfGS\u017b\ud829\udccf\u01af\u057f\u05e7\u0171X\u019c\u01bdG\udb58\udc1f\uda14\udded;\u1b5e?\ud987\ude9f\u28caG\uda0e\ude7c\u6337J\u4fb0O\u30b9\u001a\u02ac\u378b\u1087\u001e\u04b3K3\u01f1\u2a9c\u01a5G\ue0b0GM\u0221\u055a\uda97\ude70\u6ee43>O\u80e9$\ud851\udcdcS\u5f18\ud8be\udc03G=\uda66\udf2a\udaec\ude39H\u03a9\u6024 \udb68\udf39\u02be\u001c\u6bf2GIAO\udac4\udf82\ud97a\udc5c3\u017eM\u01eb\udb1c\udd0d\u7165G\u00d4\u01fbG\uda06\udf68\udb4d\udc26AG\u00f3\u3bb3\u0f4f\u1d36\u0194\ua4a9\u01e4\udab4\udf3d\u78ddG\u7754\u0488\udb1a\ude43\u01de\u950d$NG0\ud80a\udd22E^\udaef\udf8dG\ud9f1\udeaa2L}\u2d68\uda8a\udc9f<\uda66\udd1eG\u02441\u6390\uda34\udef1\ud905\udf91\ud8c7\udddb\udacd\udc14\u055a\u015d\ud9e4\udfeaNG\ud959\udd26\u01e6\u037f\u1f4e\ud8ca\udd87\u02343\udb1d\udf1dJ)\u9413\u3215G\u1abd\u2c1a\uda32\ude38K\u0134\u0100\ud867\udca9\udab9\udc09\u60bd\u2bac\u01a0\u00c0\u001dz\u0186\uda3d\udf9b\u011b\u70bf\uc6ce\u0b48\udaa0\udccf\u0091\uda71\udc86\u02d3\u5c0d\ud9f1\udcee\ub368\ud94a\udff7=W\ud835\ude1c\uda37\udcd3\u49b7G\uda4a\udfff\u4ff5\udb05\udd55\u05f3\uda3e\udc94\uda43\udea1\uda71\ude41\ub6e9G\u009d\udac2\udceb4\u01d3\udaf6\udd4f\u1727\u001d\u02b6GG\uda5b\udd6c\u00c6G:\u02cd\u04c3\udab7\ude95\uda3d\udfa0E\u04f7\u6f8f\udb2f\uded6\u009d\u31dd\ud9a8\ude70?\u2e10\u02ea\u1e96\u2482\u01d4:\u7eccS\udb42\ude35G8\"\u03ea\u0196G\u055bG\u7495\u45bc\u3ed4\ud97e\udc7b\udac9\udc7a\udb67\udd0e\u6c81\udac4\ude29\u1a5eW\uba53\ud9ec\ude5b\ud8fa\udf98\u03bd\ud5e0\u026c)\u0614G\udb02\udcb3\u7157\u00ae\u010f\u7e9c\u828e\uda97\udf98\u05d1\uda8c\udd7c\uda32\uddcbI\u01a8\u97e2\uda1c\udcaf\u00ae\u2645+\udacb\udf3d&\u0156\udaad\udcb3\u01d1&G\udb40\ude18\ud8ed\ude7c\udb2b\udff9\u18c2D\u03fcW\udaea\udcfdG\u3330\uc6bcAu\u15ea\u001b\u0a0c)G\u089f\u00fa\u00ec<\u064e \u657aX\u8053\u0141=\uda86\ude21GG\udabf\udce4\udaad\udf92K\u7fa1\u3bcf\uda65\udf03:\u010e\ud940\udf14+\udb10\udd84MRG\ub9e8G\u00dcG\uda57\udf2a\udb4d\udf89\u01c62%\u03be\uda4d\udfb6\u0d37G\u012b\u021b\u45c4\u0221\ud95c\udda0\u00e2\u0207G\udb08\ude31\u0203\u0372\ud8cb\udccd\u0413J\uda65\udf52\ud9e1\udeeb\u4080\u4cedI\u001aG\u03c4\u4485G\ua7e0\u32c8\udb3d\udfff3OGZ\u30e9\udb16\udde8\ud8bd\uddcf\u26a1\uda2f\udc87\ubfb7\u39c7T\u4e3b\u00b5D\u6d0c#\uda11\udc68\u01ae\u871f5zGG\u3bee\u5cd7\u01ef\ud8bc\udc92'\udb2c\udcce\ua5b6\u74a4@\u2b0d\u2165\ud9c3\udcc0.\ud78e)V\u5f30\ue456\u0171BG\uc087\u0085\u001c\u1cc3\uda61\udd18n!\ud954\udcba3\u015d\udad7\udfb4\u035e\u0163\u55ac6\u02c8R\u0177\u04d9\u001c\u01fb,\u01ff\u02b6G\uc8f9\u0b8c\u9962\udaf2\udce3\u6027\u0616\ud972\udc05G\u0368G\udb03\udcdaM\uda46\udcef\u9b0a\u010a\ud92c\udffb\"DF\u0146\u80eb\u5111.G\ud8b6\udf46#D,GB\u4ec1\u0400(\u01a5\udb33\udc61\udab0\udfbc\udafe\ude25\u75c0\u034b\u6943\u01a2\u7e39GG\u009dG\u009d\udaba\udef4\udb26\udcde\ue1baE2\uda69\udefe\u3376\u029a\udab2\udf58\udb29\udcd87\u0099\u81c5\u3f1b6\u00eaQ\u00cc7\u02ea6I\u7cc7G\uc1b6'%\udb23\udfe62\u01df\uc17dT\u041c\u05e5\ud986\udd92G?\u76dc\u4ba5OH&\ud8ef\ude257\u00c8K\ud827\udff9\u84c1\u24d3\uda4e\udd5aL\u00f6\u7f24G\u1579\u4abbD9@G\ud943\udd8e\u01e7\ud942\udce5G\u0189\ud884\udc8c7G\u02d9G\u00f3\ud860\udd6a5\u00d2a\ud9e7\udd5c\u0409\uda98\udcd0\uda76\udc9b\u6e5dG\u1f1e\u3768M\ud856\udd8fGS\udb0f\udf91\uda7a\ude1c\udad6\udeb9\udb37\ude9b\u0251-\uda97\udd37\u0742)\ucf3aG\u3465RG)\udb47\ude5eS\u5364\u0684\u6bf7\u67d4\udb7e\udd08G\u7704\u38ce%\u0339\u7eef\uda91\udd73\u0648\u54fa\ud981\udc38G\u00f3\uda9d\udc42\u0262\u00cc3<\u8b8a\u01ee\u001e\ud852\udfc7\u00adGVF\ue456G\u009d\u132d\u00d8\u052d\udab7\udd55\uda5c\udfb2\uda8d\udf88\uda96\uddd9G\u0594-\u0794\uda89\udf7c\u0463\udb76\udcf1A\u5339/5(\u5c13\u049e\u01152K\u0501\u4e2b:\u019a\udb1c\udc24\u0650)\ud820\ude5a\ub7f7\u049b\u8d88\uda4e\udfde\u0109\ub5c8'\u5161\uda56\uded9\uad91\ud95d\udf59mbO\\\ud832\udf83\udb19\udd9b\u00e0$\udb4b\udf87\udaab\udf2b,\ud876\uddb7\u033e\u4f60\ud877\udf3d2H\u9daa7\ud8b8\udecb\u01fd\u00d8\udb1b\udc94\u90d6\udb36\uddcbG^\u01f7\u0152G\ud916\udc6f\u00a1\ud858\udf4a\u00a61\u05c7\udb23\udf49\u572f18\u2c9b\uda81\uded9^B\u014dJ\u5ddf\u0087\u9b7e\u0469)\ud9c5\ude6a\u0471\u0345G\udaba\udcac\u8ffaG\u00f35\u055c\u0d2e\uda41\udc2d\ud4d1\u00a2\u61b4\u00c9O\u058a4EP\u01c7\u6319K\u0226\u7c4d5\ud958\udc72\uda34\udc69G\u1c26 \u3b4d\u1a76\u00df\uda04\udfc4+\udb17\udf5d\u01e7]\udaf7\udc41\u2d4e\udad4\udc6a\uda45\udfd3L\u5680\udb4d\udd03\u3635\uda42\udcd6\ud9cf\ude30\ud9de\udcddG\u2dd31\u8b43H\u4b95\u00d9\u04fb\uda4e\ude98\u06116S\udaf9\udddbGGS\u05c6G\u00f3\udb51\ude8d\uda7e\udc11\u01d5F\u3089\u018e?\uda42\udd9b\u0f38\uda8d\udc48\u3752\u03bbGX\u2e76\uad13\u01caMM\u0144<\uda4c\udd81\u46d0S\ud416\udb77\udf19\u03c5\u052b\u00d6\udb2c\uddfb\udac0\ude03GPn\u00a2\ud924\udd61\u00e5G??\uda86\udc55\uda24\uddcd\u752f[\uda75\udcea\u014dG\u00f3\u0145\u03da\ud9aa\udc8b\u0198\ud95f\udc9fG\udaa0\uddc3GG\u009d\udb15\udfa8\u462c\uda42\udcea\u4cc6\u02a0\uda37\udf0e$\ud942\udf5e\u0589;.$\u009a\u0463G\u01b9\ud971\udf4d\uda5f\udca8\u14d9\u00d4\u6701\ud9cb\udef1Z\u01f1\u001d\ue417G\u00f3K\ub67e\u00d6\ud901\udefe\u0108+\u88a5\udad4\ude78\u694fG2\u04a7\uda87\udee5F9[.\u01ce\uda54\uddc4\udab1\ude15\u05db7\udb32\udcbfG\uda4e\udc05\u011c<\ud9ad\udd83G\u00f3\u008a\u4f08\u27e1\u1864\u0171G(QG\u3030G\u0121G\uda1b\udf2a\udb1c\udf23G\uda91\udf81GG\u70f9IM\ud9ba\udfd5\"\u0104\udb37\ude40\u967d\u0124\u01c0G\u0102\uda6c\ude07OG\ue036\u0294\u04c2'\u01e3v\u024a\u0329\u620d$\u2c83\u05e7+\ud812\udfeb\u00d6\udb17\ude9f\u618f\ud960\udc1f\u77aa\u3fcb\u032f\u2c83\u013a\u10a7\u017c8U\u73a7\ud9f5\uddff\u01d5\u7e43\uda42\ude0d\ud925\udc5a:\uda6f\udca6G\u01df\u336bGG\uda7a\udd90\u0193\u015f=\ubee5>\u0f39G\u01f3G\u001c\u0175\u1a52R\udab2\ude65\u03cb\u0130\uda27\udd67\udb48\uddc9&\uda80\uddbc\u0166\udaf6\udd29\u78f9\u75c5\u136e\u0539@)\ud90d\uddd8Z\uda1c\ude87\udb45\udf16\u0115D\ud98a\udde2\u7aa9^\u019a\u5c1b\u01a57+\u2474G\u42a6\u00d9\udb66\ude3df\u2815\u70d5\u7209\u39b4\u3503G\u009d\u013c\u0157\u66cfP\udabb\udebf,GM\ud8c4\udc1bG\u3922G\u0124\u00bf]G\ud952\ude3f\u673cFDG\u00c1\u018aG\u00f3G\u7b48G\u012d\u014aG\u82c9\u0138\u0ea0\ud81b\udd4b\uda67\ude0d\uda7a\udd67\u00c5\udb0d\udd77\u27afg\u0174d\u47f5a\u7479\ud81f\udc74\ud475\ud8fa\udea5\u1f1dG\u001e\u68d1\u8587\uda94\ude7f\udabb\udf90\u662cYG\u0298V\udb71\uddcc\udab6\ude0a]G\u027a\u52f7\uda56\udf02\u00d7\ub0df\uda26\udc82\u729d\u139a\u14416\u6090\uda96\udf1b\ubcea>\ub3cf\ud9ca\udda7\u0175\u3a7c>\ud80f\udc87G\u0019\udadd\udeeeA\uda7c\uded1\uda7f\udc88\u6c3b\u0b8bPK\udadb\ude04\u00f4\u01e8G<?\u0115\ud5af\u9058G!\u0270\u0358G\\\ud91e\udd76\u063b:G\u0402\u0740\u0096_\u0153\uda3a\udd62G\u009d",
-    "match_spans": [],
-    "match": true
+    "spans": [
+      [
+        0,
+        2721
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "%G\u1bc3G\uab36%S\u00d2GG\u009d\u7d3f\u3a02G<\ud874\udf3e\u01baQ\ud826\udcf0\udb4f\udfd4\u5818\u0164Z\udac6\udfa2\u6fbc\u4265\ud855\udd27\u05df'y\u012d3\udb1f\udefa\u031dGB\u0150EfGS\u017b\ud829\udccf\u01af\u057f\u05e7\u0171X\u019c\u01bdG\udb58\udc1f\uda14\udded;\u1b5e?\ud987\ude9f\u28caG\uda0e\ude7c\u6337J\u4fb0O\u30b9\u001a\u02ac\u378b\u1087\u001e\u04b3K3\u01f1\u2a9c\u01a5G\ue0b0GM\u0221\u055a\uda97\ude70\u6ee43>O\u80e9$\ud851\udcdcS\u5f18\ud8be\udc03G=\uda66\udf2a\udaec\ude39H\u03a9\u6024 \udb68\udf39\u02be\u001c\u6bf2GIAO\udac4\udf82\ud97a\udc5c3\u017eM\u01eb\udb1c\udd0d\u7165G\u00d4\u01fbG\uda06\udf68\udb4d\udc26AG\u00f3\u3bb3\u0f4f\u1d36\u0194\ua4a9\u01e4\udab4\udf3d\u78ddG\u7754\u0488\udb1a\ude43\u01de\u950d$NG0\ud80a\udd22E^\udaef\udf8dG\ud9f1\udeaa2L}\u2d68\uda8a\udc9f<\uda66\udd1eG\u02441\u6390\uda34\udef1\ud905\udf91\ud8c7\udddb\udacd\udc14\u055a\u015d\ud9e4\udfeaNG\ud959\udd26\u01e6\u037f\u1f4e\ud8ca\udd87\u02343\udb1d\udf1dJ)\u9413\u3215G\u1abd\u2c1a\uda32\ude38K\u0134\u0100\ud867\udca9\udab9\udc09\u60bd\u2bac\u01a0\u00c0\u001dz\u0186\uda3d\udf9b\u011b\u70bf\uc6ce\u0b48\udaa0\udccf\u0091\uda71\udc86\u02d3\u5c0d\ud9f1\udcee\ub368\ud94a\udff7=W\ud835\ude1c\uda37\udcd3\u49b7G\uda4a\udfff\u4ff5\udb05\udd55\u05f3\uda3e\udc94\uda43\udea1\uda71\ude41\ub6e9G\u009d\udac2\udceb4\u01d3\udaf6\udd4f\u1727\u001d\u02b6GG\uda5b\udd6c\u00c6G:\u02cd\u04c3\udab7\ude95\uda3d\udfa0E\u04f7\u6f8f\udb2f\uded6\u009d\u31dd\ud9a8\ude70?\u2e10\u02ea\u1e96\u2482\u01d4:\u7eccS\udb42\ude35G8\"\u03ea\u0196G\u055bG\u7495\u45bc\u3ed4\ud97e\udc7b\udac9\udc7a\udb67\udd0e\u6c81\udac4\ude29\u1a5eW\uba53\ud9ec\ude5b\ud8fa\udf98\u03bd\ud5e0\u026c)\u0614G\udb02\udcb3\u7157\u00ae\u010f\u7e9c\u828e\uda97\udf98\u05d1\uda8c\udd7c\uda32\uddcbI\u01a8\u97e2\uda1c\udcaf\u00ae\u2645+\udacb\udf3d&\u0156\udaad\udcb3\u01d1&G\udb40\ude18\ud8ed\ude7c\udb2b\udff9\u18c2D\u03fcW\udaea\udcfdG\u3330\uc6bcAu\u15ea\u001b\u0a0c)G\u089f\u00fa\u00ec<\u064e \u657aX\u8053\u0141=\uda86\ude21GG\udabf\udce4\udaad\udf92K\u7fa1\u3bcf\uda65\udf03:\u010e\ud940\udf14+\udb10\udd84MRG\ub9e8G\u00dcG\uda57\udf2a\udb4d\udf89\u01c62%\u03be\uda4d\udfb6\u0d37G\u012b\u021b\u45c4\u0221\ud95c\udda0\u00e2\u0207G\udb08\ude31\u0203\u0372\ud8cb\udccd\u0413J\uda65\udf52\ud9e1\udeeb\u4080\u4cedI\u001aG\u03c4\u4485G\ua7e0\u32c8\udb3d\udfff3OGZ\u30e9\udb16\udde8\ud8bd\uddcf\u26a1\uda2f\udc87\ubfb7\u39c7T\u4e3b\u00b5D\u6d0c#\uda11\udc68\u01ae\u871f5zGG\u3bee\u5cd7\u01ef\ud8bc\udc92'\udb2c\udcce\ua5b6\u74a4@\u2b0d\u2165\ud9c3\udcc0.\ud78e)V\u5f30\ue456\u0171BG\uc087\u0085\u001c\u1cc3\uda61\udd18n!\ud954\udcba3\u015d\udad7\udfb4\u035e\u0163\u55ac6\u02c8R\u0177\u04d9\u001c\u01fb,\u01ff\u02b6G\uc8f9\u0b8c\u9962\udaf2\udce3\u6027\u0616\ud972\udc05G\u0368G\udb03\udcdaM\uda46\udcef\u9b0a\u010a\ud92c\udffb\"DF\u0146\u80eb\u5111.G\ud8b6\udf46#D,GB\u4ec1\u0400(\u01a5\udb33\udc61\udab0\udfbc\udafe\ude25\u75c0\u034b\u6943\u01a2\u7e39GG\u009dG\u009d\udaba\udef4\udb26\udcde\ue1baE2\uda69\udefe\u3376\u029a\udab2\udf58\udb29\udcd87\u0099\u81c5\u3f1b6\u00eaQ\u00cc7\u02ea6I\u7cc7G\uc1b6'%\udb23\udfe62\u01df\uc17dT\u041c\u05e5\ud986\udd92G?\u76dc\u4ba5OH&\ud8ef\ude257\u00c8K\ud827\udff9\u84c1\u24d3\uda4e\udd5aL\u00f6\u7f24G\u1579\u4abbD9@G\ud943\udd8e\u01e7\ud942\udce5G\u0189\ud884\udc8c7G\u02d9G\u00f3\ud860\udd6a5\u00d2a\ud9e7\udd5c\u0409\uda98\udcd0\uda76\udc9b\u6e5dG\u1f1e\u3768M\ud856\udd8fGS\udb0f\udf91\uda7a\ude1c\udad6\udeb9\udb37\ude9b\u0251-\uda97\udd37\u0742)\ucf3aG\u3465RG)\udb47\ude5eS\u5364\u0684\u6bf7\u67d4\udb7e\udd08G\u7704\u38ce%\u0339\u7eef\uda91\udd73\u0648\u54fa\ud981\udc38G\u00f3\uda9d\udc42\u0262\u00cc3<\u8b8a\u01ee\u001e\ud852\udfc7\u00adGVF\ue456G\u009d\u132d\u00d8\u052d\udab7\udd55\uda5c\udfb2\uda8d\udf88\uda96\uddd9G\u0594-\u0794\uda89\udf7c\u0463\udb76\udcf1A\u5339/5(\u5c13\u049e\u01152K\u0501\u4e2b:\u019a\udb1c\udc24\u0650)\ud820\ude5a\ub7f7\u049b\u8d88\uda4e\udfde\u0109\ub5c8'\u5161\uda56\uded9\uad91\ud95d\udf59mbO\\\ud832\udf83\udb19\udd9b\u00e0$\udb4b\udf87\udaab\udf2b,\ud876\uddb7\u033e\u4f60\ud877\udf3d2H\u9daa7\ud8b8\udecb\u01fd\u00d8\udb1b\udc94\u90d6\udb36\uddcbG^\u01f7\u0152G\ud916\udc6f\u00a1\ud858\udf4a\u00a61\u05c7\udb23\udf49\u572f18\u2c9b\uda81\uded9^B\u014dJ\u5ddf\u0087\u9b7e\u0469)\ud9c5\ude6a\u0471\u0345G\udaba\udcac\u8ffaG\u00f35\u055c\u0d2e\uda41\udc2d\ud4d1\u00a2\u61b4\u00c9O\u058a4EP\u01c7\u6319K\u0226\u7c4d5\ud958\udc72\uda34\udc69G\u1c26 \u3b4d\u1a76\u00df\uda04\udfc4+\udb17\udf5d\u01e7]\udaf7\udc41\u2d4e\udad4\udc6a\uda45\udfd3L\u5680\udb4d\udd03\u3635\uda42\udcd6\ud9cf\ude30\ud9de\udcddG\u2dd31\u8b43H\u4b95\u00d9\u04fb\uda4e\ude98\u06116S\udaf9\udddbGGS\u05c6G\u00f3\udb51\ude8d\uda7e\udc11\u01d5F\u3089\u018e?\uda42\udd9b\u0f38\uda8d\udc48\u3752\u03bbGX\u2e76\uad13\u01caMM\u0144<\uda4c\udd81\u46d0S\ud416\udb77\udf19\u03c5\u052b\u00d6\udb2c\uddfb\udac0\ude03GPn\u00a2\ud924\udd61\u00e5G??\uda86\udc55\uda24\uddcd\u752f[\uda75\udcea\u014dG\u00f3\u0145\u03da\ud9aa\udc8b\u0198\ud95f\udc9fG\udaa0\uddc3GG\u009d\udb15\udfa8\u462c\uda42\udcea\u4cc6\u02a0\uda37\udf0e$\ud942\udf5e\u0589;.$\u009a\u0463G\u01b9\ud971\udf4d\uda5f\udca8\u14d9\u00d4\u6701\ud9cb\udef1Z\u01f1\u001d\ue417G\u00f3K\ub67e\u00d6\ud901\udefe\u0108+\u88a5\udad4\ude78\u694fG2\u04a7\uda87\udee5F9[.\u01ce\uda54\uddc4\udab1\ude15\u05db7\udb32\udcbfG\uda4e\udc05\u011c<\ud9ad\udd83G\u00f3\u008a\u4f08\u27e1\u1864\u0171G(QG\u3030G\u0121G\uda1b\udf2a\udb1c\udf23G\uda91\udf81GG\u70f9IM\ud9ba\udfd5\"\u0104\udb37\ude40\u967d\u0124\u01c0G\u0102\uda6c\ude07OG\ue036\u0294\u04c2'\u01e3v\u024a\u0329\u620d$\u2c83\u05e7+\ud812\udfeb\u00d6\udb17\ude9f\u618f\ud960\udc1f\u77aa\u3fcb\u032f\u2c83\u013a\u10a7\u017c8U\u73a7\ud9f5\uddff\u01d5\u7e43\uda42\ude0d\ud925\udc5a:\uda6f\udca6G\u01df\u336bGG\uda7a\udd90\u0193\u015f=\ubee5>\u0f39G\u01f3G\u001c\u0175\u1a52R\udab2\ude65\u03cb\u0130\uda27\udd67\udb48\uddc9&\uda80\uddbc\u0166\udaf6\udd29\u78f9\u75c5\u136e\u0539@)\ud90d\uddd8Z\uda1c\ude87\udb45\udf16\u0115D\ud98a\udde2\u7aa9^\u019a\u5c1b\u01a57+\u2474G\u42a6\u00d9\udb66\ude3df\u2815\u70d5\u7209\u39b4\u3503G\u009d\u013c\u0157\u66cfP\udabb\udebf,GM\ud8c4\udc1bG\u3922G\u0124\u00bf]G\ud952\ude3f\u673cFDG\u00c1\u018aG\u00f3G\u7b48G\u012d\u014aG\u82c9\u0138\u0ea0\ud81b\udd4b\uda67\ude0d\uda7a\udd67\u00c5\udb0d\udd77\u27afg\u0174d\u47f5a\u7479\ud81f\udc74\ud475\ud8fa\udea5\u1f1dG\u001e\u68d1\u8587\uda94\ude7f\udabb\udf90\u662cYG\u0298V\udb71\uddcc\udab6\ude0a]G\u027a\u52f7\uda56\udf02\u00d7\ub0df\uda26\udc82\u729d\u139a\u14416\u6090\uda96\udf1b\ubcea>\ub3cf\ud9ca\udda7\u0175\u3a7c>\ud80f\udc87G\u0019\udadd\udeeeA\uda7c\uded1\uda7f\udc88\u6c3b\u0b8bPK\udadb\ude04\u00f4\u01e8G<?\u0115\ud5af\u9058G!\u0270\u0358G\\\ud91e\udd76\u063b:G\u0402\u0740\u0096_\u0153\uda3a\udd62G\u009d"
   },
   {
     "identifier": "0008",
@@ -112,10 +154,16 @@
     "created": "2024-05-22T22:16:08.732192",
     "type": "match",
     "regex": "(?:[\u37c4-\ue70c\"-\u017a\u3412-i])*",
-    "num_spans": 0,
-    "match_string": "\u5187\u0608\u6685\u0e1a\u0c46\u319c",
-    "match_spans": [],
-    "match": true
+    "spans": [
+      [
+        0,
+        17
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "\u5187\u0608\u6685\u0e1a\u0c46\u319c"
   },
   {
     "identifier": "0009",
@@ -123,10 +171,16 @@
     "created": "2024-05-23T10:43:29.887676",
     "type": "match",
     "regex": "[\u0649-H\u7073-H\ua59e-\uda05\ude35\u059f-1\u01e8-\ud8f2\ude1b\udb29\ude94-\ubecc\u577f-\ud9bd\udc62\u5b06-\ud991\udc75F-\u0518]\u00b6(?:[\ud9fe\udd40-\udadd\udc3a\ud9e7\udef5-\u5eefR-r\t-\u7ec4\uf609-\ud8e5\udf05])*",
-    "num_spans": 0,
-    "match_string": "\ud962\udc28\u00b6p\u3cb8\ud9da\udd1a",
-    "match_spans": [],
-    "match": true
+    "spans": [
+      [
+        0,
+        14
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "\ud962\udc28\u00b6p\u3cb8\ud9da\udd1a"
   },
   {
     "identifier": "0010",
@@ -137,10 +191,16 @@
       "fuzzington_seed": 7208344167010498578
     },
     "regex": "[\u2fa9-\u00e7\u67f9-\uc72d]",
-    "num_spans": 0,
-    "match_string": "\u6c35",
-    "match_spans": [],
-    "match": true
+    "spans": [
+      [
+        0,
+        3
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "\u6c35"
   },
   {
     "identifier": "0011",
@@ -151,10 +211,16 @@
       "fuzzington_seed": 6080948004124202687
     },
     "regex": "[\ud9e2\udec7-\ud938\udda5P-\ud8e1\uddb0]",
-    "num_spans": 0,
-    "match_string": "\ud9e1\udf1b",
-    "match_spans": [],
-    "match": true
+    "spans": [
+      [
+        0,
+        4
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "\ud9e1\udf1b"
   },
   {
     "identifier": "0012",
@@ -165,10 +231,16 @@
       "fuzzington_seed": 8985130467871973165
     },
     "regex": "\u00a0",
-    "num_spans": 0,
-    "match_string": "\u00a0",
-    "match_spans": [],
-    "match": true
+    "spans": [
+      [
+        0,
+        2
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "\u00a0"
   },
   {
     "identifier": "0013",
@@ -197,10 +269,16 @@
       "fuzzington_seed": 12753786770217967292
     },
     "regex": "(?:(?:I|\u00c6){0,0}){0,9}",
-    "num_spans": 0,
-    "match_string": "",
-    "match_spans": [],
-    "match": true
+    "spans": [
+      [
+        0,
+        0
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": ""
   },
   {
     "identifier": "0015",
@@ -211,10 +289,16 @@
       "fuzzington_seed": 12753786770217976377
     },
     "regex": "(?:\\{{0,0}){0,4}|[\u05ef-\ud960\udd75\u0787-\u0256\u07f2-\u0491\u0724-\u3a4a`-\ua733]",
-    "num_spans": 0,
-    "match_string": "\ud82c\udfc9",
-    "match_spans": [],
-    "match": true
+    "spans": [
+      [
+        0,
+        4
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "\ud82c\udfc9"
   },
   {
     "identifier": "0016",
@@ -225,10 +309,16 @@
       "fuzzington_seed": 16838363773428698827
     },
     "regex": "(?:f\u00d3)*(?:\u00e8|\\))\u00e1\u0000",
-    "match": true,
-    "num_spans": 0,
-    "match_string": "f\u00d3f\u00d3)\u00e1\u0000",
-    "match_spans": []
+    "spans": [
+      [
+        0,
+        10
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "f\u00d3f\u00d3)\u00e1\u0000"
   },
   {
     "identifier": "0017",
@@ -239,10 +329,16 @@
       "fuzzington_seed": 16838363773432959821
     },
     "regex": "(?:\\|\u00ef){0,2}|(?:[\t-A\u0164-\u8e2c\ud924\ude7a-\ud938\udcb7\u053a-\ud8f1\udee6\u1485-\u0174\u079c-\ud8e3\udca8\u0723-\u133e\ud96f\udef8-\uda8a\udc5e]){0,3}",
-    "match": true,
-    "num_spans": 0,
-    "match_string": "\u13bc\u0901\u0f6f",
-    "match_spans": []
+    "spans": [
+      [
+        0,
+        0
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "\u13bc\u0901\u0f6f"
   },
   {
     "identifier": "0018",
@@ -253,15 +349,16 @@
       "fuzzington_seed": 3471845700814703161
     },
     "regex": "([\u06ab-\udb7b\ude29\u0010-\ud998\udf7a\u017c-2\u045d-\ud835\ude00`-F])|\u0000S\u00c5*",
-    "match": true,
-    "num_spans": 1,
-    "match_string": "\u00d9",
-    "match_spans": [
+    "spans": [
       [
         0,
         2
       ]
-    ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "\u00d9"
   },
   {
     "identifier": "0019",
@@ -272,19 +369,16 @@
       "fuzzington_seed": 3471845700814703161
     },
     "regex": "([\u06ab-\udb7b\ude29\u0010-\ud998\udf7a\u017c-2\u045d-\ud835\ude00`-F])|\u0000S\u00c5*",
-    "match": true,
-    "num_spans": 2,
-    "match_string": "\u00d9",
-    "match_spans": [
-      [
-        0,
-        2
-      ],
+    "spans": [
       [
         0,
         2
       ]
-    ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "\u00d9"
   },
   {
     "identifier": "0020",
@@ -295,22 +389,80 @@
       "fuzzington_seed": 3471845700814703174
     },
     "regex": "(?:(E))*(\b\u00cf)",
-    "match": true,
-    "num_spans": 3,
-    "match_string": "E\b\u00cf",
-    "match_spans": [
+    "spans": [
       [
         0,
-        4
-      ],
-      [
-        0,
-        1
-      ],
-      [
-        1,
         4
       ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "E\b\u00cf"
+  },
+  {
+    "identifier": "0021",
+    "commit_hash": "5af3f5b68c8895d4f0321298615be313dc8d5db9",
+    "created": "2024-06-25T20:49:38.441018",
+    "type": "match",
+    "extra": {
+      "fuzzington_seed": 6553852047144818136
+    },
+    "regex": "(?:(?:c*){0,4}){0,3}",
+    "spans": [
+      [
+        0,
+        3
+      ]
+    ],
+    "did_match": [
+      true
+    ],
+    "text": "ccc"
+  },
+  {
+    "identifier": "0022",
+    "commit_hash": "5af3f5b68c8895d4f0321298615be313dc8d5db9",
+    "created": "2024-06-26T19:51:37.106160",
+    "type": "match",
+    "extra": {
+      "fuzzington_seed": 6553852047144818879
+    },
+    "regex": "(?:(?:(\u00d4)){0,0})*",
+    "text": "",
+    "spans": [
+      [
+        0,
+        0
+      ]
+    ],
+    "did_match": [
+      true
+    ]
+  },
+  {
+    "identifier": "0023",
+    "commit_hash": "5af3f5b68c8895d4f0321298615be313dc8d5db9",
+    "created": "2024-06-26T20:30:27.975861",
+    "type": "match",
+    "extra": {
+      "fuzzington_seed": 6553852047144818548
+    },
+    "regex": "(?:(\u001e{0,9}))*",
+    "text": "",
+    "spans": [
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "did_match": [
+      true,
+      true
     ]
   }
 ]

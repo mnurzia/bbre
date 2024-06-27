@@ -177,12 +177,19 @@ void d_prog_range(
     if (format == TERM) {
       static const int colors[] = {91, 94, 93, 92};
       printf(
-          "%04X %01X \x1b[%im%s\x1b[0m \x1b[%im%04X\x1b[0m %04X %s", start,
-          prog->set_idxs[start], colors[bbre_inst_opcode(ins)],
+          "%04X %01X \x1b[%im%s\x1b[0m \x1b[%im%04X\x1b[0m \x1b[%im%04X\x1b[0m "
+          "%s",
+          start, prog->set_idxs[start], colors[bbre_inst_opcode(ins)],
           ops[bbre_inst_opcode(ins)],
           bbre_inst_next(ins) ? (bbre_inst_next(ins) == start + 1 ? 90 : 0)
                               : 91,
-          bbre_inst_next(ins), bbre_inst_param(ins), labels[k]);
+          bbre_inst_next(ins),
+          (bbre_inst_opcode(ins) == BBRE_OPCODE_SPLIT)
+              ? (bbre_inst_param(ins) == start + 1
+                     ? 90
+                     : (bbre_inst_param(ins) ? 0 : 90))
+              : 0,
+          bbre_inst_param(ins), labels[k]);
       if (bbre_inst_opcode(ins) == BBRE_OPCODE_MATCH)
         printf(
             " %u %s", bbre_inst_match_param_idx(bbre_inst_param(ins)),

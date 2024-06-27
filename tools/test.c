@@ -51,35 +51,38 @@ size_t utf_encode(char *out_buf, unsigned int codep)
 
 int check_match_results(
     bbre *r, const char *s, size_t n, unsigned int max_span,
-    bbre_span *check_span, unsigned int match)
+    bbre_span *check_span, unsigned int *did_match, int expected)
 {
   int err = 0;
   /* memory for found spans and found sets */
   bbre_span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
+  unsigned int found_did_match[TEST_MAX_SPAN];
   unsigned int i;
+  memset(found_span, 0xCC, sizeof(found_span));
+  memset(found_did_match, 0xCC, sizeof(found_did_match));
   /* perform the match */
-  if ((err = bbre_captures_at(r, s, n, 0, found_span, max_span)) ==
-      BBRE_ERR_MEM)
-    goto oom;
+  if ((err = bbre_which_captures_at(
+           r, s, n, 0, found_span, found_did_match, max_span)) == BBRE_ERR_MEM)
+    return err;
   ASSERT_GTEm(err, 0, "bbre_match() returned an error");
-  ASSERT_EQm(
-      (unsigned int)err, match, "bbre_match() didn't return the correct value");
-  if (match)
+  ASSERT_EQm(err, expected, "bbre_match() didn't return the correct value");
+  if (expected)
     for (i = 0; i < max_span; i++) {
       ASSERT_EQm(
           check_span[i].begin, found_span[i].begin,
           "found unexpected span beginning");
       ASSERT_EQm(
           check_span[i].end, found_span[i].end, "found unexpected span end");
+      ASSERT_EQm(
+          did_match[i], found_did_match[i],
+          "capture group's match status was wrong");
     }
-  PASS();
-oom:
-  OOM();
+  return 0;
 }
 
 int check_matches_n(
     const char *regex, size_t regex_n, const char *s, size_t n,
-    unsigned int max_span, bbre_span *check_span, unsigned int match)
+    unsigned int max_span, bbre_span *check_span, unsigned int *did_match)
 {
   bbre *r = NULL;
   bbre_spec *spec = NULL;
@@ -91,9 +94,12 @@ int check_matches_n(
   if ((err = bbre_init_spec(&r, spec, NULL)) == BBRE_ERR_MEM)
     goto oom_re;
   ASSERT_EQm(err, 0, "bbre_init_spec() returned a nonzero value");
-  PROPAGATE(check_match_results(r, s, n, max_span, check_span, match));
+  if ((err = check_match_results(
+           r, s, n, max_span, check_span, did_match, !!max_span)))
+    goto oom_re;
   ASSERT(!err);
-  PROPAGATE(check_match_results(r, s, n, 0, 0, match));
+  if ((err = check_match_results(r, s, n, 0, NULL, NULL, !!max_span)))
+    goto oom_re;
   ASSERT(!err);
   bbre_destroy(r);
   bbre_spec_destroy(spec);
@@ -106,15 +112,10 @@ oom_re:
 
 int check_match(
     const char *regex, const char *s, size_t n, unsigned int max_span,
-    bbre_span *check_span, unsigned int match)
+    bbre_span *check_span, unsigned int *did_match)
 {
   size_t regex_n = strlen(regex);
-  return check_matches_n(regex, regex_n, s, n, max_span, check_span, match);
-}
-
-int check_fullmatch_n(const char *regex, const char *s, size_t n)
-{
-  return check_match(regex, s, n, 0, NULL, 1);
+  return check_matches_n(regex, regex_n, s, n, max_span, check_span, did_match);
 }
 
 int check_not_fullmatch_n(const char *regex, const char *s, size_t n)
@@ -122,30 +123,43 @@ int check_not_fullmatch_n(const char *regex, const char *s, size_t n)
   return check_match(regex, s, n, 0, NULL, 0);
 }
 
-int check_fullmatch(const char *regex, const char *s)
-{
-  return check_fullmatch_n(regex, s, strlen(s));
-}
-
 int check_not_fullmatch(const char *regex, const char *s)
 {
   return check_not_fullmatch_n(regex, s, strlen(s));
 }
 
-int check_match_g1(const char *regex, const char *s, size_t b, size_t e)
+int check_match_g1_n(
+    const char *regex, const char *s, size_t n, size_t b, size_t e)
 {
   bbre_span g;
+  unsigned int did = 1;
   g.begin = b, g.end = e;
-  return check_match(regex, s, strlen(s), 1, &g, 1);
+  return check_match(regex, s, n, 1, &g, &did);
+}
+
+int check_match_g1(const char *regex, const char *s, size_t b, size_t e)
+{
+  return check_match_g1_n(regex, s, strlen(s), b, e);
 }
 
 int check_match_g2(
     const char *regex, const char *s, size_t b, size_t e, size_t b2, size_t e2)
 {
   bbre_span g[2];
+  unsigned int did[2] = {1, 1};
   g[0].begin = b, g[0].end = e;
   g[1].begin = b2, g[1].end = e2;
-  return check_match(regex, s, strlen(s), 2, g, 1);
+  return check_match(regex, s, strlen(s), 2, g, did);
+}
+
+int check_fullmatch_n(const char *regex, const char *s, size_t n)
+{
+  return check_match_g1_n(regex, s, n, 0, n);
+}
+
+int check_fullmatch(const char *regex, const char *s)
+{
+  return check_fullmatch_n(regex, s, strlen(s));
 }
 
 #define ASSERT_MATCH(regex, str)  PROPAGATE(check_fullmatch(regex, str))
@@ -158,7 +172,6 @@ int check_match_g2(
   PROPAGATE(check_match_g1(regex, str, b, e))
 #define ASSERT_MATCH_G2(regex, str, b, e, b2, e2)                              \
   PROPAGATE(check_match_g2(regex, str, b, e, b2, e2))
-#define ASSERT_MATCH_ONLY(regex, str) ASSERT_MATCH(regex, str)
 
 int check_noparse_n(
     const char *regex, size_t n, const char *err_msg, size_t err_msg_pos)
@@ -375,25 +388,25 @@ SUITE(init)
 
 TEST(chr_1)
 {
-  ASSERT_MATCH_ONLY("a", "a");
+  ASSERT_MATCH("a", "a");
   PASS();
 }
 
 TEST(chr_2)
 {
-  ASSERT_MATCH_ONLY("\xd4\x80", "\xd4\x80");
+  ASSERT_MATCH("\xd4\x80", "\xd4\x80");
   PASS();
 }
 
 TEST(chr_3)
 {
-  ASSERT_MATCH_ONLY("\xe2\x98\x85", "\xe2\x98\x85");
+  ASSERT_MATCH("\xe2\x98\x85", "\xe2\x98\x85");
   PASS();
 }
 
 TEST(chr_4)
 {
-  ASSERT_MATCH_ONLY("\xf0\x9f\xa4\xa0", "\xf0\x9f\xa4\xa0");
+  ASSERT_MATCH("\xf0\x9f\xa4\xa0", "\xf0\x9f\xa4\xa0");
   PASS();
 }
 
@@ -414,13 +427,13 @@ SUITE(chr)
 
 TEST(cat_single)
 {
-  ASSERT_MATCH_ONLY("ab", "ab");
+  ASSERT_MATCH("ab", "ab");
   PASS();
 }
 
 TEST(cat_double)
 {
-  ASSERT_MATCH_ONLY("abc", "abc");
+  ASSERT_MATCH("abc", "abc");
   PASS();
 }
 
@@ -559,6 +572,12 @@ TEST(quant_ungreedy_malformed)
   PASS();
 }
 
+TEST(quant_nested_epsilon_group)
+{
+  ASSERT_MATCH_G2("(?:(a*))*", "", 0, 0, 0, 0);
+  PASS();
+}
+
 SUITE(quant)
 {
   RUN_SUITE(star);
@@ -566,6 +585,7 @@ SUITE(quant)
   RUN_SUITE(plus);
   RUN_TEST(quant_of_nothing);
   RUN_TEST(quant_ungreedy_malformed);
+  RUN_TEST(quant_nested_epsilon_group);
 }
 
 TEST(alt_empty_empty)
@@ -594,7 +614,7 @@ TEST(alt_empty_single_first)
 
 TEST(alt_empty_single_second)
 {
-  ASSERT_MATCH("|a", "a");
+  ASSERT_MATCH_G1("|a", "a", 0, 0);
   PASS();
 }
 
@@ -634,6 +654,19 @@ TEST(alt_many_empty_second)
   PASS();
 }
 
+TEST(alt_captures_only_half_in_epsilon)
+{
+  const char *regex = ".*|(.*)";
+  bbre_span check_span[2] = {
+      {0, 0},
+      {0, 0},
+  };
+  unsigned int check_did_match[2] = {1, 0};
+  PROPAGATE(check_matches_n(
+      regex, strlen(regex), "", 0, 2, check_span, check_did_match));
+  PASS();
+}
+
 SUITE(alt)
 {
   RUN_TEST(alt_empty_empty);
@@ -647,6 +680,7 @@ SUITE(alt)
   RUN_TEST(alt_some_some_second);
   RUN_TEST(alt_many);
   RUN_TEST(alt_many_empty_second);
+  RUN_TEST(alt_captures_only_half_in_epsilon);
 }
 
 TEST(anychar_unicode_1)
@@ -2254,8 +2288,15 @@ TEST(grp_after_cat)
 
 TEST(grp_inline_flag_no_spans)
 {
+  const char *regex = "(?u)abc";
+  bbre_span spans[2] = {
+      {0, 3},
+      {0, 0}
+  };
+  unsigned int did_match[2] = {1, 0};
   /* inline flags shouldn't cause groups to be set */
-  ASSERT_MATCH_G2("(?u)abc", "abc", 0, 3, 0, 0);
+  PROPAGATE(
+      check_matches_n(regex, strlen(regex), "abc", 3, 2, spans, did_match));
   PASS();
 }
 
@@ -2316,6 +2357,22 @@ TEST(grp_nested_in_nonmatching)
   PASS();
 }
 
+TEST(grp_too_many_captures)
+{
+  const char *regex = "(.*)";
+  bbre_span check_span[5] = {
+      {0, 3},
+      {0, 3},
+      {0, 0},
+      {0, 0},
+      {0, 0},
+  };
+  unsigned int check_did_match[5] = {1, 1, 0, 0, 0};
+  PROPAGATE(check_matches_n(
+      regex, strlen(regex), "abc", 3, 5, check_span, check_did_match));
+  PASS();
+}
+
 SUITE(grp)
 {
   RUN_SUITE(grp_flag_i);
@@ -2342,6 +2399,7 @@ SUITE(grp)
   RUN_TEST(grp_invalid_unmatched_rparen);
   RUN_TEST(grp_invalid_unmatched_lparen);
   RUN_TEST(grp_nested_in_nonmatching);
+  RUN_TEST(grp_too_many_captures);
 }
 
 TEST(set_many)

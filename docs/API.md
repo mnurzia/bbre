@@ -12,7 +12,7 @@
 <li><a href="#bbre_destroy">bbre_destroy</a></li>
 <li><a href="#bbre_get_error">bbre_get_error</a></li>
 <li><a href="#bbre_span">bbre_span</a></li>
-<li><a href="#bbre_is_match">bbre_is_match, bbre_find, bbre_captures</a></li>
+<li><a href="#bbre_is_match">bbre_is_match, bbre_find, bbre_captures, bbre_which_captures</a></li>
 <li><a href="#bbre_is_match_at">bbre_is_match_at, bbre_find_at, bbre_captures_at</a></li>
 <li><a href="#bbre_set_spec">bbre_set_spec</a></li>
 <li><a href="#bbre_set_spec_init">bbre_set_spec_init</a></li>
@@ -187,7 +187,7 @@ typedef struct bbre_span {
 <p>This structure records the bounds of a capture recorded by <a href="#bbre_is_match">bbre_captures</a>().
 <code>begin</code> is the start of the match,  <code>end</code> is the end.</p>
 
-<h2 id="bbre_is_match"><code>bbre_is_match</code>, <code>bbre_find</code>, <code>bbre_captures</code></h2>
+<h2 id="bbre_is_match"><code>bbre_is_match</code>, <code>bbre_find</code>, <code>bbre_captures</code>, <code>bbre_which_captures</code></h2>
 <p>Match text against a <a href="#bbre">bbre</a>.</p>
 
 ```c
@@ -197,6 +197,9 @@ int bbre_find(
 int bbre_captures(
     bbre *reg, const char *text, size_t text_size, bbre_span *out_captures,
     unsigned int out_captures_size);
+int bbre_which_captures(
+    bbre *reg, const char *text, size_t text_size, bbre_span *out_captures,
+    unsigned int *out_captures_did_match, unsigned int out_captures_size);
 ```
 <p>These functions perform matching operations using a <a href="#bbre">bbre</a> object. All of them
 take two parameters,  <code>text</code> and  <code>text_size</code>, which denote the string to
@@ -214,6 +217,15 @@ capture will be stored. Note that capture group 0 denotes the boundaries of
 the entire match (i.e., those retrieved by <a href="#bbre_is_match">bbre_find</a>()), so to retrieve the
 first capturing group, pass 2 for  <code>out_captures_size</code>; to retrieve the
 second, pass 3, and so on.</p>
+<p>Finally, <a href="#bbre_is_match">bbre_which_captures</a>() works like <a href="#bbre_is_match">bbre_captures</a>(), but accepts an
+additional argument  <code>out_captures_did_match</code> that points to an array of
+<code>out_captures_size</code> integers. Element  <code>n</code> of  <code>out_captures_did_match</code> will
+be set to 1 if capture group  <code>n</code> appeared in the match, and 0 otherwise.
+Like <a href="#bbre_is_match">bbre_captures</a>(), there is an implicit 0th group that represents the
+bounds of the entire match. Consequently,  <code>out_captures_did_match[0]</code> will
+always be set to 1, assuming  <code>out_captures_size &gt;= 1</code>. This function is
+only useful when a particular pattern can match one but not another group,
+such as the pattern  <code>(a)|(b)</code>.</p>
 <p>Returns 0 if a match was not found anywhere in  <code>text</code>, 1 if a match was
 found, in which case the relevant  <code>out_bounds</code> or  <code>out_captures</code> variable
 will be written to, or <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to

@@ -48,6 +48,7 @@ mod nfa {
     }
 
     impl Thread {
+        pub const UNSET_SLOT: usize = usize::MAX;
         pub fn root(state_id: StateId) -> Thread {
             Thread {
                 state_id,
@@ -64,8 +65,9 @@ mod nfa {
 
         pub fn fork_with(&self, state_id: StateId, idx: usize, pos: usize) -> Thread {
             let mut next_saves = self.saves.clone();
-            while idx >= next_saves.len() {
-                next_saves.push(0);
+            let want_len = ((idx / 2) * 2) + 2;
+            while want_len > next_saves.len() {
+                next_saves.push(Self::UNSET_SLOT);
             }
             next_saves[idx] = pos;
             Thread {
@@ -73,6 +75,11 @@ mod nfa {
                 saves: next_saves,
             }
         }
+    }
+
+    enum FollowSpec {
+        Thread(Thread),
+        Char(Thread),
     }
 
     impl Nfa {
@@ -127,36 +134,48 @@ mod nfa {
             pos: usize,
         ) {
             let mut found = HashSet::<StateId>::new();
-            let mut stk = Vec::<Thread>::new();
-            stk.extend(threads.drain(0..));
+            let mut stk = Vec::<FollowSpec>::new();
+            stk.extend(threads.drain(0..).map(|elt| FollowSpec::Thread(elt)));
             threads_out.clear();
             states_hash_out.clear();
-            while let Some(elt) = stk.pop() {
-                if found.contains(&elt.state_id) {
-                    continue;
-                }
-                if self.matches.contains(&elt.state_id) && (states_hash_out.insert(elt.state_id)) {
-                    threads_out.push(elt.fork(elt.state_id));
-                }
-                for Transition {
-                    dest: state,
-                    label,
-                    save,
-                } in &self.trans[elt.state_id]
-                {
-                    match label {
-                        Label::None => match save {
-                            None => stk.push(elt.fork(*state)),
-                            Some(idx) => stk.push(elt.fork_with(*state, *idx, pos)),
-                        },
-                        _ => {
-                            if states_hash_out.insert(elt.state_id) {
-                                threads_out.push(elt.fork(elt.state_id));
+            while let Some(fspec) = stk.pop() {
+                match fspec {
+                    FollowSpec::Thread(elt) => {
+                        if found.contains(&elt.state_id) {
+                            continue;
+                        }
+                        if self.matches.contains(&elt.state_id)
+                            && (states_hash_out.insert(elt.state_id))
+                        {
+                            threads_out.push(elt.fork(elt.state_id));
+                            break;
+                        }
+                        for Transition {
+                            dest: state,
+                            label,
+                            save,
+                        } in self.trans[elt.state_id].iter().rev()
+                        {
+                            match label {
+                                Label::None => match save {
+                                    None => stk.push(FollowSpec::Thread(elt.fork(*state))),
+                                    Some(idx) => stk
+                                        .push(FollowSpec::Thread(elt.fork_with(*state, *idx, pos))),
+                                },
+                                _ => {
+                                    stk.push(FollowSpec::Char(elt.fork(elt.state_id)));
+                                }
                             }
                         }
+                        found.insert(elt.state_id);
+                    }
+                    FollowSpec::Char(elt) => {
+                        if found.contains(&elt.state_id) {
+                            continue;
+                        }
+                        threads_out.push(elt);
                     }
                 }
-                found.insert(elt.state_id);
             }
         }
 
@@ -213,6 +232,7 @@ mod nfa {
             let mut options_vec = Vec::<Label>::new();
             let mut options_hash = HashSet::<Label>::new();
             let mut flattened = Vec::<u8>::new();
+            let mut previous_result: Option<(usize, Vec<usize>)> = None;
             threads_vec.push(Thread::root(start));
             states_hash.insert(start);
             loop {
@@ -224,10 +244,31 @@ mod nfa {
                     flattened.len(),
                 );
                 (threads_vec, threads_vec_next) = (threads_vec_next, threads_vec);
-                if states_hash.contains(&target)
-                    && (threads_vec.len() == 1 || rng.gen_range(0..5) == 0)
-                {
-                    return Some((Vec::from_iter(flattened), threads_vec.pop().unwrap().saves));
+                for i in 0..threads_vec.len() {
+                    if threads_vec[i].state_id == target {
+                        if i == 0 {
+                            return Some((flattened, threads_vec.remove(i).saves));
+                        } else {
+                            if previous_result.is_some() && rng.gen_range(0..5) == 4 {
+                                // just arbitrarily end the string here
+                                let (prev_len, prev_saves) = previous_result.unwrap();
+                                flattened.truncate(prev_len);
+                                return Some((flattened, prev_saves));
+                            }
+                            previous_result = Some((flattened.len(), threads_vec[i].saves.clone()));
+                            threads_vec.truncate(i);
+                            break;
+                        }
+                    }
+                }
+                if threads_vec.len() == 0 {
+                    if previous_result.is_some() {
+                        let (prev_len, prev_saves) = previous_result.unwrap();
+                        flattened.truncate(prev_len);
+                        return Some((flattened, prev_saves));
+                    } else {
+                        return None;
+                    }
                 }
                 assert!(!threads_vec.is_empty());
                 options_vec.clear();
@@ -368,6 +409,7 @@ mod regex {
                             (0, None) => {
                                 let (r_start, r_end, ret_grp_idx) = r.to_nfa(nfa, grp_idx);
                                 nfa.link(start, Label::None, r_start);
+                                nfa.link(start, Label::None, end);
                                 nfa.link(r_end, Label::None, end);
                                 nfa.link(end, Label::None, start);
                                 next_grp_idx = ret_grp_idx;
@@ -377,11 +419,11 @@ mod regex {
                                 next_grp_idx = grp_idx;
                             }
                             (0, Some(m)) => {
-                                let (r_start, r_end, _) = r.to_nfa(nfa, grp_idx);
-                                nfa.link(start, Label::None, end);
+                                let (r_start, r_end, ret_grp_idx) = r.to_nfa(nfa, grp_idx);
                                 nfa.link(start, Label::None, r_start);
+                                nfa.link(start, Label::None, end);
                                 nfa.link(r_end, Label::None, end);
-                                let (d_start, d_end, ret_grp_idx) =
+                                let (d_start, d_end, _) =
                                     compile_quant(r, nfa, 0, Some(m - 1), grp_idx);
                                 nfa.link(r_end, Label::None, d_start);
                                 nfa.link(d_end, Label::None, end);
@@ -537,6 +579,7 @@ mod regex {
                 Regex::Alt(l, r) => write!(f, "{l}|{r}"),
                 Regex::Quant(r, min, max) => match r.as_ref() {
                     Regex::Char(_) => write!(f, "{r}"),
+                    Regex::Grp(_) => write!(f, "{r}"),
                     _ => write!(f, "(?:{r})"),
                 }
                 .and_then(|_| match (min, max) {
@@ -576,11 +619,12 @@ extern "C" {
     fn bbre_spec_destroy(spec: *mut c_void);
     fn bbre_init_spec(pregex: *mut *mut c_void, spec: *mut c_void, alloc: *mut c_void) -> c_int;
     fn bbre_destroy(regex: *mut c_void);
-    fn bbre_captures(
+    fn bbre_which_captures(
         regex: *mut c_void,
         s: *const c_char,
         n: usize,
         captures: *mut bbre_span,
+        did_match: *mut c_int,
         num_captures: c_int,
     ) -> c_int;
 }
@@ -609,10 +653,9 @@ struct Test {
     r#type: String,
     extra: Extra,
     regex: Vec<u8>,
-    num_spans: u32,
-    match_string: Vec<u8>,
-    r#match: bool,
-    match_spans: Vec<(usize, usize)>,
+    text: Vec<u8>,
+    did_match: Vec<bool>,
+    spans: Vec<(usize, usize)>,
 }
 
 fn main() -> std::io::Result<()> {
@@ -636,20 +679,28 @@ fn main() -> std::io::Result<()> {
             continue;
         }
         let (example, saves) = example_or_none.unwrap();
+        if example.len() > 500 {
+            continue;
+        }
         assert!(saves.len() % 2 == 0);
         let mut match_spans = Vec::<(usize, usize)>::new();
         let mut found_spans = Vec::<bbre_span>::new();
+        let mut did_match = Vec::<bool>::new();
+        let mut found_did_match = Vec::<c_int>::new();
         match_spans.push((0, example.len()));
-        found_spans.push(bbre_span {
-            begin: 0,
-            end: example.len(),
-        });
+        found_spans.push(bbre_span { begin: 0, end: 0 });
+        did_match.push(true);
+        found_did_match.push(1);
         for idx in (0..saves.len()).step_by(2) {
-            match_spans.push((saves[idx], saves[idx + 1]));
+            if saves[idx] == nfa::Thread::UNSET_SLOT || saves[idx + 1] == nfa::Thread::UNSET_SLOT {
+                match_spans.push((0, 0));
+                did_match.push(false);
+            } else {
+                match_spans.push((saves[idx], saves[idx + 1]));
+                did_match.push(true);
+            }
             found_spans.push(bbre_span { begin: 0, end: 0 });
-        }
-        if example.len() > 500 {
-            continue;
+            found_did_match.push(0);
         }
         let test = Test {
             r#type: "match".to_string(),
@@ -657,10 +708,9 @@ fn main() -> std::io::Result<()> {
             extra: Extra {
                 fuzzington_seed: cli.seed + m - 1,
             },
-            num_spans: match_spans.len().try_into().unwrap(),
-            match_string: example.clone(),
-            match_spans: match_spans.clone(),
-            r#match: true,
+            text: example.clone(),
+            spans: match_spans.clone(),
+            did_match: did_match.clone(),
         };
         println!("{}", serde_json::to_string(&test).unwrap());
         stdout().flush().unwrap();
@@ -681,19 +731,24 @@ fn main() -> std::io::Result<()> {
                 0
             );
             bbre_spec_destroy(spec_ptr);
-            let err = bbre_captures(
+            let err = bbre_which_captures(
                 c_re_ptr,
                 example.as_ptr().cast(),
                 example.len(),
                 found_spans.as_mut_ptr(),
+                found_did_match.as_mut_ptr(),
                 found_spans.len().try_into().unwrap(),
             );
             assert_eq!(err, 1);
             bbre_destroy(c_re_ptr);
         }
-        for (span_a, (begin, end)) in zip(&found_spans, &match_spans) {
-            assert_eq!(span_a.begin, *begin);
-            assert_eq!(span_a.end, *end);
+        for ((span, (begin, end)), (dm, fdm)) in zip(
+            zip(&found_spans, &match_spans),
+            zip(&did_match, &found_did_match),
+        ) {
+            assert_eq!(span.begin, *begin);
+            assert_eq!(span.end, *end);
+            assert_eq!(if *dm { 1 } else { 0 }, *fdm);
         }
         n += 1;
     }

@@ -146,6 +146,16 @@ typedef struct bbre_span {
  ** first capturing group, pass 2 for `out_captures_size`; to retrieve the
  ** second, pass 3, and so on.
  **
+ ** Finally, bbre_which_captures() works like bbre_captures(), but accepts an
+ ** additional argument `out_captures_did_match` that points to an array of
+ ** `out_captures_size` integers. Element `n` of `out_captures_did_match` will
+ ** be set to 1 if capture group `n` appeared in the match, and 0 otherwise.
+ ** Like bbre_captures(), there is an implicit 0th group that represents the
+ ** bounds of the entire match. Consequently, `out_captures_did_match[0]` will
+ ** always be set to 1, assuming `out_captures_size >= 1`. This function is
+ ** only useful when a particular pattern can match one but not another group,
+ ** such as the pattern `(a)|(b)`.
+ **
  ** Returns 0 if a match was not found anywhere in `text`, 1 if a match was
  ** found, in which case the relevant `out_bounds` or `out_captures` variable
  ** will be written to, or BBRE_ERR_MEM if there was not enough memory to
@@ -156,11 +166,16 @@ int bbre_find(
 int bbre_captures(
     bbre *reg, const char *text, size_t text_size, bbre_span *out_captures,
     unsigned int out_captures_size);
+int bbre_which_captures(
+    bbre *reg, const char *text, size_t text_size, bbre_span *out_captures,
+    unsigned int *out_captures_did_match, unsigned int out_captures_size);
 
 /** Match text against a bbre, starting the match from a given position.
- ** These functions behave identically to the bbre_is_match(), bbre_find(), and
- ** bbre_captures() functions, but they take an additional `pos` parameter that
- ** describes an offset in `text` to start the match from.
+ ** These functions behave identically to the bbre_is_match(), bbre_find(),
+ ** bbre_captures(), and bbre_captures_at() functions, but they take an
+ ** additional `pos` parameter that describes an offset in `text` to start the
+ ** match from.
+ **
  ** The utility of these functions is that they take into account empty-width
  ** assertions active at `pos`. For example, matching `\b` against "A " at
  ** position 1 would return a match, because these functions look at the
@@ -172,6 +187,10 @@ int bbre_find_at(
 int bbre_captures_at(
     bbre *reg, const char *text, size_t text_size, size_t pos,
     bbre_span *out_captures, unsigned int out_captures_size);
+int bbre_which_captures_at(
+    bbre *reg, const char *text, size_t text_size, size_t pos,
+    bbre_span *out_captures, unsigned int *out_captures_did_match,
+    unsigned int out_captures_size);
 
 /** Builder class for regular expression sets. */
 typedef struct bbre_set_spec bbre_set_spec;
