@@ -24,7 +24,7 @@
 <li><a href="#bbre_set_destroy">bbre_set_destroy</a></li>
 <li><a href="#bbre_set_is_match">bbre_set_is_match, bbre_set_matches</a></li>
 <li><a href="#bbre_set_is_match_at">bbre_set_is_match_at, bbre_set_matches_at</a></li>
-<li><a href="#bbre_dup">bbre_dup, bbre_set_dup</a></li>
+<li><a href="#bbre_clone">bbre_clone, bbre_set_clone</a></li>
 </ul>
 <h2 id="BBRE_ERR_MEM"><code>BBRE_ERR_MEM</code>, <code>BBRE_ERR_PARSE</code>, <code>BBRE_ERR_LIMIT</code></h2>
 <p>Enumeration of error types.</p>
@@ -394,17 +394,18 @@ that denotes where to start matching from.</p>
 <p>See <a href="#bbre_is_match_at">bbre_is_match_at</a>() and its related functions for an explanation as to
 why these functions are needed.</p>
 
-<h2 id="bbre_dup"><code>bbre_dup</code>, <code>bbre_set_dup</code></h2>
+<h2 id="bbre_clone"><code>bbre_clone</code>, <code>bbre_set_clone</code></h2>
 <p>Duplicate a <a href="#bbre">bbre</a> or <a href="#bbre_set">bbre_set</a> without recompiling it.</p>
 
 ```c
-int bbre_dup(bbre *reg, bbre **pout);
-int bbre_set_dup(bbre_set *s, bbre_set **pout);
+int bbre_clone(bbre **pout, const bbre *reg, const bbre_alloc *alloc);
+int bbre_set_clone(
+    bbre_set **pout, const bbre_set *set, const bbre_alloc *alloc);
 ```
 <p>If you want to match a pattern using multiple threads, you will need to call
 this function once per thread to obtain exclusive <a href="#bbre">bbre</a>/<a href="#bbre_set">bbre_set</a> objects to
 use, as <a href="#bbre">bbre</a> and <a href="#bbre_set">bbre_set</a> objects cannot be used concurrently.</p>
 <p>In a future update, these functions may become no-ops.</p>
-<p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to perform the match, 0
+<p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to clone the object, 0
 otherwise.</p>
 

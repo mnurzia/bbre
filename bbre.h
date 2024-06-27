@@ -272,7 +272,7 @@ int bbre_set_matches(
     bbre_set *set, const char *text, size_t text_size, unsigned int *out_idxs,
     unsigned int out_idxs_size, unsigned int *out_num_idxs);
 
-/** Match text against a bbre, starting the match from a given position.
+/** Match text against a bbre_set, starting the match from a given position.
  ** These functions perform identically to the bbre_set_is_match() and
  ** bbre_set_matches() functions, except they take an additional `pos` argument
  ** that denotes where to start matching from.

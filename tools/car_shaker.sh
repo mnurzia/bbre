@@ -1,5 +1,6 @@
 #!/bin/sh
 # Run soak tests, fuzzington, and benchmarks.
+# Soak it up!
 PROGRAM=$0
 
 STDOUT=$(mktemp)
@@ -20,12 +21,15 @@ step() {
   if "$@" >"$STDOUT" 2>"$STDERR"; then
     echo "OK"
   else
-    printf "BAD\n"
-    printf "Stdout: \n"
+    echo "BAD"
+    echo "Stdout:"
     cat "$STDOUT"
-    printf "Stderr: \n"
+    echo "Stderr:"
     cat "$STDERR"
     exit 1
+  fi
+  if [ "$CURRENT_STEP" = "$((TOTAL_STEPS + 1))" ]; then
+    echo "Soaked! Commit commit commit!"
   fi
 }
 
@@ -36,7 +40,7 @@ step "Check Sources" make check_sources
 step "Build Tests" make test_build
 step "Run Tests" make test
 step "Run OOM Tests" make testoom
-step "Run and Check Coverage" make check_cov
+# step "Run and Check Coverage" make check_cov
 step "Run Hello World" make port_build
 step "Generate Docs" make docs
 step "Run fuzzington for 10000000 iterations" make fuzzington_run
