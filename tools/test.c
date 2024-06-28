@@ -388,12 +388,28 @@ TEST(init_bad)
 }
 */
 
+TEST(init_no_error)
+{
+  bbre *r = bbre_init_pattern("");
+  const char *msg = NULL;
+  size_t pos = 0;
+  ;
+  if (!r)
+    OOM();
+  ASSERT_EQ(bbre_get_error(r, &msg, &pos), 0);
+  ASSERT_EQ(pos, 0);
+  ASSERT_EQ(msg, NULL);
+  bbre_destroy(r);
+  PASS();
+}
+
 SUITE(init)
 {
   RUN_TEST(init_empty);
   RUN_TEST(init_some);
   /*RUN_TEST(init_bad);*/
   RUN_TEST(init_full_default_alloc);
+  RUN_TEST(init_no_error);
 }
 
 TEST(chr_1)

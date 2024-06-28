@@ -526,11 +526,8 @@ static void bbre_buf_clear(void *buf)
   void *sbuf;
   assert(buf);
   sbuf = *(void **)buf;
-  if (!sbuf)
-    goto done;
+  assert(sbuf);
   bbre_buf_get_hdr(sbuf)->size = 0;
-done:
-  return;
 }
 
 /* Initialize a dynamic array. */
@@ -902,8 +899,10 @@ static int bbre_parse_next_or(bbre *r, bbre_uint *codep, const char *else_msg)
 {
   int err = 0;
   assert(else_msg);
-  if (!bbre_parse_has_more(r) && (err = bbre_parse_err(r, else_msg)))
+  if (!bbre_parse_has_more(r)) {
+    err = bbre_parse_err(r, else_msg);
     goto error;
+  }
   *codep = bbre_parse_next(r);
 error:
   return err;
@@ -918,8 +917,10 @@ static int bbre_parse_checkutf8(bbre *r)
          bbre_utf8_decode(&state, &codep, r->expr[r->expr_pos]) !=
              BBRE_UTF8_DFA_NUM_STATE - 1)
     r->expr_pos++;
-  if (state != 0 && (err = bbre_parse_err(r, "invalid utf-8 sequence")))
+  if (state != 0) {
+    err = bbre_parse_err(r, "invalid utf-8 sequence");
     goto error;
+  }
   r->expr_pos = 0;
 error:
   return err;
