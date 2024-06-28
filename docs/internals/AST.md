@@ -67,6 +67,7 @@ A matching group.
   -   Argument 0: child tree (AST)
   -   Argument 1: group flags, bitset of `enum group_flag` (number)
   -   Argument 2: scratch used by the parser to store old flags (number)
+  -   Argument 3: capture index (number)
 
 #### Example: `(a)`
 ![BBRE_AST_TYPE_GROUP AST example](generated/ast/bbre_ast_type_group_ast.svg)

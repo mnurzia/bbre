@@ -13,7 +13,7 @@
 <li><a href="#bbre_get_error">bbre_get_error</a></li>
 <li><a href="#bbre_span">bbre_span</a></li>
 <li><a href="#bbre_is_match">bbre_is_match, bbre_find, bbre_captures, bbre_which_captures</a></li>
-<li><a href="#bbre_is_match_at">bbre_is_match_at, bbre_find_at, bbre_captures_at, bbre_which_captures_at</a></li>
+<li><a href="#bbre_is_match_at">bbre_is_match_at, bbre_find_at, bbre_captures_at, bbre_which_captures_at, bbre_capture_count, bbre_capture_name</a></li>
 <li><a href="#bbre_set_spec">bbre_set_spec</a></li>
 <li><a href="#bbre_set_spec_init">bbre_set_spec_init</a></li>
 <li><a href="#bbre_set_spec_destroy">bbre_set_spec_destroy</a></li>
@@ -231,7 +231,7 @@ found, in which case the relevant  <code>out_bounds</code> or  <code>out_capture
 will be written to, or <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to
 successfully perform the match.</p>
 
-<h2 id="bbre_is_match_at"><code>bbre_is_match_at</code>, <code>bbre_find_at</code>, <code>bbre_captures_at</code>, <code>bbre_which_captures_at</code></h2>
+<h2 id="bbre_is_match_at"><code>bbre_is_match_at</code>, <code>bbre_find_at</code>, <code>bbre_captures_at</code>, <code>bbre_which_captures_at</code>, <code>bbre_capture_count</code>, <code>bbre_capture_name</code></h2>
 <p>Match text against a <a href="#bbre">bbre</a>, starting the match from a given position.</p>
 
 ```c
@@ -246,6 +246,9 @@ int bbre_which_captures_at(
     bbre *reg, const char *text, size_t text_size, size_t pos,
     bbre_span *out_captures, unsigned int *out_captures_did_match,
     unsigned int out_captures_size);
+unsigned int bbre_capture_count(const bbre *reg);
+const char *bbre_capture_name(
+    const bbre *reg, unsigned int capture_idx, size_t *out_name_size);
 ```
 <p>These functions behave identically to the <a href="#bbre_is_match">bbre_is_match</a>(), <a href="#bbre_is_match">bbre_find</a>(),
 <a href="#bbre_is_match">bbre_captures</a>(), and <a href="#bbre_is_match_at">bbre_captures_at</a>() functions, but they take an

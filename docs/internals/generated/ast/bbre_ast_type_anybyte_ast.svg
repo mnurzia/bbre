@@ -19,7 +19,7 @@
 <title>A0002</title>
 <ellipse fill="none" stroke="black" cx="68" cy="-118.05" rx="40.48" ry="30.05"/>
 <text text-anchor="middle" x="68" y="-122" font-family="monospace" font-size="14.00">GROUP</text>
-<text text-anchor="middle" x="68" y="-104.75" font-family="monospace" font-size="14.00">R</text>
+<text text-anchor="middle" x="68" y="-104.75" font-family="monospace" font-size="14.00">R/0</text>
 </g>
 <!-- A0001 -->
 <g id="node2" class="node">

@@ -44,7 +44,8 @@ typedef enum bbre_ast_type {
   /* A matching group: /(a)/
    *   Argument 0: child tree (AST)
    *   Argument 1: group flags, bitset of `enum group_flag` (number)
-   *   Argument 2: scratch used by the parser to store old flags (number) */
+   *   Argument 2: scratch used by the parser to store old flags (number)
+   *   Argument 3: capture index (number) */
   BBRE_AST_TYPE_GROUP,
   /* An inline group: /(?i)a/
    *   Argument 0: child tree (AST)
@@ -76,7 +77,7 @@ static const unsigned int bbre_ast_type_lens[] = {
     2, /* ALT */
     3, /* QUANT */
     3, /* UQUANT */
-    3, /* GROUP */
+    4, /* GROUP */
     3, /* IGROUP */
     3, /* CC */
     3, /* ICC */
@@ -90,7 +91,7 @@ typedef enum bbre_group_flag {
   BBRE_GROUP_FLAG_DOTNEWLINE = 4,    /* . matches \n */
   BBRE_GROUP_FLAG_UNGREEDY = 8,      /* ungreedy quantifiers */
   BBRE_GROUP_FLAG_NONCAPTURING = 16, /* non-capturing group (?:...) */
-  BBRE_GROUP_FLAG_SUBEXPRESSION = 32 /* set-match component */
+  BBRE_GROUP_FLAG_EXPRESSION = 32    /* the entire regexp */
 } bbre_group_flag;
 
 /* Stack frame for the compiler, used to track a single AST node being
@@ -248,13 +249,19 @@ typedef struct bbre_prog {
   bbre_uint npat;                       /* number of distinct patterns */
 } bbre_prog;
 
+typedef struct bbre_group_name {
+  char *name;
+  size_t name_size;
+} bbre_group_name;
+
 /* A compiled regular expression. */
 struct bbre {
-  bbre_alloc alloc;            /* allocator function */
-  bbre_buf(bbre_uint) ast;     /* AST arena */
-  bbre_uint ast_root;          /* AST root node reference */
-  bbre_buf(bbre_uint) arg_stk; /* parser argument stack */
-  bbre_buf(bbre_uint) op_stk;  /* parser operator stack */
+  bbre_alloc alloc;                      /* allocator function */
+  bbre_buf(bbre_uint) ast;               /* AST arena */
+  bbre_uint ast_root;                    /* AST root node reference */
+  bbre_buf(bbre_group_name) group_names; /* Named group names */
+  bbre_buf(bbre_uint) arg_stk;           /* parser argument stack */
+  bbre_buf(bbre_uint) op_stk;            /* parser operator stack */
   bbre_buf(
       bbre_compframe) comp_stk; /* compiler frame stack (see bbre_compframe) */
   bbre_compcc_data compcc;      /* data used for the charclass compiler */
@@ -431,7 +438,7 @@ typedef struct bbre_buf_hdr {
  * checks must always have a branch to check for NULL, the grow routine has more
  * scary codepaths, etc. To make code simpler, there exists a special sentinel
  * value that contains the empty array. */
-static bbre_buf_hdr bbre_buf_sentinel = {0};
+static const bbre_buf_hdr bbre_buf_sentinel = {0};
 
 /* Given a dynamic array, get its header. */
 static bbre_buf_hdr *bbre_buf_get_hdr(void *buf)
@@ -480,7 +487,10 @@ error:
 /* Initialize an empty dynamic array. */
 static void bbre_buf_init_t(void **b)
 {
-  *b = &bbre_buf_sentinel + 1;
+  /* discard const qualifier: this is actually a good thing, because
+   * bbre_buf_sentinel resides in rodata, and shouldn't be written to. This
+   * cast helps us catch bugs in the buf implementation earlier */
+  *b = ((bbre_buf_hdr *)&bbre_buf_sentinel) + 1;
   assert(bbre_buf_get_hdr(*b)->size == 0 && bbre_buf_get_hdr(*b)->alloc == 0);
 }
 
@@ -527,7 +537,8 @@ static void bbre_buf_clear(void *buf)
   assert(buf);
   sbuf = *(void **)buf;
   assert(sbuf);
-  bbre_buf_get_hdr(sbuf)->size = 0;
+  if (bbre_buf_get_hdr(sbuf) != &bbre_buf_sentinel)
+    bbre_buf_get_hdr(sbuf)->size = 0;
 }
 
 /* Initialize a dynamic array. */
@@ -679,12 +690,14 @@ static int bbre_init_internal(bbre **pr, const bbre_alloc *palloc)
   r->alloc = alloc;
   bbre_buf_init(&r->ast);
   r->ast_root = 0;
-  bbre_buf_init(&r->arg_stk), bbre_buf_init(&r->op_stk),
-      bbre_buf_init(&r->comp_stk);
+  bbre_buf_init(&r->group_names), bbre_buf_init(&r->arg_stk),
+      bbre_buf_init(&r->op_stk), bbre_buf_init(&r->comp_stk);
   bbre_buf_init(&r->compcc.ranges), bbre_buf_init(&r->compcc.tree),
       bbre_buf_init(&r->compcc.ranges_2), bbre_buf_init(&r->compcc.tree_2),
       bbre_buf_init(&r->compcc.hash);
   bbre_prog_init(&r->prog, r->alloc);
+  r->expr = NULL, r->expr_pos = 0, r->expr_size = 0;
+  r->error = NULL, r->error_pos = 0;
   r->exec = NULL;
 error:
   return err;
@@ -708,9 +721,15 @@ static void bbre_exec_destroy(bbre_exec *exec);
 
 void bbre_destroy(bbre *r)
 {
+  size_t i;
   if (!r)
     goto done;
   bbre_buf_destroy(&r->alloc, (void **)&r->ast);
+  for (i = 0; i < bbre_buf_size(r->group_names); i++) {
+    bbre_ialloc(
+        &r->alloc, r->group_names[i].name, r->group_names[i].name_size, 0);
+  }
+  bbre_buf_destroy(&r->alloc, &r->group_names);
   bbre_buf_destroy(&r->alloc, &r->op_stk),
       bbre_buf_destroy(&r->alloc, &r->arg_stk),
       bbre_buf_destroy(&r->alloc, &r->comp_stk);
@@ -770,13 +789,13 @@ static bbre_rune_range bbre_rune_range_make(bbre_uint l, bbre_uint h)
 /* Make a new AST node within the regular expression. */
 static int bbre_ast_make(
     bbre *r, bbre_ast_type type, bbre_uint p0, bbre_uint p1, bbre_uint p2,
-    bbre_uint *out_node)
+    bbre_uint p3, bbre_uint *out_node)
 {
-  bbre_uint args[4], i;
+  bbre_uint args[5], i;
   int err = 0;
-  args[0] = type, args[1] = p0, args[2] = p1, args[3] = p2;
+  args[0] = type, args[1] = p0, args[2] = p1, args[3] = p2, args[4] = p3;
   if (type && !bbre_buf_size(r->ast) &&
-      (err = bbre_ast_make(r, 0, 0, 0, 0, out_node))) /* sentinel node */
+      (err = bbre_ast_make(r, 0, 0, 0, 0, 0, out_node))) /* sentinel node */
     goto error;
   *out_node = bbre_buf_size(r->ast);
   for (i = 0; i < 1 + bbre_ast_type_lens[type]; i++)
@@ -958,7 +977,7 @@ static int bbre_fold(bbre *r)
     bbre_uint right, left, rest;
     right = bbre_buf_pop(&r->arg_stk);
     left = *bbre_buf_peek(&r->arg_stk, 0);
-    if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CAT, left, right, 0, &rest)))
+    if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CAT, left, right, 0, 0, &rest)))
       goto error;
     *bbre_buf_peek(&r->arg_stk, 0) = rest;
     /* arg_stk: | ... | R_N-1R_N | */
@@ -1045,7 +1064,7 @@ bbre_parse_escape_addchr(bbre *r, bbre_uint ch, bbre_uint allowed_outputs)
   int err = 0;
   bbre_uint res;
   (void)allowed_outputs, assert(allowed_outputs & (1 << BBRE_AST_TYPE_CHR));
-  if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CHR, ch, 0, 0, &res)) ||
+  if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CHR, ch, 0, 0, 0, &res)) ||
       (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
     goto error;
 error:
@@ -1181,7 +1200,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
       err = bbre_parse_err(r, "cannot use \\C here");
       goto error;
     }
-    if ((err = bbre_ast_make(r, BBRE_AST_TYPE_ANYBYTE, 0, 0, 0, &res)) ||
+    if ((err = bbre_ast_make(r, BBRE_AST_TYPE_ANYBYTE, 0, 0, 0, 0, &res)) ||
         (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
       goto error;
   } else if (ch == 'Q') { /* quote string */
@@ -1214,11 +1233,11 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
           ch = '\\';
         }
       }
-      if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CHR, ch, 0, 0, &chr)))
+      if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CHR, ch, 0, 0, 0, &chr)))
         goto error;
       /* create a cat node with the character and an epsilon node, replace the
        * old cat node (cat) with the new one (cat') through the &cat ref */
-      if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CAT, cat, chr, 0, &cat)))
+      if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CAT, cat, chr, 0, 0, &cat)))
         goto error;
     }
     /* we got to the end of the string: push the partial quote */
@@ -1279,7 +1298,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
              : ch == 'z' ? BBRE_ASSERT_TEXT_END
              : ch == 'B' ? BBRE_ASSERT_NOT_WORD
                          : BBRE_ASSERT_WORD,
-             0, 0, &res)) ||
+             0, 0, 0, &res)) ||
         (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
       goto error;
   } else {
@@ -1339,7 +1358,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
       if ((err = bbre_ast_make(
                r, greedy ? BBRE_AST_TYPE_QUANT : BBRE_AST_TYPE_UQUANT,
                *bbre_buf_peek(&r->arg_stk, 0) /* child */, q == '+' /* min */,
-               q == '?' ? 1 : BBRE_INFTY /* max */, &res)))
+               q == '?' ? 1 : BBRE_INFTY /* max */, 0, &res)))
         goto error;
       *bbre_buf_peek(&r->arg_stk, 0) = res;
       /* arg_stk: | ... | *(R) | */
@@ -1352,14 +1371,15 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
       /* arg_stk: |  R  | */
       if ((err = bbre_ast_make(
                r, BBRE_AST_TYPE_ALT, bbre_buf_pop(&r->arg_stk) /* left */,
-               BBRE_REF_NONE /* right */, 0, &res)) ||
+               BBRE_REF_NONE /* right */, 0, 0, &res)) ||
           (err = bbre_buf_push(&r->alloc, &r->op_stk, res)))
         goto error;
       /* arg_stk: | */
       /* op_stk:  | ... | R(|) | */
     } else if (ch == '(') {
       /* capture group */
-      bbre_uint old_flags = flags, inline_group = 0, child;
+      bbre_uint old_flags = flags, inline_group = 0, named_group = 0, child;
+      size_t name_start = 0, name_end = name_start;
       if (!bbre_parse_has_more(r)) {
         err = bbre_parse_err(r, "expected ')' to close group");
         goto error;
@@ -1385,6 +1405,8 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
             goto error;
           }
           /* parse group name */
+          named_group = 1;
+          name_start = r->expr_pos;
           while (1) {
             /* read characters until > */
             if ((err = bbre_parse_next_or(
@@ -1393,14 +1415,12 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
             if (ch == '>')
               break;
           }
-          /* currently we don't do anything with the group name. Later revisions
-           * might introduce an API for retrieving the group names. */
+          name_end = r->expr_pos - 1; /* backtrack behind > */
         } else {
-          bbre_uint neg = 0 /* should we negate flags? */,
-                    flag =
-                        BBRE_GROUP_FLAG_UNGREEDY /* default flag (this makes
+          bbre_uint
+              neg = 0 /* should we negate flags? */,
+              flag = BBRE_GROUP_FLAG_UNGREEDY; /* default flag (this makes
                                                   coverage testing simpler) */
-              ;
           while (1) {
             if (ch == ':' /* noncapturing */ || ch == ')' /* inline */)
               break;
@@ -1440,14 +1460,36 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
         goto error;
       child = bbre_buf_pop(&r->arg_stk);
       if (inline_group &&
-          (err = bbre_ast_make(r, BBRE_AST_TYPE_CAT, child, 0, 0, &child)))
+          (err = bbre_ast_make(r, BBRE_AST_TYPE_CAT, child, 0, 0, 0, &child)))
         goto error;
+      assert(BBRE_IMPLIES(inline_group, !named_group));
+      assert(BBRE_IMPLIES(named_group, !inline_group));
       /* arg_stk: |  R  | */
       if ((err = bbre_ast_make(
                r, inline_group ? BBRE_AST_TYPE_IGROUP : BBRE_AST_TYPE_GROUP,
-               child, flags, old_flags, &res)) ||
+               child, flags, old_flags, bbre_buf_size(r->group_names) + 1,
+               &res)) ||
           (err = bbre_buf_push(&r->alloc, &r->op_stk, res)))
         goto error;
+      if (!inline_group && !(flags & BBRE_GROUP_FLAG_NONCAPTURING)) {
+        bbre_group_name name;
+        name.name_size = name_end - name_start;
+        name.name = NULL;
+        if (named_group) {
+          if (!(name.name =
+                    bbre_ialloc(&r->alloc, name.name, 0, name.name_size + 1))) {
+            err = BBRE_ERR_MEM;
+            goto error;
+          }
+          memcpy(name.name, r->expr + name_start, name.name_size);
+          name.name[name.name_size] = '\0';
+        }
+        if ((err = bbre_buf_push(&r->alloc, &r->group_names, name))) {
+          /* clean up allocated name, preserves atomicity */
+          bbre_ialloc(&r->alloc, name.name, name.name_size, 0);
+          goto error;
+        }
+      }
       flags &= ~(BBRE_GROUP_FLAG_NONCAPTURING);
       /* op_stk:  | ... | (R) | */
     } else if (ch == ')') {
@@ -1486,12 +1528,14 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
       /* arg_stk: | ... | */
       if (((flags & BBRE_GROUP_FLAG_DOTNEWLINE) &&
            (err = bbre_ast_make(
-                r, BBRE_AST_TYPE_CC, BBRE_REF_NONE, 0, BBRE_UTF_MAX, &res))) ||
+                r, BBRE_AST_TYPE_CC, BBRE_REF_NONE, 0, BBRE_UTF_MAX, 0,
+                &res))) ||
           (!(flags & BBRE_GROUP_FLAG_DOTNEWLINE) &&
            ((err = bbre_ast_make(
-                 r, BBRE_AST_TYPE_CC, BBRE_REF_NONE, 0, '\n' - 1, &res)) ||
+                 r, BBRE_AST_TYPE_CC, BBRE_REF_NONE, 0, '\n' - 1, 0, &res)) ||
             (err = bbre_ast_make(
-                 r, BBRE_AST_TYPE_CC, res, '\n' + 1, BBRE_UTF_MAX, &res)))) ||
+                 r, BBRE_AST_TYPE_CC, res, '\n' + 1, BBRE_UTF_MAX, 0,
+                 &res)))) ||
           (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
         goto error;
       /* arg_stk: | ... |  .  | */
@@ -1595,7 +1639,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
             max = ch; /* non-escaped character */
           }
         }
-        if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CC, res, min, max, &res)))
+        if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CC, res, min, max, 0, &res)))
           goto error;
       }
       assert(res);  /* charclass cannot be empty */
@@ -1653,7 +1697,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
       }
       if ((err = bbre_ast_make(
                r, BBRE_AST_TYPE_QUANT, *bbre_buf_peek(&r->arg_stk, 0), min_rep,
-               max_rep, &res)))
+               max_rep, 0, &res)))
         goto error;
       *bbre_buf_peek(&r->arg_stk, 0) = res;
     } else if (ch == '^' || ch == '$') { /* beginning/end of text/line */
@@ -1666,12 +1710,12 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
                           : BBRE_ASSERT_TEXT_BEGIN)
                    : (flags & BBRE_GROUP_FLAG_MULTILINE ? BBRE_ASSERT_LINE_END
                                                         : BBRE_ASSERT_TEXT_END),
-               0, 0, &res)) ||
+               0, 0, 0, &res)) ||
           (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
         goto error;
     } else { /* char: push to the arg stk */
       /* arg_stk: | ... | */
-      if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CHR, ch, 0, 0, &res)) ||
+      if ((err = bbre_ast_make(r, BBRE_AST_TYPE_CHR, ch, 0, 0, 0, &res)) ||
           (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
         goto error;
       /* arg_stk: | ... | chr | */
@@ -1689,7 +1733,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
    * subpattern */
   if ((err = bbre_ast_make(
            r, BBRE_AST_TYPE_GROUP, bbre_buf_pop(&r->arg_stk),
-           BBRE_GROUP_FLAG_SUBEXPRESSION, 0, root)))
+           BBRE_GROUP_FLAG_EXPRESSION, 0, 0, root)))
     goto error;
 error:
   return err;
@@ -2721,7 +2765,6 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
       child_frame = {
           0}; /* filled when we want to request a child to be compiled */
   bbre_uint sub_idx = 0 /* current subpattern index */,
-            grp_idx = 1 /* current capture group index */,
             tmp_cc_ast = BBRE_REF_NONE; /* temporary AST node for converting CHR
                                          nodes into CC nodes */
   /* add sentinel 0th instruction, this compiles to all zeroes */
@@ -2783,7 +2826,7 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
         /* create temp ast */
         if (!tmp_cc_ast &&
             (err = bbre_ast_make(
-                 r, BBRE_AST_TYPE_CC, BBRE_REF_NONE, 0, 0, &tmp_cc_ast)))
+                 r, BBRE_AST_TYPE_CC, BBRE_REF_NONE, 0, 0, 0, &tmp_cc_ast)))
           goto error;
         /* create a CC node with a range comprising the single codepoint */
         *bbre_ast_param_ref(r, tmp_cc_ast, 1) =
@@ -2943,24 +2986,24 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
     } else if (type == BBRE_AST_TYPE_GROUP || type == BBRE_AST_TYPE_IGROUP) {
       /* groups: insert opening and closing match instructions, or nothing if
        * the group is a noncapturing group and simply modifies flag state */
-      bbre_uint child = args[0], flags = args[1];
+      bbre_uint child = args[0], flags = args[1], idx = args[3];
       frame.flags =
           flags &
-          ~BBRE_GROUP_FLAG_SUBEXPRESSION; /* we shouldn't propagate this */
-      if (!frame.idx) {                   /* before child */
+          ~BBRE_GROUP_FLAG_EXPRESSION; /* we shouldn't propagate this flag */
+      if (!frame.idx) {                /* before child */
         /* before child */
         if (!(flags & BBRE_GROUP_FLAG_NONCAPTURING)) {
           /* compile in the beginning match instruction */
           /*  in      out
            * ---> Mb ----> */
           bbre_patch_apply(r, &frame, my_pc);
-          if (flags & BBRE_GROUP_FLAG_SUBEXPRESSION)
-            grp_idx = 0, frame.set_idx = ++sub_idx;
+          if (flags & BBRE_GROUP_FLAG_EXPRESSION)
+            frame.set_idx = ++sub_idx;
           if ((err = bbre_prog_emit(
                    &r->prog,
                    bbre_inst_make(
                        BBRE_OPCODE_MATCH, 0,
-                       bbre_inst_match_param_make(reverse, grp_idx++)),
+                       bbre_inst_match_param_make(reverse, idx)),
                    frame.set_idx)))
             goto error;
           bbre_patch_add(r, &child_frame, my_pc, 0);
@@ -2985,12 +3028,15 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
                                          bbre_prog_get(&r->prog, frame.pc))))),
                    frame.set_idx)))
             goto error;
-          if (!(flags & BBRE_GROUP_FLAG_SUBEXPRESSION))
+          if (!(flags & BBRE_GROUP_FLAG_EXPRESSION))
             bbre_patch_add(r, &frame, my_pc, 0);
           else {
             /* for the ending match instruction that corresponds to a
              * subexpression, don't link it anywhere: it signifies the end of a
-             * subpattern. */
+             * subpattern. Currently, this node only occurs once in a pattern
+             * because set compilation doesn't use bbre_compile() anymore, but
+             * in the future it might be useful to keep this (group numbering
+             * restarting, etc.) */
             /*  in
              * ---> Mb -> [X] -> Me */
           }
@@ -4222,6 +4268,29 @@ int bbre_which_captures_at(
       out_captures_size);
 }
 
+unsigned int bbre_capture_count(const bbre *reg)
+{
+  return bbre_buf_size(reg->group_names) + 1;
+}
+
+const char *bbre_capture_name(
+    const bbre *reg, unsigned int capture_idx, size_t *out_name_size)
+{
+  const char *out = NULL;
+  size_t size = 0;
+  if (capture_idx > bbre_buf_size(reg->group_names))
+    goto done;
+  if (capture_idx == 0) {
+    out = "";
+    goto done;
+  }
+  out = reg->group_names[capture_idx - 1].name;
+  size = reg->group_names[capture_idx - 1].name_size;
+done:
+  *out_name_size = size;
+  return out;
+}
+
 static int bbre_exec_set_match(
     bbre_exec *exec, const char *s, size_t n, size_t pos, bbre_uint idxs_size,
     bbre_uint *out_idxs, bbre_uint *out_num_idxs)
@@ -4928,13 +4997,13 @@ static int bbre_builtin_cc_decode(
        * optionally invert it. */
       if (!invert) {
         if ((err = bbre_ast_make(
-                 r, BBRE_AST_TYPE_CC, res, range[0], range[1], &res)))
+                 r, BBRE_AST_TYPE_CC, res, range[0], range[1], 0, &res)))
           goto error;
       } else {
         assert(range[0] >= max);
         if (max != range[0] &&
             (err = bbre_ast_make(
-                 r, BBRE_AST_TYPE_CC, res, max, range[0] - 1, &res)))
+                 r, BBRE_AST_TYPE_CC, res, max, range[0] - 1, 0, &res)))
           goto error;
         else
           max = range[1] + 1;
@@ -4947,7 +5016,7 @@ static int bbre_builtin_cc_decode(
   assert(i);         /* builtin charclasses are not length zero */
   if (invert &&
       (err = bbre_ast_make(
-           r, BBRE_AST_TYPE_CC, res, range[1] + 1, BBRE_UTF_MAX, &res)))
+           r, BBRE_AST_TYPE_CC, res, range[1] + 1, BBRE_UTF_MAX, 0, &res)))
     goto error;
   if ((err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
     goto error;

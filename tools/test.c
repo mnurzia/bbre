@@ -63,7 +63,7 @@ int check_match_results(
   /* perform the match */
   if ((err = bbre_which_captures_at(
            r, s, n, 0, found_span, found_did_match, max_span)) == BBRE_ERR_MEM)
-    return err;
+    OOM();
   ASSERT_GTEm(err, 0, "bbre_match() returned an error");
   ASSERT_EQm(err, expected, "bbre_match() didn't return the correct value");
   if (expected)
@@ -2216,6 +2216,32 @@ TEST(grp_named_perl_invalid_befobbre_name)
   PASS();
 }
 
+TEST(grp_named_check_count_names)
+{
+  bbre *r = bbre_init_pattern("(?<test>AAA)|(?<abcdef>[6]*)");
+  const char *names[4];
+  size_t names_size[4];
+  size_t i = 0;
+  /* ensure that these vars actually get written to */
+  memset(names, 0xCC, sizeof(names));
+  memset(names_size, 0xCC, sizeof(names_size));
+  if (!r)
+    OOM();
+  ASSERT_EQ(bbre_capture_count(r), 3);
+  for (i = 0; i < 4; i++)
+    names[i] = bbre_capture_name(r, i, &names_size[i]);
+  ASSERT(!strcmp(names[0], ""));
+  ASSERT_EQ(names_size[0], 0);
+  ASSERT(!strcmp(names[1], "test"));
+  ASSERT_EQ(names_size[1], 4);
+  ASSERT(!strcmp(names[2], "abcdef"));
+  ASSERT_EQ(names_size[2], 6);
+  ASSERT_EQ(names[3], NULL);
+  ASSERT_EQ(names_size[3], 0);
+  bbre_destroy(r);
+  PASS();
+}
+
 SUITE(grp_named)
 {
   RUN_TEST(grp_named_regular);
@@ -2227,6 +2253,7 @@ SUITE(grp_named)
   RUN_TEST(grp_named_perl);
   RUN_TEST(grp_named_perl_unfinished);
   RUN_TEST(grp_named_perl_invalid_befobbre_name);
+  RUN_TEST(grp_named_check_count_names);
 }
 
 TEST(grp_unfinished)

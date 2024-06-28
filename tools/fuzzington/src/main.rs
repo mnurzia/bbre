@@ -415,8 +415,11 @@ mod regex {
                                 next_grp_idx = ret_grp_idx;
                             }
                             (0, Some(0)) => {
+                                // compile the node, but don't link it anywhere: this has the side
+                                // effect of incrementing the group index enough
+                                let (_, _, ret_grp_idx) = r.to_nfa(nfa, grp_idx);
                                 nfa.link(start, Label::None, end);
-                                next_grp_idx = grp_idx;
+                                next_grp_idx = ret_grp_idx;
                             }
                             (0, Some(m)) => {
                                 let (r_start, r_end, ret_grp_idx) = r.to_nfa(nfa, grp_idx);

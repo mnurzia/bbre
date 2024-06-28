@@ -63,7 +63,7 @@ static char *d_group_flag(char *buf, bbre_group_flag gf)
   buf = strcat(buf, gf & BBRE_GROUP_FLAG_DOTNEWLINE ? "s" : "");
   buf = strcat(buf, gf & BBRE_GROUP_FLAG_UNGREEDY ? "U" : "");
   buf = strcat(buf, gf & BBRE_GROUP_FLAG_NONCAPTURING ? ":" : "");
-  buf = strcat(buf, gf & BBRE_GROUP_FLAG_SUBEXPRESSION ? "R" : "");
+  buf = strcat(buf, gf & BBRE_GROUP_FLAG_EXPRESSION ? "R" : "");
   return buf;
 }
 
@@ -118,7 +118,11 @@ void d_ast_i(bbre *r, bbre_uint root, bbre_uint ilvl, int format)
   }
   if (first == BBRE_AST_TYPE_CHR)
     printf("%s", d_chr_unicode(buf, *bbre_ast_param_ref(r, root, 0)));
-  else if (first == BBRE_AST_TYPE_GROUP || first == BBRE_AST_TYPE_IGROUP)
+  else if (first == BBRE_AST_TYPE_GROUP)
+    printf(
+        "%s/%u", d_group_flag(buf, *bbre_ast_param_ref(r, root, 1)),
+        *bbre_ast_param_ref(r, root, 3));
+  else if (first == BBRE_AST_TYPE_IGROUP)
     printf("%s", d_group_flag(buf, *bbre_ast_param_ref(r, root, 1)));
   else if (first == BBRE_AST_TYPE_QUANT || first == BBRE_AST_TYPE_UQUANT)
     printf(

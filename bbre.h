@@ -192,6 +192,10 @@ int bbre_which_captures_at(
     bbre_span *out_captures, unsigned int *out_captures_did_match,
     unsigned int out_captures_size);
 
+unsigned int bbre_capture_count(const bbre *reg);
+const char *bbre_capture_name(
+    const bbre *reg, unsigned int capture_idx, size_t *out_name_size);
+
 /** Builder class for regular expression sets. */
 typedef struct bbre_set_spec bbre_set_spec;
 
