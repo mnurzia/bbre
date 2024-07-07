@@ -1292,6 +1292,12 @@ TEST(escape_dash)
   PASS();
 }
 
+TEST(escape_dot)
+{
+  ASSERT_MATCH("\\.", ".");
+  PASS();
+}
+
 TEST(escape_slash)
 {
   ASSERT_MATCH_G1("\\\\", "\\", 0, 1);
@@ -1647,6 +1653,7 @@ SUITE(escape)
   RUN_TEST(escape_caret);
   RUN_TEST(escape_dollar);
   RUN_TEST(escape_dash);
+  RUN_TEST(escape_dot);
   RUN_SUITE(escape_octal);
   RUN_SUITE(escape_hex);
   RUN_SUITE(escape_hex_long);
@@ -2219,25 +2226,31 @@ TEST(grp_named_perl_invalid_befobbre_name)
 TEST(grp_named_check_count_names)
 {
   bbre *r = bbre_init_pattern("(?<test>AAA)|(?<abcdef>[6]*)");
-  const char *names[4];
+  const char *names[4], *namesnt[4];
   size_t names_size[4];
   size_t i = 0;
   /* ensure that these vars actually get written to */
   memset(names, 0xCC, sizeof(names));
+  memset(namesnt, 0xCC, sizeof(namesnt));
   memset(names_size, 0xCC, sizeof(names_size));
   if (!r)
     OOM();
   ASSERT_EQ(bbre_capture_count(r), 3);
-  for (i = 0; i < 4; i++)
+  for (i = 0; i < 4; i++) {
     names[i] = bbre_capture_name(r, i, &names_size[i]);
+    namesnt[i] = bbre_capture_name(r, i, NULL);
+  }
   ASSERT(!strcmp(names[0], ""));
+  ASSERT(!strcmp(namesnt[0], ""));
   ASSERT_EQ(names_size[0], 0);
   ASSERT(!strcmp(names[1], "test"));
+  ASSERT(!strcmp(namesnt[1], "test"));
   ASSERT_EQ(names_size[1], 4);
   ASSERT(!strcmp(names[2], "abcdef"));
+  ASSERT(!strcmp(namesnt[2], "abcdef"));
   ASSERT_EQ(names_size[2], 6);
   ASSERT_EQ(names[3], NULL);
-  ASSERT_EQ(names_size[3], 0);
+  ASSERT_EQ(namesnt[3], 0);
   bbre_destroy(r);
   PASS();
 }

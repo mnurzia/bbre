@@ -1136,6 +1136,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
       (ch == '^') ||                /* caret */
       (ch == '$') ||                /* dolla */
       (ch == '-') ||                /* dash */
+      (ch == '.') ||                /* dot */
       (ch == '\\') /* escaped slash */) {
     err = bbre_parse_escape_addchr(r, ch, allowed_outputs);
     goto error;
@@ -3173,6 +3174,43 @@ error:
   return err;
 }
 
+bbre_set *bbre_set_init_patterns(const char *const *pats_nt, size_t num_pats)
+{
+  int err = 0;
+  size_t i;
+  bbre_alloc a = bbre_alloc_make(NULL);
+  bbre **regs = bbre_ialloc(&a, NULL, 0, sizeof(bbre *) * num_pats);
+  bbre_set *set = NULL;
+  bbre_set_spec *spec = NULL;
+  if (!regs)
+    goto done;
+  for (i = 0; i < num_pats; i++)
+    regs[i] = NULL;
+  for (i = 0; i < num_pats; i++) {
+    regs[i] = bbre_init_pattern(pats_nt[i]);
+    if (!regs[i])
+      goto done;
+  }
+  if ((err = bbre_set_spec_init(&spec, &a)))
+    goto done;
+  for (i = 0; i < num_pats; i++) {
+    if ((err = bbre_set_spec_add(spec, regs[i])))
+      goto done;
+  }
+  if ((err = bbre_set_init(&set, spec, &a))) {
+    bbre_set_destroy(set);
+    goto done;
+  }
+done:
+  bbre_set_spec_destroy(spec);
+  if (regs) {
+    for (i = 0; i < num_pats; i++)
+      bbre_destroy(regs[i]);
+    bbre_ialloc(&a, regs, sizeof(bbre *) * num_pats, 0);
+  }
+  return set;
+}
+
 void bbre_set_destroy(bbre_set *set)
 {
   if (!set)
@@ -3998,7 +4036,7 @@ static int bbre_dfa_match(
   size_t i;
   bbre_uint entry =
       !reversed ? BBRE_PROG_ENTRY_DOTSTAR : BBRE_PROG_ENTRY_REVERSE;
-  bbre_uint prev_ch = reversed ? (pos == n ? BBRE_SENTINEL_CH : s[pos + 1])
+  bbre_uint prev_ch = reversed ? (pos == n ? BBRE_SENTINEL_CH : s[pos])
                                : (pos == 0 ? BBRE_SENTINEL_CH : s[pos - 1]);
   bbre_uint incoming_assert_flag =
       (prev_ch == BBRE_SENTINEL_CH) * BBRE_DFA_STATE_FLAG_FROM_TEXT_BEGIN |
@@ -4017,9 +4055,8 @@ static int bbre_dfa_match(
              bbre_bmp_init(exec->alloc, &exec->dfa.set_bmp, exec->prog->npat)))
       goto error;
   }
-  i = reversed ? n : 0;
   {
-    const bbre_byte *start = reversed ? s + n - 1 : s,
+    const bbre_byte *start = reversed ? s + pos - 1 : s + pos,
                     *end = reversed ? s - 1 : s + n, *out = NULL;
     /* The amount to increment each iteration of the loop. */
     int increment = reversed ? -1 : 1;
@@ -4157,11 +4194,11 @@ static int bbre_exec_match(
     goto error;
   } else if (max_span == 1) {
     err = bbre_dfa_match(
-        exec, (bbre_byte *)s, n, 0, &out_span[0].end, 0, 1, 0, 0);
+        exec, (bbre_byte *)s, n, pos, &out_span[0].end, 0, 1, 0, 0);
     if (err <= 0)
       goto error;
     err = bbre_dfa_match(
-        exec, (bbre_byte *)s, n, out_span[0].end, &out_span[0].begin, 1, 0, 0,
+        exec, (bbre_byte *)s, n, out_span[0].end, &out_span[0].begin, 1, 1, 0,
         0);
     if (err < 0)
       goto error;
@@ -4287,7 +4324,8 @@ const char *bbre_capture_name(
   out = reg->group_names[capture_idx - 1].name;
   size = reg->group_names[capture_idx - 1].name_size;
 done:
-  *out_name_size = size;
+  if (out_name_size)
+    *out_name_size = size;
   return out;
 }
 

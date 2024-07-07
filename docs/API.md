@@ -13,7 +13,9 @@
 <li><a href="#bbre_get_error">bbre_get_error</a></li>
 <li><a href="#bbre_span">bbre_span</a></li>
 <li><a href="#bbre_is_match">bbre_is_match, bbre_find, bbre_captures, bbre_which_captures</a></li>
-<li><a href="#bbre_is_match_at">bbre_is_match_at, bbre_find_at, bbre_captures_at, bbre_which_captures_at, bbre_capture_count, bbre_capture_name</a></li>
+<li><a href="#bbre_is_match_at">bbre_is_match_at, bbre_find_at, bbre_captures_at, bbre_which_captures_at, bbre_chunk_cb, bbre_match_cb, bbre_stream</a></li>
+<li><a href="#bbre_capture_count">bbre_capture_count</a></li>
+<li><a href="#bbre_capture_name">bbre_capture_name</a></li>
 <li><a href="#bbre_set_spec">bbre_set_spec</a></li>
 <li><a href="#bbre_set_spec_init">bbre_set_spec_init</a></li>
 <li><a href="#bbre_set_spec_destroy">bbre_set_spec_destroy</a></li>
@@ -231,7 +233,7 @@ found, in which case the relevant  <code>out_bounds</code> or  <code>out_capture
 will be written to, or <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to
 successfully perform the match.</p>
 
-<h2 id="bbre_is_match_at"><code>bbre_is_match_at</code>, <code>bbre_find_at</code>, <code>bbre_captures_at</code>, <code>bbre_which_captures_at</code>, <code>bbre_capture_count</code>, <code>bbre_capture_name</code></h2>
+<h2 id="bbre_is_match_at"><code>bbre_is_match_at</code>, <code>bbre_find_at</code>, <code>bbre_captures_at</code>, <code>bbre_which_captures_at</code>, <code>bbre_chunk_cb</code>, <code>bbre_match_cb</code>, <code>bbre_stream</code></h2>
 <p>Match text against a <a href="#bbre">bbre</a>, starting the match from a given position.</p>
 
 ```c
@@ -246,9 +248,13 @@ int bbre_which_captures_at(
     bbre *reg, const char *text, size_t text_size, size_t pos,
     bbre_span *out_captures, unsigned int *out_captures_did_match,
     unsigned int out_captures_size);
-unsigned int bbre_capture_count(const bbre *reg);
-const char *bbre_capture_name(
-    const bbre *reg, unsigned int capture_idx, size_t *out_name_size);
+typedef int (*bbre_chunk_cb)(
+    void *user, char *feed, size_t feed_size, size_t *written);
+typedef int (*bbre_match_cb)(void *user);
+int bbre_stream(
+    bbre *reg, bbre_chunk_cb *chunk_cb, bbre_match_cb *match_cb,
+    bbre_span *out_captures, unsigned int *out_captures_did_match,
+    unsigned int out_captures_size);
 ```
 <p>These functions behave identically to the <a href="#bbre_is_match">bbre_is_match</a>(), <a href="#bbre_is_match">bbre_find</a>(),
 <a href="#bbre_is_match">bbre_captures</a>(), and <a href="#bbre_is_match_at">bbre_captures_at</a>() functions, but they take an
@@ -258,6 +264,30 @@ match from.</p>
 assertions active at  <code>pos</code>. For example, matching  <code>\b</code> against &quot;A &quot; at
 position 1 would return a match, because these functions look at the
 surrounding characters for empty-width assertion context.</p>
+
+<h2 id="bbre_capture_count"><code>bbre_capture_count</code></h2>
+<p>Get the number of capture groups in the given regex.</p>
+
+```c
+unsigned int bbre_capture_count(const bbre *reg);
+```
+<p>This will always return 1 or more.</p>
+
+<h2 id="bbre_capture_name"><code>bbre_capture_name</code></h2>
+<p>Get the name of the given capture group index.</p>
+
+```c
+const char *bbre_capture_name(
+    const bbre *reg, unsigned int capture_idx, size_t *out_name_size);
+```
+<p>Returns a constant null-terminated string with the capture group name. For
+capture group 0, returns the empty string &quot;&quot;, and for any capture group with
+<code>capture_idx &gt;= bbre_capture_count(reg)</code>, returns NULL.
+<code>capture_idx</code> is the index of the capture group, and  <code>out_name_size</code> points
+to a  <code>size_t</code> that will hold the length (in bytes) of the return value.
+<code>out_name_size</code> may be NULL, in which case the length is not written.
+The return value of this function, if non-NULL, is guaranteed to be
+null-terminated.</p>
 
 <h2 id="bbre_set_spec"><code>bbre_set_spec</code></h2>
 <p>Builder class for regular expression sets.</p>

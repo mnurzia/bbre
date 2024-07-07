@@ -28,6 +28,7 @@
 \^          caret           ('^')
 \$          dollar sign     ('$')
 \-          dash            ('-')
+\.          dot             ('.')
 \\          slash           ('\')
 ```
 

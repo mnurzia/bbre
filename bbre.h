@@ -156,10 +156,11 @@ typedef struct bbre_span {
  ** only useful when a particular pattern can match one but not another group,
  ** such as the pattern `(a)|(b)`.
  **
- ** Returns 0 if a match was not found anywhere in `text`, 1 if a match was
- ** found, in which case the relevant `out_bounds` or `out_captures` variable
- ** will be written to, or BBRE_ERR_MEM if there was not enough memory to
- ** successfully perform the match. */
+ ** All functions return 0 if a match was not found anywhere in `text`, 1 if a
+ ** match was found, in which case the relevant `out_bounds`, `out_captures`,
+ ** and/or `out_captures_did_match` variable(s) will be written to, or
+ ** BBRE_ERR_MEM if there was not enough memory to successfully perform the
+ ** match. */
 int bbre_is_match(bbre *reg, const char *text, size_t text_size);
 int bbre_find(
     bbre *reg, const char *text, size_t text_size, bbre_span *out_bounds);
@@ -192,7 +193,19 @@ int bbre_which_captures_at(
     bbre_span *out_captures, unsigned int *out_captures_did_match,
     unsigned int out_captures_size);
 
+/** Get the number of capture groups in the given regex.
+ ** This will always return 1 or more. */
 unsigned int bbre_capture_count(const bbre *reg);
+
+/** Get the name of the given capture group index.
+ ** Returns a constant null-terminated string with the capture group name. For
+ ** capture group 0, returns the empty string "", and for any capture group with
+ ** `capture_idx >= bbre_capture_count(reg)`, returns NULL.
+ ** `capture_idx` is the index of the capture group, and `out_name_size` points
+ ** to a `size_t` that will hold the length (in bytes) of the return value.
+ ** `out_name_size` may be NULL, in which case the length is not written.
+ ** The return value of this function, if non-NULL, is guaranteed to be
+ ** null-terminated. */
 const char *bbre_capture_name(
     const bbre *reg, unsigned int capture_idx, size_t *out_name_size);
 
