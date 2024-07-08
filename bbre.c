@@ -765,13 +765,9 @@ done:
   return;
 }
 
-size_t bbre_get_error(bbre *r, const char **out, size_t *pos)
-{
-  *out = r->error.msg;
-  if (pos)
-    *pos = r->error.pos;
-  return r->error.msg ? strlen(r->error.msg) : 0;
-}
+const char *bbre_get_err_msg(const bbre *reg) { return reg->error.msg; }
+
+size_t bbre_get_err_pos(const bbre *reg) { return reg->error.pos; }
 
 /* Make a byte range inline; more convenient than initializing a struct. */
 static bbre_byte_range bbre_byte_range_make(bbre_byte l, bbre_byte h)

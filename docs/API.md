@@ -10,7 +10,7 @@
 <li><a href="#bbre_init_pattern">bbre_init_pattern</a></li>
 <li><a href="#bbre_init">bbre_init</a></li>
 <li><a href="#bbre_destroy">bbre_destroy</a></li>
-<li><a href="#bbre_get_error">bbre_get_error</a></li>
+<li><a href="#bbre_get_err_msg">bbre_get_err_msg, bbre_get_err_pos</a></li>
 <li><a href="#bbre_span">bbre_span</a></li>
 <li><a href="#bbre_is_match">bbre_is_match, bbre_find, bbre_captures, bbre_which_captures</a></li>
 <li><a href="#bbre_is_match_at">bbre_is_match_at, bbre_find_at, bbre_captures_at, bbre_which_captures_at</a></li>
@@ -147,7 +147,7 @@ int bbre_init(bbre **preg, const bbre_builder *build, const bbre_alloc *alloc);
 <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to parse or compile the
 pattern, <a href="#BBRE_ERR_MEM">BBRE_ERR_LIMIT</a> if the pattern's compiled size is too large, or 0
 if there was no error.
-If this function returns <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a>, you can use the <a href="#bbre_get_error">bbre_get_error</a>()
+If this function returns <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a>, you can use the bbre_get_error()
 function to retrieve a detailed error message, and an index into the pattern
 where the error occurred.</p>
 
@@ -158,23 +158,19 @@ where the error occurred.</p>
 void bbre_destroy(bbre *reg);
 ```
 
-<h2 id="bbre_get_error"><code>bbre_get_error</code></h2>
-<p>Retrieve a parsing error from a \ref <a href="#bbre">bbre</a>.</p>
+<h2 id="bbre_get_err_msg"><code>bbre_get_err_msg</code>, <code>bbre_get_err_pos</code></h2>
+<p>Retrieve an error message from a \ref <a href="#bbre">bbre</a> after it generates an error.</p>
 
 ```c
-size_t bbre_get_error(bbre *reg, const char **pmsg, size_t *pos);
+const char *bbre_get_err_msg(const bbre *reg);
+size_t bbre_get_err_pos(const bbre *reg);
 ```
-<ul>
-<li><code>reg</code> is the <a href="#bbre">bbre</a> to check the error of.</li>
-<li><code>pmsg</code> is a pointer to the output message.  <code>*pmsg</code> will be set to the
-error message.  <code>*pmsg</code> is always null-terminated if an error occurred.</li>
-<li><code>ppos</code> is a pointer to the output position.  <code>*ppos</code> will be set to
-the index in the input pattern where the error occurred.</li>
-</ul>
-<p>Returns the length (in bytes) of  <code>*pmsg</code>, not including its null terminator.
-If the preceding call to <a href="#bbre_init">bbre_init</a>() did not cause a parse error (i.e., it
-did not return <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a>) then  <code>*pmsg</code> is NULL,  <code>*ppos</code> is 0, and the
-function returns 0.</p>
+<p>Some error codes, <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a> and <a href="#BBRE_ERR_MEM">BBRE_ERR_LIMIT</a>, may have an additional
+string describing the specific error in detail. bbre_get_errmsg() can be
+used to retrieve this null-terminated string. This function may return NULL,
+meaning there is no extra error message data.</p>
+<p>The bbre_get_errpos() function is relevant for <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a>. It returns
+the index into the input string at which the error occurred.</p>
 
 <h2 id="bbre_span"><code>bbre_span</code></h2>
 <p>Substring bounds record.</p>

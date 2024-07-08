@@ -191,17 +191,13 @@ int check_noparse_n(
   bbre *r = NULL;
   bbre_builder *spec = NULL;
   int err;
-  const char *actual_err_msg;
-  size_t actual_err_msg_pos, actual_err_msg_size;
   if ((err = bbre_builder_init(&spec, regex, n, NULL)) == BBRE_ERR_MEM)
     goto oom;
   if ((err = bbre_init(&r, spec, NULL)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, BBRE_ERR_PARSE);
-  actual_err_msg_size = bbre_get_error(r, &actual_err_msg, &actual_err_msg_pos);
-  ASSERT(!strcmp(err_msg, actual_err_msg));
-  ASSERT_EQ(err_msg_pos, actual_err_msg_pos);
-  ASSERT_EQ(actual_err_msg_size, strlen(actual_err_msg));
+  ASSERT(!strcmp(err_msg, bbre_get_err_msg(r)));
+  ASSERT_EQ(err_msg_pos, bbre_get_err_pos(r));
   bbre_destroy(r);
   bbre_builder_destroy(spec);
   PASS();
@@ -2929,7 +2925,6 @@ TEST(limit_program_size)
   bbre_builder *spec = NULL;
   bbre *r = NULL;
   int err = 0;
-  const char *err_msg;
   const char *regex = "a{99999}{2}";
   if ((err = bbre_builder_init(&spec, regex, strlen(regex), NULL)) ==
       BBRE_ERR_MEM)
@@ -2937,8 +2932,8 @@ TEST(limit_program_size)
   if ((err = bbre_init(&r, spec, NULL)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, BBRE_ERR_LIMIT);
-  bbre_get_error(r, &err_msg, NULL);
-  ASSERT(!strcmp(err_msg, "maximum compiled program size exceeded"));
+  ASSERT(
+      !strcmp(bbre_get_err_msg(r), "maximum compiled program size exceeded"));
   bbre_destroy(r);
   bbre_builder_destroy(spec);
   PASS();

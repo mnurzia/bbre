@@ -103,18 +103,16 @@ int bbre_init(bbre **preg, const bbre_builder *build, const bbre_alloc *alloc);
 /** Destroy a bbre. */
 void bbre_destroy(bbre *reg);
 
-/** Retrieve a parsing error from a \ref bbre.
- ** - `reg` is the bbre to check the error of.
- ** - `pmsg` is a pointer to the output message. `*pmsg` will be set to the
- **   error message. `*pmsg` is always null-terminated if an error occurred.
- ** - `ppos` is a pointer to the output position. `*ppos` will be set to
- **   the index in the input pattern where the error occurred.
+/** Retrieve an error message from a \ref bbre after it generates an error.
+ ** Some error codes, BBRE_ERR_PARSE and BBRE_ERR_LIMIT, may have an additional
+ ** string describing the specific error in detail. bbre_get_errmsg() can be
+ ** used to retrieve this null-terminated string. This function may return NULL,
+ ** meaning there is no extra error message data.
  **
- ** Returns the length (in bytes) of `*pmsg`, not including its null terminator.
- ** If the preceding call to bbre_init() did not cause a parse error (i.e., it
- ** did not return BBRE_ERR_PARSE) then `*pmsg` is NULL, `*ppos` is 0, and the
- ** function returns 0. */
-size_t bbre_get_error(bbre *reg, const char **pmsg, size_t *pos);
+ ** The bbre_get_errpos() function is relevant for BBRE_ERR_PARSE. It returns
+ ** the index into the input string at which the error occurred. */
+const char *bbre_get_err_msg(const bbre *reg);
+size_t bbre_get_err_pos(const bbre *reg);
 
 /** Substring bounds record.
  ** This structure records the bounds of a capture recorded by bbre_captures().
