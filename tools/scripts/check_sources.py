@@ -4,8 +4,8 @@ import tree_sitter_c as tsc
 from tree_sitter import Language, Parser, Node, Point
 from argparse import ArgumentParser, FileType
 from dataclasses import dataclass
-from typing import Iterator, NamedTuple
-from pathlib import Path
+from typing import Iterator
+from util import FileWarning
 
 C_LANGUAGE = Language(tsc.language())
 
@@ -90,16 +90,6 @@ def warn(symbol: Symbol, header_symbols: dict[str, Symbol]) -> Iterator[str]:
         yield f"{symbol.name} does not start with 'bbre_'"
 
 
-class Warning(NamedTuple):
-    file: Path
-    row: int
-    col: int
-    warning: str
-
-    def __str__(self):
-        return f"{self.file}:{self.row}:{self.col}: {self.warning}"
-
-
 if __name__ == "__main__":
     ap = ArgumentParser()
     ap.add_argument("header", type=FileType("rb"))
@@ -123,12 +113,12 @@ if __name__ == "__main__":
         symbol.name: symbol for symbol in _find_top_level_nodes(header_tree.root_node)
     }
 
-    warnings: list[Warning] = []
+    warnings: list[FileWarning] = []
 
     for symbol in _find_top_level_nodes(source_tree.root_node):
         for warning in warn(symbol, header_symbols):
             warnings.append(
-                Warning(
+                FileWarning(
                     args.source.name,
                     symbol.location.row + 1,
                     symbol.location.column,
@@ -141,10 +131,7 @@ if __name__ == "__main__":
             for col, ch in enumerate(line):
                 if ord(ch) > 127 or (ord(ch) < 0x20 and ch != "\n"):
                     warnings.append(
-                        Warning(name, row + 1, col, f"bad ordinal {ord(ch)}")
+                        FileWarning(name, row + 1, col, f"bad ordinal {ord(ch)}")
                     )
 
-    for warning in sorted(warnings):
-        print(warning)
-
-    exit(1 if len(warnings) else 0)
+    FileWarning.exit_with(warnings)

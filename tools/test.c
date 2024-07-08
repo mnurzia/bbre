@@ -1895,7 +1895,7 @@ TEST(repetition_unfinished_afterdigit)
 
 TEST(repetition_nomin)
 {
-  ASSERT_NOPARSE("a{,", "", 0);
+  ASSERT_NOPARSE("a{,", "expected at least one decimal digit", 2);
   PASS();
 }
 
@@ -2013,6 +2013,7 @@ SUITE(repetition)
   RUN_TEST(repetition_malformed_afterdigit);
   RUN_TEST(repetition_unfinished);
   RUN_TEST(repetition_unfinished_afterdigit);
+  RUN_TEST(repetition_nomin);
   RUN_TEST(repetition_toomanydigits);
   RUN_TEST(repetition_empty);
   RUN_TEST(repetition_upper_unfinished);
@@ -2168,7 +2169,7 @@ TEST(grp_named_regular_unfinished)
   PASS();
 }
 
-TEST(grp_named_regular_malformed_befobbre_name)
+TEST(grp_named_regular_malformed_before_name)
 {
   ASSERT_NOPARSE("(?\xff", "invalid utf-8 sequence", 2);
   PASS();
@@ -2186,13 +2187,13 @@ TEST(grp_named_perl)
   PASS();
 }
 
-TEST(grp_named_perl_unfinished_befobbre_name)
+TEST(grp_named_perl_unfinished_before_name)
 {
   ASSERT_NOPARSE("(?P", "expected '<' after named group opener \"(?P\"", 3);
   PASS();
 }
 
-TEST(grp_named_perl_malformed_befobbre_name)
+TEST(grp_named_perl_malformed_before_name)
 {
   ASSERT_NOPARSE("(?P\xff", "invalid utf-8 sequence", 3);
   PASS();
@@ -2207,7 +2208,7 @@ TEST(grp_named_perl_unfinished)
 
 TEST(grp_named_perl_malformed)
 {
-  ASSERT_NOPARSE("(?P<name\xff", "", 0);
+  ASSERT_NOPARSE("(?P<name\xff", "invalid utf-8 sequence", 8);
   PASS();
 }
 
@@ -2217,7 +2218,7 @@ TEST(grp_named_perl_invalid)
   PASS();
 }
 
-TEST(grp_named_perl_invalid_befobbre_name)
+TEST(grp_named_perl_invalid_before_name)
 {
   ASSERT_NOPARSE("(?Pl", "expected '<' after named group opener \"(?P\"", 4);
   PASS();
@@ -2260,12 +2261,14 @@ SUITE(grp_named)
   RUN_TEST(grp_named_regular);
   RUN_TEST(grp_named_regular_unfinished);
   RUN_TEST(grp_named_regular_malformed);
-  RUN_TEST(grp_named_regular_malformed_befobbre_name);
-  RUN_TEST(grp_named_perl_unfinished_befobbre_name);
-  RUN_TEST(grp_named_perl_malformed_befobbre_name);
+  RUN_TEST(grp_named_regular_malformed_before_name);
+  RUN_TEST(grp_named_perl_unfinished_before_name);
+  RUN_TEST(grp_named_perl_malformed);
+  RUN_TEST(grp_named_perl_malformed_before_name);
   RUN_TEST(grp_named_perl);
   RUN_TEST(grp_named_perl_unfinished);
-  RUN_TEST(grp_named_perl_invalid_befobbre_name);
+  RUN_TEST(grp_named_perl_invalid);
+  RUN_TEST(grp_named_perl_invalid_before_name);
   RUN_TEST(grp_named_check_count_names);
 }
 

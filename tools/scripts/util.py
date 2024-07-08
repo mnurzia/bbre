@@ -1,7 +1,9 @@
 """Utilities for the tools folder."""
 
 from subprocess import run
-from typing import IO, Iterator, NamedTuple, Protocol
+from typing import IO, Iterator, NamedTuple, Protocol, Self
+from pathlib import Path
+from sys import stderr
 
 UTF_MAX = 0x10FFFF
 
@@ -167,3 +169,21 @@ def make_appender_func() -> tuple[list[str], _Appender]:
         array.extend([x + suffix for x in s])
 
     return array, out
+
+
+class FileWarning(NamedTuple):
+    """Class for emitting build-time warnings."""
+
+    file: Path
+    row: int
+    col: int
+    warning: str
+
+    def __str__(self):
+        return f"{self.file}:{self.row}:{self.col}: {self.warning}"
+
+    @staticmethod
+    def exit_with(warnings: list["FileWarning"]):
+        for warning in sorted(warnings):
+            print(warning, file=stderr)
+        exit(1 if len(warnings) else 0)

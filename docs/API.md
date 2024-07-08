@@ -13,7 +13,7 @@
 <li><a href="#bbre_get_error">bbre_get_error</a></li>
 <li><a href="#bbre_span">bbre_span</a></li>
 <li><a href="#bbre_is_match">bbre_is_match, bbre_find, bbre_captures, bbre_which_captures</a></li>
-<li><a href="#bbre_is_match_at">bbre_is_match_at, bbre_find_at, bbre_captures_at, bbre_which_captures_at, bbre_chunk_cb, bbre_match_cb, bbre_stream</a></li>
+<li><a href="#bbre_is_match_at">bbre_is_match_at, bbre_find_at, bbre_captures_at, bbre_which_captures_at</a></li>
 <li><a href="#bbre_capture_count">bbre_capture_count</a></li>
 <li><a href="#bbre_capture_name">bbre_capture_name</a></li>
 <li><a href="#bbre_set_spec">bbre_set_spec</a></li>
@@ -228,12 +228,13 @@ bounds of the entire match. Consequently,  <code>out_captures_did_match[0]</code
 always be set to 1, assuming  <code>out_captures_size &gt;= 1</code>. This function is
 only useful when a particular pattern can match one but not another group,
 such as the pattern  <code>(a)|(b)</code>.</p>
-<p>Returns 0 if a match was not found anywhere in  <code>text</code>, 1 if a match was
-found, in which case the relevant  <code>out_bounds</code> or  <code>out_captures</code> variable
-will be written to, or <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to
-successfully perform the match.</p>
+<p>All functions return 0 if a match was not found anywhere in  <code>text</code>, 1 if a
+match was found, in which case the relevant  <code>out_bounds</code>,  <code>out_captures</code>,
+and/or  <code>out_captures_did_match</code> variable(s) will be written to, or
+<a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to successfully perform the
+match.</p>
 
-<h2 id="bbre_is_match_at"><code>bbre_is_match_at</code>, <code>bbre_find_at</code>, <code>bbre_captures_at</code>, <code>bbre_which_captures_at</code>, <code>bbre_chunk_cb</code>, <code>bbre_match_cb</code>, <code>bbre_stream</code></h2>
+<h2 id="bbre_is_match_at"><code>bbre_is_match_at</code>, <code>bbre_find_at</code>, <code>bbre_captures_at</code>, <code>bbre_which_captures_at</code></h2>
 <p>Match text against a <a href="#bbre">bbre</a>, starting the match from a given position.</p>
 
 ```c
@@ -246,13 +247,6 @@ int bbre_captures_at(
     bbre_span *out_captures, unsigned int out_captures_size);
 int bbre_which_captures_at(
     bbre *reg, const char *text, size_t text_size, size_t pos,
-    bbre_span *out_captures, unsigned int *out_captures_did_match,
-    unsigned int out_captures_size);
-typedef int (*bbre_chunk_cb)(
-    void *user, char *feed, size_t feed_size, size_t *written);
-typedef int (*bbre_match_cb)(void *user);
-int bbre_stream(
-    bbre *reg, bbre_chunk_cb *chunk_cb, bbre_match_cb *match_cb,
     bbre_span *out_captures, unsigned int *out_captures_did_match,
     unsigned int out_captures_size);
 ```

@@ -130,7 +130,7 @@ build/cov/lcov.info: build/$(PROFILE)/bbre_test
 	rm -rf $@ build/cov/*.gcda
 	cd build/cov; ./bbre_test --leak-check --fault-check
 	lcov --rc lcov_branch_coverage=1 --directory build/cov\
-		--base-directory . --capture --exclude test -o $@
+		--base-directory . --capture -o $@
 
 build/cov/index.html: build/cov/lcov.info
 	genhtml build/cov/lcov.info --branch-coverage\
@@ -138,6 +138,10 @@ build/cov/index.html: build/cov/lcov.info
 
 ## run coverage tests (alias for build/cov/lcov.info)
 cov: build/cov/lcov.info
+
+## check coverage 
+cov_check: build/cov/lcov.info
+	$(PYTHON) scripts/check_coverage.py build/cov/lcov.info
 
 ## generate coverage html report and open in browser
 cov_html: build/cov/index.html
