@@ -89,7 +89,7 @@ An inline group.
 ### BBRE_AST_TYPE_CC
 A character class.
 #### Arguments:
-  -   Argument 0: BBRE_REF_NONE or another CLS node in the charclass (AST)
+  -   Argument 0: BBRE_REF_NONE or another CC node in the charclass (AST)
   -   Argument 1: character range begin (number)
   -   Argument 2: character range end (number)
 
@@ -101,7 +101,7 @@ A character class.
 ### BBRE_AST_TYPE_ICC
 An inverted character class.
 #### Arguments:
-  -   Argument 0: BBRE_REF_NONE or another CLS node in the charclass (AST)
+  -   Argument 0: BBRE_REF_NONE or another CC node in the charclass (AST)
   -   Argument 1: character range begin (number)
   -   Argument 2: character range end (number)
 

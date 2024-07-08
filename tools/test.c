@@ -2929,6 +2929,7 @@ TEST(limit_program_size)
   bbre_builder *spec = NULL;
   bbre *r = NULL;
   int err = 0;
+  const char *err_msg;
   const char *regex = "a{99999}{2}";
   if ((err = bbre_builder_init(&spec, regex, strlen(regex), NULL)) ==
       BBRE_ERR_MEM)
@@ -2936,6 +2937,8 @@ TEST(limit_program_size)
   if ((err = bbre_init(&r, spec, NULL)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT_EQ(err, BBRE_ERR_LIMIT);
+  bbre_get_error(r, &err_msg, NULL);
+  ASSERT(!strcmp(err_msg, "maximum compiled program size exceeded"));
   bbre_destroy(r);
   bbre_builder_destroy(spec);
   PASS();

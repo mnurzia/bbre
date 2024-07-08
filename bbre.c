@@ -54,12 +54,12 @@ typedef enum bbre_ast_type {
    *   Argument 2: scratch used by the parser to store old flags (number) */
   BBRE_AST_TYPE_IGROUP,
   /* A character class: /[a-zA-Z]/
-   *   Argument 0: BBRE_REF_NONE or another CLS node in the charclass (AST)
+   *   Argument 0: BBRE_REF_NONE or another CC node in the charclass (AST)
    *   Argument 1: character range begin (number)
    *   Argument 2: character range end (number) */
   BBRE_AST_TYPE_CC,
   /* An inverted character class: /[^a-zA-Z]/
-   *   Argument 0: BBRE_REF_NONE or another CLS node in the charclass (AST)
+   *   Argument 0: BBRE_REF_NONE or another CC node in the charclass (AST)
    *   Argument 1: character range begin (number)
    *   Argument 2: character range end (number) */
   BBRE_AST_TYPE_ICC,
@@ -241,6 +241,24 @@ struct bbre_builder {
 
 typedef struct bbre_exec bbre_exec;
 
+/* Used to hold reportable errors. */
+typedef struct bbre_error {
+  const char *msg; /* error message, if any */
+  size_t pos;      /* position the error was encountered in expr */
+} bbre_error;
+
+void bbre_error_init(bbre_error *err)
+{
+  err->msg = NULL;
+  err->pos = 0;
+}
+
+void bbre_error_set(bbre_error *err, const char *msg)
+{
+  err->msg = msg;
+  err->pos = 0;
+}
+
 /* The compiled form of a regular expression. */
 typedef struct bbre_prog {
   bbre_alloc alloc;                     /* allocator function */
@@ -248,6 +266,7 @@ typedef struct bbre_prog {
   bbre_buf(bbre_uint) set_idxs;         /* pattern index for each instruction */
   bbre_uint entry[BBRE_PROG_ENTRY_MAX]; /* entry points for the program */
   bbre_uint npat;                       /* number of distinct patterns */
+  bbre_error *error;                    /* error info, we don't own this */
 } bbre_prog;
 
 typedef struct bbre_group_name {
@@ -270,8 +289,7 @@ struct bbre {
   const bbre_byte *expr;        /* input parser expression */
   size_t expr_pos,              /* current position in expr */
       expr_size;                /* number of bytes in expr */
-  const char *error;            /* error message, if any */
-  size_t error_pos;             /* position the error was encountered in expr */
+  bbre_error error;             /* error message and/or pos */
   bbre_exec *exec; /* local execution context, NULL until actually used */
 };
 
@@ -286,6 +304,7 @@ struct bbre_set {
   bbre_alloc alloc; /* allocator function */
   bbre_prog prog;   /* compiled program */
   bbre_exec *exec;  /* local execution context, NULL until actually used */
+  bbre_error error; /* error info */
 };
 
 typedef struct bbre_save_slots {
@@ -624,12 +643,13 @@ void bbre_builder_flags(bbre_builder *b, bbre_flags flags) { b->flags = flags; }
 
 static int bbre_parse(bbre *r, const bbre_byte *s, size_t sz, bbre_uint *root);
 
-static void bbre_prog_init(bbre_prog *prog, bbre_alloc alloc)
+static void bbre_prog_init(bbre_prog *prog, bbre_alloc alloc, bbre_error *error)
 {
   prog->alloc = alloc;
   bbre_buf_init(&prog->prog), bbre_buf_init(&prog->set_idxs);
   memset(prog->entry, 0, sizeof(prog->entry));
   prog->npat = 0;
+  prog->error = error;
 }
 
 static void bbre_prog_destroy(bbre_prog *prog)
@@ -695,9 +715,9 @@ static int bbre_init_internal(bbre **pr, const bbre_alloc *palloc)
   bbre_buf_init(&r->compcc.ranges), bbre_buf_init(&r->compcc.tree),
       bbre_buf_init(&r->compcc.ranges_2), bbre_buf_init(&r->compcc.tree_2),
       bbre_buf_init(&r->compcc.hash);
-  bbre_prog_init(&r->prog, r->alloc);
+  bbre_prog_init(&r->prog, r->alloc, &r->error);
   r->expr = NULL, r->expr_pos = 0, r->expr_size = 0;
-  r->error = NULL, r->error_pos = 0;
+  bbre_error_init(&r->error);
   r->exec = NULL;
 error:
   return err;
@@ -747,8 +767,10 @@ done:
 
 size_t bbre_get_error(bbre *r, const char **out, size_t *pos)
 {
-  *out = r->error, *pos = r->error_pos;
-  return r->error ? strlen(r->error) : 0;
+  *out = r->error.msg;
+  if (pos)
+    *pos = r->error.pos;
+  return r->error.msg ? strlen(r->error.msg) : 0;
 }
 
 /* Make a byte range inline; more convenient than initializing a struct. */
@@ -796,6 +818,7 @@ static int bbre_ast_make(bbre *r, bbre_uint *out_node, bbre_ast_type type, ...)
   args[arg_idx++] = type;
   while (arg_idx < bbre_ast_type_lens[type] + 1)
     args[arg_idx++] = va_arg(in_args, bbre_uint);
+  assert(arg_idx == bbre_ast_type_lens[type] + 1);
   if (type && !bbre_buf_size(r->ast) &&
       (err = bbre_ast_make(r, out_node, 0))) /* sentinel node */
     goto error;
@@ -893,9 +916,10 @@ bbre_utf8_decode(bbre_uint *state, bbre_uint *codep, bbre_uint byte)
 
 /* Create and propagate a parsing error.
  * Returns `BBRE_ERR_PARSE` unconditionally. */
-static int bbre_parse_err(bbre *r, const char *msg)
+static int bbre_err_parse(bbre *r, const char *msg)
 {
-  r->error = msg, r->error_pos = r->expr_pos;
+  bbre_error_set(&r->error, msg);
+  r->error.pos = r->expr_pos;
   return BBRE_ERR_PARSE;
 }
 
@@ -922,7 +946,7 @@ static int bbre_parse_next_or(bbre *r, bbre_uint *codep, const char *else_msg)
   int err = 0;
   assert(else_msg);
   if (!bbre_parse_has_more(r)) {
-    err = bbre_parse_err(r, else_msg);
+    err = bbre_err_parse(r, else_msg);
     goto error;
   }
   *codep = bbre_parse_next(r);
@@ -940,7 +964,7 @@ static int bbre_parse_checkutf8(bbre *r)
              BBRE_UTF8_DFA_NUM_STATE - 1)
     r->expr_pos++;
   if (state != 0) {
-    err = bbre_parse_err(r, "invalid utf-8 sequence");
+    err = bbre_err_parse(r, "invalid utf-8 sequence");
     goto error;
   }
   r->expr_pos = 0;
@@ -1086,7 +1110,7 @@ static int bbre_parse_hexdig(bbre *r, bbre_uint ch, bbre_uint *hex_digit)
   else if (ch >= 'A' && ch <= 'F')
     *hex_digit = ch - 'A' + 10;
   else
-    err = bbre_parse_err(r, "invalid hex digit");
+    err = bbre_err_parse(r, "invalid hex digit");
   return err;
 }
 
@@ -1167,7 +1191,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
       bbre_uint digs = 0; /* number of read hex digits */
       while (1) {
         if (digs == 7) {
-          err = bbre_parse_err(r, "expected up to six hex characters");
+          err = bbre_err_parse(r, "expected up to six hex characters");
           goto error;
         }
         if ((err = bbre_parse_next_or(
@@ -1181,7 +1205,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
         digs++;
       }
       if (!digs) {
-        err = bbre_parse_err(r, "expected at least one hex character");
+        err = bbre_err_parse(r, "expected at least one hex character");
         goto error;
       }
     } else {
@@ -1196,12 +1220,12 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
       ord = ord * 16 + hex_dig;
     }
     if (ord > BBRE_UTF_MAX)
-      return bbre_parse_err(r, "ordinal value out of range [0, 0x10FFFF]");
+      return bbre_err_parse(r, "ordinal value out of range [0, 0x10FFFF]");
     return bbre_parse_escape_addchr(r, ord, allowed_outputs);
   } else if (ch == 'C') { /* any byte: \C */
     bbre_uint res;        /* resulting AST node */
     if (!(allowed_outputs & (1 << BBRE_AST_TYPE_ANYBYTE))) {
-      err = bbre_parse_err(r, "cannot use \\C here");
+      err = bbre_err_parse(r, "cannot use \\C here");
       goto error;
     }
     if ((err = bbre_ast_make(r, &res, BBRE_AST_TYPE_ANYBYTE)) ||
@@ -1213,7 +1237,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
                                    the quoted string */
         ;
     if (!(allowed_outputs & (1 << BBRE_AST_TYPE_CAT))) {
-      err = bbre_parse_err(r, "cannot use \\Q...\\E here");
+      err = bbre_err_parse(r, "cannot use \\Q...\\E here");
       goto error;
     }
     while (bbre_parse_has_more(r)) {
@@ -1255,7 +1279,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
         ch == 'D' || ch == 'S' || ch == 'W'; /* uppercase are inverted */
     bbre_byte lower = inverted ? ch - 'A' + 'a' : ch; /* convert to lowercase */
     if (!(allowed_outputs & (1 << BBRE_AST_TYPE_CC))) {
-      err = bbre_parse_err(r, "cannot use a character class here");
+      err = bbre_err_parse(r, "cannot use a character class here");
       goto error;
     }
     /* lookup the charclass, optionally invert it */
@@ -1281,7 +1305,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
       /* single-character property */
       name_end_pos = r->expr_pos;
     if (!(allowed_outputs & (1 << BBRE_AST_TYPE_CC))) {
-      err = bbre_parse_err(r, "cannot use a character class here");
+      err = bbre_err_parse(r, "cannot use a character class here");
       goto error;
     }
     assert(name_end_pos >= name_start_pos);
@@ -1293,7 +1317,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
     /* empty asserts */
     bbre_uint res; /* resulting AST node */
     if (!(allowed_outputs & (1 << BBRE_AST_TYPE_ASSERT))) {
-      err = bbre_parse_err(r, "cannot use an epsilon assertion here");
+      err = bbre_err_parse(r, "cannot use an epsilon assertion here");
       goto error;
     }
     if ((err = bbre_ast_make(
@@ -1305,7 +1329,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
         (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
       goto error;
   } else {
-    err = bbre_parse_err(r, "invalid escape sequence");
+    err = bbre_err_parse(r, "invalid escape sequence");
     goto error;
   }
 error:
@@ -1318,18 +1342,18 @@ static int bbre_parse_number(bbre *r, bbre_uint *out, bbre_uint max_digits)
   int err = 0;
   bbre_uint ch, acc = 0, ndigs = 0;
   if (!bbre_parse_has_more(r)) {
-    err = bbre_parse_err(r, "expected at least one decimal digit");
+    err = bbre_err_parse(r, "expected at least one decimal digit");
     goto error;
   }
   while (ndigs < max_digits && bbre_parse_has_more(r) &&
          (ch = bbre_peek_next(r)) >= '0' && ch <= '9')
     acc = acc * 10 + (bbre_parse_next(r) - '0'), ndigs++;
   if (!ndigs) {
-    err = bbre_parse_err(r, "expected at least one decimal digit");
+    err = bbre_err_parse(r, "expected at least one decimal digit");
     goto error;
   }
   if (ndigs == max_digits) {
-    err = bbre_parse_err(r, "too many digits for decimal number");
+    err = bbre_err_parse(r, "too many digits for decimal number");
     goto error;
   }
   *out = acc;
@@ -1353,7 +1377,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
       /* arg_stk: | ... |  R  | */
       /* pop one from arg stk, create quant, push to arg stk */
       if (!bbre_buf_size(r->arg_stk)) {
-        err = bbre_parse_err(r, "cannot apply quantifier to empty regex");
+        err = bbre_err_parse(r, "cannot apply quantifier to empty regex");
         goto error;
       }
       if (bbre_parse_has_more(r) && bbre_peek_next(r) == '?')
@@ -1384,7 +1408,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
       bbre_uint old_flags = flags, inline_group = 0, named_group = 0, child;
       size_t name_start = 0, name_end = name_start;
       if (!bbre_parse_has_more(r)) {
-        err = bbre_parse_err(r, "expected ')' to close group");
+        err = bbre_err_parse(r, "expected ')' to close group");
         goto error;
       }
       ch = bbre_peek_next(r);
@@ -1403,7 +1427,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
                    r, &ch, "expected '<' after named group opener \"(?P\"")))
             goto error;
           if (ch != '<') {
-            err = bbre_parse_err(
+            err = bbre_err_parse(
                 r, "expected '<' after named group opener \"(?P\"");
             goto error;
           }
@@ -1430,7 +1454,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
             else if (ch == '-') {
               /* negate subsequent flags */
               if (neg) {
-                err = bbre_parse_err(r, "cannot apply flag negation '-' twice");
+                err = bbre_err_parse(r, "cannot apply flag negation '-' twice");
                 goto error;
               }
               neg = 1;
@@ -1442,7 +1466,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
               /* unset bit if negated, set bit if not */
               flags = neg ? flags & ~flag : flags | flag;
             } else {
-              err = bbre_parse_err(
+              err = bbre_err_parse(
                   r, "expected ':', ')', or group flags for special group");
               goto error;
             }
@@ -1507,7 +1531,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
       /* arg_stk has one value */
       assert(bbre_buf_size(r->arg_stk) == 1);
       if (!bbre_buf_size(r->op_stk)) {
-        err = bbre_parse_err(r, "extra close parenthesis");
+        err = bbre_err_parse(r, "extra close parenthesis");
         goto error;
       }
       /* arg_stk: |  S  | */
@@ -1605,7 +1629,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
                    "expected closing bracket for named character class")))
             goto error;
           if (ch != ']') {
-            err = bbre_parse_err(
+            err = bbre_err_parse(
                 r, "expected closing bracket for named character class");
             goto error;
           }
@@ -1668,7 +1692,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
       else if (ch == ',') {
         /* comma: either `min_rep` or more, or `min_rep` to `max_rep` */
         if (!bbre_parse_has_more(r)) {
-          err = bbre_parse_err(
+          err = bbre_err_parse(
               r, "expected upper bound or } to end repetition expression");
           goto error;
         }
@@ -1684,16 +1708,16 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
                    r, &ch, "expected } to end repetition expression")))
             goto error;
           if (ch != '}') {
-            err = bbre_parse_err(r, "expected } to end repetition expression");
+            err = bbre_err_parse(r, "expected } to end repetition expression");
             goto error;
           }
         }
       } else {
-        err = bbre_parse_err(r, "expected } or , for repetition expression");
+        err = bbre_err_parse(r, "expected } or , for repetition expression");
         goto error;
       }
       if (!bbre_buf_size(r->arg_stk)) {
-        err = bbre_parse_err(r, "cannot apply quantifier to empty regex");
+        err = bbre_err_parse(r, "cannot apply quantifier to empty regex");
         goto error;
       }
       if ((err = bbre_ast_make(
@@ -1726,7 +1750,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
     goto error;
   bbre_fold_alts(r, &flags);
   if (bbre_buf_size(r->op_stk)) {
-    err = bbre_parse_err(r, "unmatched open parenthesis");
+    err = bbre_err_parse(r, "unmatched open parenthesis");
     goto error;
   }
   /* then wrap that node into a nonmatching subexpression group to denote a
@@ -1806,12 +1830,13 @@ static bbre_uint bbre_prog_size(const bbre_prog *prog)
 #define BBRE_PROG_LIMIT_MAX_INSTS 100000
 
 /* Append the instruction `i` to the program. Also add the relevant subpattern
- * index to the `prog_set_idxs` buf.*/
+ * index to the `prog_set_idxs` buf. */
 static int bbre_prog_emit(bbre_prog *prog, bbre_inst i, bbre_uint pat_idx)
 {
   int err = 0;
   if (bbre_prog_size(prog) == BBRE_PROG_LIMIT_MAX_INSTS) {
     err = BBRE_ERR_LIMIT;
+    bbre_error_set(prog->error, "maximum compiled program size exceeded");
     goto error;
   }
   if ((err = bbre_buf_push(&prog->alloc, &prog->prog, i)) ||
@@ -2467,8 +2492,7 @@ static void bbre_compcc_tree_xpose(
   }
 }
 
-/* This function is automatically generated and is defined later in this file.
- */
+/* This function is automatically generated and is defined later on. */
 static int bbre_compcc_fold_range(
     bbre *r, bbre_uint begin, bbre_uint end,
     bbre_buf(bbre_rune_range) * cc_out);
@@ -2935,9 +2959,15 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
       } else if (max == BBRE_INFTY) {
         /* after inf. bound */
         /* star, link child back to the split instruction generated above */
-        /*        +-------+
-         *  in   /         \
-         * ---> S -> [X] ---+
+        /* a second split instruction is needed to keep track of threads that
+         * matched an empty string after the first split instruction, if these
+         * threads captured an empty group, the group will only be saved if the
+         * thread 'parks' itself at the second split instruction. This was an
+         * extremely subtle bug that was only found relatively late in
+         * development by the fuzzington. */
+        /*        +---<---+
+         *  in   /         \   out
+         * ---> S -> [X] -> S ------>
          *       \             out
          *        +-----------------> */
         assert(frame.idx == min + 1);
@@ -3155,7 +3185,7 @@ int bbre_set_init_internal(bbre_set **pset, const bbre_alloc *palloc)
   set = *pset;
   memset(set, 0, sizeof(*set));
   set->alloc = alloc;
-  bbre_prog_init(&set->prog, set->alloc);
+  bbre_prog_init(&set->prog, set->alloc, &set->error);
   set->exec = NULL;
 error:
   return err;
@@ -4992,7 +5022,7 @@ static int bbre_builtin_cc_decode(
       break;
     }
   if (!found) {
-    err = bbre_parse_err(r, "invalid Unicode property name");
+    err = bbre_err_parse(r, "invalid Unicode property name");
     goto error;
   }
   /* Start reading from the p->start offset in the compressed bit stream. */
