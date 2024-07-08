@@ -232,7 +232,7 @@ typedef enum bbre_prog_entry {
 } bbre_prog_entry;
 
 /* A builder class for regular expressions. */
-struct bbre_spec {
+struct bbre_builder {
   bbre_alloc alloc;      /* allocator function */
   const bbre_byte *expr; /* the expression itself */
   size_t expr_size;      /* the length of the expression in bytes */
@@ -276,7 +276,7 @@ struct bbre {
 };
 
 /* A builder class for regular expression sets. */
-struct bbre_set_spec {
+struct bbre_set_builder {
   bbre_alloc alloc;            /* allocator function */
   bbre_buf(const bbre *) pats; /* patterns that compose this set */
 };
@@ -590,13 +590,13 @@ static bbre_alloc bbre_alloc_make(const bbre_alloc *input)
 
 static int bbre_compile(bbre *r);
 
-int bbre_spec_init(
-    bbre_spec **pspec, const char *s, size_t n, const bbre_alloc *palloc)
+int bbre_builder_init(
+    bbre_builder **pspec, const char *s, size_t n, const bbre_alloc *palloc)
 {
   int err = 0;
-  bbre_spec *spec;
+  bbre_builder *spec;
   bbre_alloc alloc = bbre_alloc_make(palloc);
-  spec = bbre_ialloc(&alloc, NULL, 0, sizeof(bbre_spec));
+  spec = bbre_ialloc(&alloc, NULL, 0, sizeof(bbre_builder));
   *pspec = spec;
   if (!spec) {
     err = BBRE_ERR_MEM;
@@ -611,16 +611,16 @@ error:
   return err;
 }
 
-void bbre_spec_destroy(bbre_spec *spec)
+void bbre_builder_destroy(bbre_builder *spec)
 {
   if (!spec)
     goto done;
-  bbre_ialloc(&spec->alloc, spec, sizeof(bbre_spec), 0);
+  bbre_ialloc(&spec->alloc, spec, sizeof(bbre_builder), 0);
 done:
   return;
 }
 
-void bbre_spec_flags(bbre_spec *b, bbre_flags flags) { b->flags = flags; }
+void bbre_builder_flags(bbre_builder *b, bbre_flags flags) { b->flags = flags; }
 
 static int bbre_parse(bbre *r, const bbre_byte *s, size_t sz, bbre_uint *root);
 
@@ -662,19 +662,18 @@ bbre *bbre_init_pattern(const char *pat_nt)
 {
   int err = 0;
   bbre *r = NULL;
-  bbre_spec *spec = NULL;
-  if ((err = bbre_spec_init(&spec, pat_nt, strlen(pat_nt), NULL)))
+  bbre_builder *spec = NULL;
+  if ((err = bbre_builder_init(&spec, pat_nt, strlen(pat_nt), NULL)))
     goto error;
   if ((err = bbre_init(&r, spec, NULL)))
     goto error;
-error:
-  /* bbre_spec_destroy() accepts NULL */
-  bbre_spec_destroy(spec);
-  if (err == BBRE_ERR_MEM) {
-    bbre_destroy(r);
-    r = NULL;
-  }
+  bbre_builder_destroy(spec);
   return r;
+error:
+  /* bbre_builder_destroy() accepts NULL */
+  bbre_builder_destroy(spec);
+  bbre_destroy(r);
+  return NULL;
 }
 
 static int bbre_init_internal(bbre **pr, const bbre_alloc *palloc)
@@ -704,7 +703,7 @@ error:
   return err;
 }
 
-int bbre_init(bbre **pr, const bbre_spec *spec, const bbre_alloc *palloc)
+int bbre_init(bbre **pr, const bbre_builder *spec, const bbre_alloc *palloc)
 {
   int err = 0;
   if ((err = bbre_init_internal(pr, palloc)))
@@ -3108,12 +3107,12 @@ error:
   return err;
 }
 
-int bbre_set_spec_init(bbre_set_spec **pspec, const bbre_alloc *palloc)
+int bbre_set_builder_init(bbre_set_builder **pspec, const bbre_alloc *palloc)
 {
   int err = 0;
-  bbre_set_spec *spec;
+  bbre_set_builder *spec;
   bbre_alloc alloc = bbre_alloc_make(palloc);
-  spec = bbre_ialloc(&alloc, NULL, 0, sizeof(bbre_spec));
+  spec = bbre_ialloc(&alloc, NULL, 0, sizeof(bbre_builder));
   *pspec = spec;
   if (!spec) {
     err = BBRE_ERR_MEM;
@@ -3126,17 +3125,17 @@ error:
   return err;
 }
 
-int bbre_set_spec_add(bbre_set_spec *set, const bbre *b)
+int bbre_set_builder_add(bbre_set_builder *set, const bbre *b)
 {
   return bbre_buf_push(&set->alloc, &set->pats, b);
 }
 
-void bbre_set_spec_destroy(bbre_set_spec *spec)
+void bbre_set_builder_destroy(bbre_set_builder *spec)
 {
   if (!spec)
     goto done;
   bbre_buf_destroy(&spec->alloc, &spec->pats);
-  bbre_ialloc(&spec->alloc, spec, sizeof(bbre_spec), 0);
+  bbre_ialloc(&spec->alloc, spec, sizeof(bbre_builder), 0);
 done:
   return;
 }
@@ -3163,7 +3162,7 @@ error:
 }
 
 int bbre_set_init(
-    bbre_set **pset, const bbre_set_spec *spec, const bbre_alloc *palloc)
+    bbre_set **pset, const bbre_set_builder *spec, const bbre_alloc *palloc)
 {
   int err = 0;
   if ((err = bbre_set_init_internal(pset, palloc)))
@@ -3181,7 +3180,7 @@ bbre_set *bbre_set_init_patterns(const char *const *pats_nt, size_t num_pats)
   bbre_alloc a = bbre_alloc_make(NULL);
   bbre **regs = bbre_ialloc(&a, NULL, 0, sizeof(bbre *) * num_pats);
   bbre_set *set = NULL;
-  bbre_set_spec *spec = NULL;
+  bbre_set_builder *spec = NULL;
   if (!regs)
     goto done;
   for (i = 0; i < num_pats; i++)
@@ -3191,10 +3190,10 @@ bbre_set *bbre_set_init_patterns(const char *const *pats_nt, size_t num_pats)
     if (!regs[i])
       goto done;
   }
-  if ((err = bbre_set_spec_init(&spec, &a)))
+  if ((err = bbre_set_builder_init(&spec, &a)))
     goto done;
   for (i = 0; i < num_pats; i++) {
-    if ((err = bbre_set_spec_add(spec, regs[i])))
+    if ((err = bbre_set_builder_add(spec, regs[i])))
       goto done;
   }
   if ((err = bbre_set_init(&set, spec, &a))) {
@@ -3202,7 +3201,7 @@ bbre_set *bbre_set_init_patterns(const char *const *pats_nt, size_t num_pats)
     goto done;
   }
 done:
-  bbre_set_spec_destroy(spec);
+  bbre_set_builder_destroy(spec);
   if (regs) {
     for (i = 0; i < num_pats; i++)
       bbre_destroy(regs[i]);

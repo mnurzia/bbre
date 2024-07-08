@@ -1,6 +1,6 @@
 # Syntax
 
-`bbre` supports similar syntax to many other regex engines, notably [re2](https://github.com/google/re2/wiki/Syntax). 
+`bbre` supports syntax that is similar to many other regex engines, notably [re2](https://github.com/google/re2/wiki/Syntax). 
 
 ## Single-Character Expressions 
 
@@ -92,8 +92,8 @@ x{m,n}?     x repeated m or m+1 or m+2 ... or n times, prefer fewer
 
 ## Composite Operators
 ```
-x|y     alternation: match either x or y (prefer x)
-xy      concatenation: match x then y
+x|y         alternation: match either x or y (prefer x)
+xy          concatenation: match x then y
 ```
 
 ## Groups
@@ -110,10 +110,10 @@ xy      concatenation: match x then y
 
 ### Group Flags
 ```
-i   insensitive matching (Unicode-aware)
-m   multiline matching (^$ match the beginning and end of lines)
-s   stream mode (. matches \n)
-U   swap quantifier greediness (x* becomes x*?, x+? becomes x+, etc.)
+i           insensitive matching (Unicode-aware)
+m           multiline matching (^$ match the beginning and end of lines)
+s           stream mode (. matches \n)
+U           swap quantifier greediness (x* becomes x*?, x+? becomes x+, etc.)
 ```
 
 ## Empty Assertions

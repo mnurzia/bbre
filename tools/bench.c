@@ -152,23 +152,23 @@ void set_match(void)
   bbre *regs[20] = {0};
   unsigned int idxs[20] = {0};
   unsigned int nidx;
-  bbre_set_spec *spec = NULL;
+  bbre_set_builder *spec = NULL;
   bbre_set *set = NULL;
   char *buf = rand_buf(BENCH_SIZE);
   size_t i;
   for (i = 0; i < arrsize(regs); i++) {
     regs[i] = bbre_init_pattern("123456789123456789*");
   }
-  bbre_set_spec_init(&spec, NULL);
+  bbre_set_builder_init(&spec, NULL);
   for (i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
-    bbre_set_spec_add(spec, regs[i]);
+    bbre_set_builder_add(spec, regs[i]);
   }
   bbre_set_init(&set, spec, NULL);
   bench_start();
   bbre_set_matches(set, buf, BENCH_SIZE, idxs, arrsize(idxs), &nidx);
   bench_end(BENCH_SIZE);
   bbre_set_destroy(set);
-  bbre_set_spec_destroy(spec);
+  bbre_set_builder_destroy(spec);
   for (i = 0; i < arrsize(regs); i++)
     bbre_destroy(regs[i]);
 }

@@ -42,7 +42,7 @@ typedef struct bbre_alloc {
 
 /** Regular expression flags.
  ** These mirror the flags used in the regular expression syntax, but can be
- ** given to bbre_spec_flags() in order to enable them out-of-band. */
+ ** given to bbre_builder_flags() in order to enable them out-of-band. */
 typedef enum bbre_flags {
   BBRE_FLAG_INSENSITIVE = 1, /* (?i) Case insensitive matching */
   BBRE_FLAG_MULTILINE = 2,   /* (?m) Multiline matching */
@@ -53,24 +53,24 @@ typedef enum bbre_flags {
 /** Builder class for regular expressions.
  ** This is intended to be used for nontrivial usage of the library, for
  ** example, if you want to use a non-null-terminated regex. */
-typedef struct bbre_spec bbre_spec;
+typedef struct bbre_builder bbre_builder;
 
-/** Initialize a bbre_spec.
- ** - `pspec` is a pointer to a pointer that will contain the newly-constructed
- **   bbre_spec object.
- ** - `pat` is the pattern string to use for the bbre_spec object.
+/** Initialize a bbre_builder.
+ ** - `pbuild` is a pointer to a pointer that will contain the newly-constructed
+ **   bbre_builder object.
+ ** - `pat` is the pattern string to use for the bbre_builder object.
  ** - `pat_size` is the size (in bytes) of `pat`.
  ** - `alloc` is the memory allocator to use. Pass NULL to use the default.
  **
  ** Returns BBRE_ERR_NOMEM if there is not enough memory to represent the
- ** object, 0 otherwise. If there was not enough memory, `*pspec` is NULL. */
-int bbre_spec_init(
-    bbre_spec **pspec, const char *pat, size_t pat_size,
+ ** object, 0 otherwise. If there was not enough memory, `*pbuild` is NULL. */
+int bbre_builder_init(
+    bbre_builder **pbuild, const char *pat, size_t pat_size,
     const bbre_alloc *alloc);
-/* Set flags for a bbre_spec. */
-void bbre_spec_flags(bbre_spec *spec, bbre_flags flags);
-/* Destroy a bbre_spec. */
-void bbre_spec_destroy(bbre_spec *spec);
+/* Set flags for a bbre_builder. */
+void bbre_builder_flags(bbre_builder *build, bbre_flags flags);
+/* Destroy a bbre_builder. */
+void bbre_builder_destroy(bbre_builder *build);
 
 /** An object that matches a single regular expression. */
 typedef struct bbre bbre;
@@ -81,25 +81,24 @@ typedef struct bbre bbre;
  ** Returns a newly-constructed bbre object, or NULL if there was not enough
  ** memory to store the object. Internally, this function calls
  ** bbre_init(), which can return more than one error code if the pattern is
- ** malformed: this function assumes the pattern is correct and will abort if
- ** these errors occur. If you require more robust error checking, use
- ** bbre_init() directly. */
+ ** malformed: this function still just returns NULL if these errors occur.
+ ** If you require more robust error checking, use bbre_init() directly. */
 bbre *bbre_init_pattern(const char *pat_nt);
 
-/** Initialize a bbre from a bbre_spec.
+/** Initialize a bbre from a bbre_builder.
  ** - `preg` is a pointer to a pointer that will contain the newly-constucted
  **   bbre object.
- ** - `spec` is a bbre_spec used for initializing the `*preg`.
+ ** - `build` is a bbre_builder used for initializing the `*preg`.
  ** - `alloc` is the memory allocator to use. Pass NULL to use the default.
  **
- ** Returns BBRE_ERR_PARSE if the pattern in `spec` contains a parsing error,
+ ** Returns BBRE_ERR_PARSE if the pattern in `build` contains a parsing error,
  ** BBRE_ERR_MEM if there was not enough memory to parse or compile the
  ** pattern, BBRE_ERR_LIMIT if the pattern's compiled size is too large, or 0
  ** if there was no error.
  ** If this function returns BBRE_ERR_PARSE, you can use the bbre_get_error()
  ** function to retrieve a detailed error message, and an index into the pattern
  ** where the error occurred. */
-int bbre_init(bbre **preg, const bbre_spec *spec, const bbre_alloc *alloc);
+int bbre_init(bbre **preg, const bbre_builder *build, const bbre_alloc *alloc);
 
 /** Destroy a bbre. */
 void bbre_destroy(bbre *reg);
@@ -119,7 +118,12 @@ size_t bbre_get_error(bbre *reg, const char **pmsg, size_t *pos);
 
 /** Substring bounds record.
  ** This structure records the bounds of a capture recorded by bbre_captures().
- ** `begin` is the start of the match, `end` is the end. */
+ ** `begin` is the start of the match, `end` is the end.
+ **
+ ** The range of characters in the input text that a span refers to is
+ ** [`start`, `end`). So, an empty span at position `x` has `begin = x` and
+ ** `end = x`. This is a good representation for many programming languages,
+ ** especially C, because it intuitively aligns with how for-loops work. */
 typedef struct bbre_span {
   size_t begin; /* Begin index */
   size_t end;   /* End index */
@@ -210,30 +214,30 @@ const char *bbre_capture_name(
     const bbre *reg, unsigned int capture_idx, size_t *out_name_size);
 
 /** Builder class for regular expression sets. */
-typedef struct bbre_set_spec bbre_set_spec;
+typedef struct bbre_set_builder bbre_set_builder;
 
-/** Initialize a bbre_set_spec.
- ** - `pspec` is a pointer to a pointer that will contain the newly-constructed
- **   bbre_set_spec object.
+/** Initialize a bbre_set_builder.
+ ** - `pbuild` is a pointer to a pointer that will contain the newly-constructed
+ **   bbre_set_builder object.
  ** - `alloc` is the bbre_alloc memory allocator to use. Pass NULL to use the
  **   default.
  **
  ** Returns BBRE_ERR_MEM if there was not enough memory to store the object,
  ** 0 otherwise. */
-int bbre_set_spec_init(bbre_set_spec **pspec, const bbre_alloc *alloc);
+int bbre_set_builder_init(bbre_set_builder **pbuild, const bbre_alloc *alloc);
 
-/** Destroy a bbre_set_spec. */
-void bbre_set_spec_destroy(bbre_set_spec *b);
+/** Destroy a bbre_set_builder. */
+void bbre_set_builder_destroy(bbre_set_builder *build);
 
-/** Add a pattern to a bbre_set_spec.
- ** - `set` is the set to add the pattern to
+/** Add a pattern to a bbre_set_builder.
+ ** - `build` is the set to add the pattern to
  ** - `reg` is the pattern to add
  **
  ** Returns BBRE_ERR_MEM if there was not enough memory to add `reg` to `set`,
  ** 0 otherwise. */
-int bbre_set_spec_add(bbre_set_spec *set, const bbre *reg);
+int bbre_set_builder_add(bbre_set_builder *build, const bbre *reg);
 
-int bbre_set_spec_config(bbre_set_spec *b, int option, ...);
+int bbre_set_builder_config(bbre_set_builder *build, int option, ...);
 
 /** An object that concurrently matches sets of regular expressions.
  ** A bbre_set is not able to extract bounds or capture information about its
@@ -251,17 +255,17 @@ typedef struct bbre_set bbre_set;
  ** assumes that input patterns are correct and will abort if these errors occur
  ** If you require more robust error checking, use bbre_set_init() directly. */
 bbre_set *bbre_set_init_patterns(const char *const *ppats_nt, size_t num_pats);
-/** Initialize a bbre_set from a bbre_set_spec.
+/** Initialize a bbre_set from a bbre_set_builder.
  ** - `pset` is a pointer to a pointer that will contain the newly-constructed
- **   bbre_set_spec object.
- ** - `set_spec` is the bbre_set_spec to initialize this object with.
+ **   bbre_set_builder object.
+ ** - `build` is the bbre_set_builder to initialize this object with.
  ** - `alloc` is the bbre_alloc memory allocator to use. Pass NULL to use the
  **   default.
  **
  ** Returns BBRE_ERR_MEM if there was not enough memory to construct the object,
  ** 0 otherwise. */
 int bbre_set_init(
-    bbre_set **pset, const bbre_set_spec *set_spec, const bbre_alloc *alloc);
+    bbre_set **pset, const bbre_set_builder *build, const bbre_alloc *alloc);
 /** Destroy a bbre_set. */
 void bbre_set_destroy(bbre_set *set);
 

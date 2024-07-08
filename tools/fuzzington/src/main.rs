@@ -613,13 +613,13 @@ struct BbreSpan {
     end: usize,
 }
 extern "C" {
-    fn bbre_spec_init(
+    fn bbre_builder_init(
         spec: *mut *mut c_void,
         pat: *const c_char,
         pat_size: usize,
         alloc: *mut c_void,
     ) -> c_int;
-    fn bbre_spec_destroy(spec: *mut c_void);
+    fn bbre_builder_destroy(spec: *mut c_void);
     fn bbre_init(pregex: *mut *mut c_void, spec: *mut c_void, alloc: *mut c_void) -> c_int;
     fn bbre_destroy(regex: *mut c_void);
     fn bbre_which_captures(
@@ -720,7 +720,7 @@ fn main() -> std::io::Result<()> {
         unsafe {
             let mut spec_ptr: *mut c_void = null_mut();
             assert_eq!(
-                bbre_spec_init(
+                bbre_builder_init(
                     ptr::addr_of_mut!(spec_ptr),
                     serialized_regex.as_ptr().cast(),
                     serialized_regex.len(),
@@ -733,7 +733,7 @@ fn main() -> std::io::Result<()> {
                 bbre_init(ptr::addr_of_mut!(c_re_ptr), spec_ptr, null_mut()),
                 0
             );
-            bbre_spec_destroy(spec_ptr);
+            bbre_builder_destroy(spec_ptr);
             let err = bbre_which_captures(
                 c_re_ptr,
                 example.as_ptr().cast(),

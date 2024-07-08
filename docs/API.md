@@ -4,8 +4,8 @@
 <li><a href="#BBRE_ERR_MEM">BBRE_ERR_MEM, BBRE_ERR_PARSE, BBRE_ERR_LIMIT</a></li>
 <li><a href="#bbre_alloc_cb">bbre_alloc_cb, bbre_alloc</a></li>
 <li><a href="#bbre_flags">bbre_flags</a></li>
-<li><a href="#bbre_spec">bbre_spec</a></li>
-<li><a href="#bbre_spec_init">bbre_spec_init</a></li>
+<li><a href="#bbre_builder">bbre_builder</a></li>
+<li><a href="#bbre_builder_init">bbre_builder_init</a></li>
 <li><a href="#bbre">bbre</a></li>
 <li><a href="#bbre_init_pattern">bbre_init_pattern</a></li>
 <li><a href="#bbre_init">bbre_init</a></li>
@@ -16,10 +16,10 @@
 <li><a href="#bbre_is_match_at">bbre_is_match_at, bbre_find_at, bbre_captures_at, bbre_which_captures_at</a></li>
 <li><a href="#bbre_capture_count">bbre_capture_count</a></li>
 <li><a href="#bbre_capture_name">bbre_capture_name</a></li>
-<li><a href="#bbre_set_spec">bbre_set_spec</a></li>
-<li><a href="#bbre_set_spec_init">bbre_set_spec_init</a></li>
-<li><a href="#bbre_set_spec_destroy">bbre_set_spec_destroy</a></li>
-<li><a href="#bbre_set_spec_add">bbre_set_spec_add, bbre_set_spec_config</a></li>
+<li><a href="#bbre_set_builder">bbre_set_builder</a></li>
+<li><a href="#bbre_set_builder_init">bbre_set_builder_init</a></li>
+<li><a href="#bbre_set_builder_destroy">bbre_set_builder_destroy</a></li>
+<li><a href="#bbre_set_builder_add">bbre_set_builder_add, bbre_set_builder_config</a></li>
 <li><a href="#bbre_set">bbre_set</a></li>
 <li><a href="#bbre_set_init_patterns">bbre_set_init_patterns</a></li>
 <li><a href="#bbre_set_init">bbre_set_init</a></li>
@@ -82,34 +82,34 @@ typedef enum bbre_flags {
 } bbre_flags;
 ```
 <p>These mirror the flags used in the regular expression syntax, but can be
-given to bbre_spec_flags() in order to enable them out-of-band.</p>
+given to bbre_builder_flags() in order to enable them out-of-band.</p>
 
-<h2 id="bbre_spec"><code>bbre_spec</code></h2>
+<h2 id="bbre_builder"><code>bbre_builder</code></h2>
 <p>Builder class for regular expressions.</p>
 
 ```c
-typedef struct bbre_spec bbre_spec;
+typedef struct bbre_builder bbre_builder;
 ```
 <p>This is intended to be used for nontrivial usage of the library, for
 example, if you want to use a non-null-terminated regex.</p>
 
-<h2 id="bbre_spec_init"><code>bbre_spec_init</code></h2>
-<p>Initialize a <a href="#bbre_spec">bbre_spec</a>.</p>
+<h2 id="bbre_builder_init"><code>bbre_builder_init</code></h2>
+<p>Initialize a <a href="#bbre_builder">bbre_builder</a>.</p>
 
 ```c
-int bbre_spec_init(
-    bbre_spec **pspec, const char *pat, size_t pat_size,
+int bbre_builder_init(
+    bbre_builder **pbuild, const char *pat, size_t pat_size,
     const bbre_alloc *alloc);
 ```
 <ul>
-<li><code>pspec</code> is a pointer to a pointer that will contain the newly-constructed
-<a href="#bbre_spec">bbre_spec</a> object.</li>
-<li><code>pat</code> is the pattern string to use for the <a href="#bbre_spec">bbre_spec</a> object.</li>
+<li><code>pbuild</code> is a pointer to a pointer that will contain the newly-constructed
+<a href="#bbre_builder">bbre_builder</a> object.</li>
+<li><code>pat</code> is the pattern string to use for the <a href="#bbre_builder">bbre_builder</a> object.</li>
 <li><code>pat_size</code> is the size (in bytes) of  <code>pat</code>.</li>
 <li><code>alloc</code> is the memory allocator to use. Pass NULL to use the default.</li>
 </ul>
 <p>Returns BBRE_ERR_NOMEM if there is not enough memory to represent the
-object, 0 otherwise. If there was not enough memory,  <code>*pspec</code> is NULL.</p>
+object, 0 otherwise. If there was not enough memory,  <code>*pbuild</code> is NULL.</p>
 
 <h2 id="bbre"><code>bbre</code></h2>
 <p>An object that matches a single regular expression.</p>
@@ -128,23 +128,22 @@ bbre *bbre_init_pattern(const char *pat_nt);
 <p>Returns a newly-constructed <a href="#bbre">bbre</a> object, or NULL if there was not enough
 memory to store the object. Internally, this function calls
 <a href="#bbre_init">bbre_init</a>(), which can return more than one error code if the pattern is
-malformed: this function assumes the pattern is correct and will abort if
-these errors occur. If you require more robust error checking, use
-<a href="#bbre_init">bbre_init</a>() directly.</p>
+malformed: this function still just returns NULL if these errors occur.
+If you require more robust error checking, use <a href="#bbre_init">bbre_init</a>() directly.</p>
 
 <h2 id="bbre_init"><code>bbre_init</code></h2>
-<p>Initialize a <a href="#bbre">bbre</a> from a <a href="#bbre_spec">bbre_spec</a>.</p>
+<p>Initialize a <a href="#bbre">bbre</a> from a <a href="#bbre_builder">bbre_builder</a>.</p>
 
 ```c
-int bbre_init(bbre **preg, const bbre_spec *spec, const bbre_alloc *alloc);
+int bbre_init(bbre **preg, const bbre_builder *build, const bbre_alloc *alloc);
 ```
 <ul>
 <li><code>preg</code> is a pointer to a pointer that will contain the newly-constucted
 <a href="#bbre">bbre</a> object.</li>
-<li><code>spec</code> is a <a href="#bbre_spec">bbre_spec</a> used for initializing the  <code>*preg</code>.</li>
+<li><code>build</code> is a <a href="#bbre_builder">bbre_builder</a> used for initializing the  <code>*preg</code>.</li>
 <li><code>alloc</code> is the memory allocator to use. Pass NULL to use the default.</li>
 </ul>
-<p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a> if the pattern in  <code>spec</code> contains a parsing error,
+<p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a> if the pattern in  <code>build</code> contains a parsing error,
 <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to parse or compile the
 pattern, <a href="#BBRE_ERR_MEM">BBRE_ERR_LIMIT</a> if the pattern's compiled size is too large, or 0
 if there was no error.
@@ -188,6 +187,10 @@ typedef struct bbre_span {
 ```
 <p>This structure records the bounds of a capture recorded by <a href="#bbre_is_match">bbre_captures</a>().
 <code>begin</code> is the start of the match,  <code>end</code> is the end.</p>
+<p>The range of characters in the input text that a span refers to is
+[<code>start</code>,  <code>end</code>). So, an empty span at position  <code>x</code> has  <code>begin = x</code> and
+<code>end = x</code>. This is a good representation for many programming languages,
+especially C, because it intuitively aligns with how for-loops work.</p>
 
 <h2 id="bbre_is_match"><code>bbre_is_match</code>, <code>bbre_find</code>, <code>bbre_captures</code>, <code>bbre_which_captures</code></h2>
 <p>Match text against a <a href="#bbre">bbre</a>.</p>
@@ -283,44 +286,44 @@ to a  <code>size_t</code> that will hold the length (in bytes) of the return val
 The return value of this function, if non-NULL, is guaranteed to be
 null-terminated.</p>
 
-<h2 id="bbre_set_spec"><code>bbre_set_spec</code></h2>
+<h2 id="bbre_set_builder"><code>bbre_set_builder</code></h2>
 <p>Builder class for regular expression sets.</p>
 
 ```c
-typedef struct bbre_set_spec bbre_set_spec;
+typedef struct bbre_set_builder bbre_set_builder;
 ```
 
-<h2 id="bbre_set_spec_init"><code>bbre_set_spec_init</code></h2>
-<p>Initialize a <a href="#bbre_set_spec">bbre_set_spec</a>.</p>
+<h2 id="bbre_set_builder_init"><code>bbre_set_builder_init</code></h2>
+<p>Initialize a <a href="#bbre_set_builder">bbre_set_builder</a>.</p>
 
 ```c
-int bbre_set_spec_init(bbre_set_spec **pspec, const bbre_alloc *alloc);
+int bbre_set_builder_init(bbre_set_builder **pbuild, const bbre_alloc *alloc);
 ```
 <ul>
-<li><code>pspec</code> is a pointer to a pointer that will contain the newly-constructed
-<a href="#bbre_set_spec">bbre_set_spec</a> object.</li>
+<li><code>pbuild</code> is a pointer to a pointer that will contain the newly-constructed
+<a href="#bbre_set_builder">bbre_set_builder</a> object.</li>
 <li><code>alloc</code> is the <a href="#bbre_alloc_cb">bbre_alloc</a> memory allocator to use. Pass NULL to use the
 default.</li>
 </ul>
 <p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to store the object,
 0 otherwise.</p>
 
-<h2 id="bbre_set_spec_destroy"><code>bbre_set_spec_destroy</code></h2>
-<p>Destroy a <a href="#bbre_set_spec">bbre_set_spec</a>.</p>
+<h2 id="bbre_set_builder_destroy"><code>bbre_set_builder_destroy</code></h2>
+<p>Destroy a <a href="#bbre_set_builder">bbre_set_builder</a>.</p>
 
 ```c
-void bbre_set_spec_destroy(bbre_set_spec *b);
+void bbre_set_builder_destroy(bbre_set_builder *build);
 ```
 
-<h2 id="bbre_set_spec_add"><code>bbre_set_spec_add</code>, <code>bbre_set_spec_config</code></h2>
-<p>Add a pattern to a <a href="#bbre_set_spec">bbre_set_spec</a>.</p>
+<h2 id="bbre_set_builder_add"><code>bbre_set_builder_add</code>, <code>bbre_set_builder_config</code></h2>
+<p>Add a pattern to a <a href="#bbre_set_builder">bbre_set_builder</a>.</p>
 
 ```c
-int bbre_set_spec_add(bbre_set_spec *set, const bbre *reg);
-int bbre_set_spec_config(bbre_set_spec *b, int option, ...);
+int bbre_set_builder_add(bbre_set_builder *build, const bbre *reg);
+int bbre_set_builder_config(bbre_set_builder *build, int option, ...);
 ```
 <ul>
-<li><code>set</code> is the set to add the pattern to</li>
+<li><code>build</code> is the set to add the pattern to</li>
 <li><code>reg</code> is the pattern to add</li>
 </ul>
 <p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to add  <code>reg</code> to  <code>set</code>,
@@ -354,16 +357,16 @@ assumes that input patterns are correct and will abort if these errors occur
 If you require more robust error checking, use <a href="#bbre_set_init">bbre_set_init</a>() directly.</p>
 
 <h2 id="bbre_set_init"><code>bbre_set_init</code></h2>
-<p>Initialize a <a href="#bbre_set">bbre_set</a> from a <a href="#bbre_set_spec">bbre_set_spec</a>.</p>
+<p>Initialize a <a href="#bbre_set">bbre_set</a> from a <a href="#bbre_set_builder">bbre_set_builder</a>.</p>
 
 ```c
 int bbre_set_init(
-    bbre_set **pset, const bbre_set_spec *set_spec, const bbre_alloc *alloc);
+    bbre_set **pset, const bbre_set_builder *build, const bbre_alloc *alloc);
 ```
 <ul>
 <li><code>pset</code> is a pointer to a pointer that will contain the newly-constructed
-<a href="#bbre_set_spec">bbre_set_spec</a> object.</li>
-<li><code>set_spec</code> is the <a href="#bbre_set_spec">bbre_set_spec</a> to initialize this object with.</li>
+<a href="#bbre_set_builder">bbre_set_builder</a> object.</li>
+<li><code>build</code> is the <a href="#bbre_set_builder">bbre_set_builder</a> to initialize this object with.</li>
 <li><code>alloc</code> is the <a href="#bbre_alloc_cb">bbre_alloc</a> memory allocator to use. Pass NULL to use the
 default.</li>
 </ul>
