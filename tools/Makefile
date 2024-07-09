@@ -40,6 +40,7 @@ BBRE_C=../bbre.c
 BBRE_H=../bbre.h
 
 DOCS_DIR=../docs
+EXAMPLES_DIR=../examples
 
 ## run target `test`
 all: test
@@ -301,3 +302,18 @@ loc: $(BBRE_C) $(BBRE_H)
 ## show binary size statistics
 bin_size: $(OUT_DIR)/bbre.o
 	size $(OUT_DIR)/bbre.o
+
+$(OUT_DIR)/examples:
+	mkdir -p $(OUT_DIR)/examples
+
+$(OUT_DIR)/examples/grep: $(OUT_DIR)/examples $(EXAMPLES_DIR)/grep.c $(BBRE_C) $(BBRE_H)
+	$(CC) $(CFLAGS) $(BBRE_C) $(EXAMPLES_DIR)/grep.c -o $@
+
+$(OUT_DIR)/examples/ls: $(OUT_DIR)/examples $(EXAMPLES_DIR)/ls.c $(BBRE_C) $(BBRE_H)
+	$(CC) $(CFLAGS) $(BBRE_C) $(EXAMPLES_DIR)/ls.c -o $@
+	
+$(OUT_DIR)/examples/rpn: $(OUT_DIR)/examples $(EXAMPLES_DIR)/rpn.c $(BBRE_C) $(BBRE_H)
+	$(CC) $(CFLAGS) $(BBRE_C) $(EXAMPLES_DIR)/rpn.c -o $@
+
+## build examples
+examples: $(OUT_DIR)/examples $(OUT_DIR)/examples/grep $(OUT_DIR)/examples/ls $(OUT_DIR)/examples/rpn

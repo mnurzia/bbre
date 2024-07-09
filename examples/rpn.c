@@ -53,6 +53,8 @@ int main(int argc, const char *const *argv)
         res = p1 * p2;
       else if (*tok == '/')
         res = p1 / p2;
+      else
+        res = 0;
       stk[args++] = res;
       break;
     }

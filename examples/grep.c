@@ -44,14 +44,14 @@ int main(int argc, const char *const *argv)
   }
   {
     size_t contents_size = 0, pos = 0;
-    int err = 1;
+    int re_err = 1;
     bbre_span bounds = {0};
     load_file(f, &contents, &contents_size);
     printf("%u\n", (unsigned int)contents_size);
-    while (err) {
-      if ((err = bbre_find_at(r, contents, contents_size, pos, &bounds)) < 0)
+    while (re_err) {
+      if ((re_err = bbre_find_at(r, contents, contents_size, pos, &bounds)) < 0)
         goto error;
-      if (err) {
+      if (re_err) {
         printf(
             "%u:%.*s\n", (unsigned int)pos,
             (unsigned int)(bounds.end - bounds.begin), contents + bounds.begin);
