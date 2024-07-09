@@ -11,20 +11,30 @@ use rand::{rngs::StdRng, SeedableRng};
 mod nfa {
     use rand::{seq::SliceRandom, Rng};
     use std::collections::HashSet;
+    use std::iter::Iterator;
+    use std::ops::Index;
 
+    /// NFA states are identified based off of their position in an arena.
     type StateId = usize;
 
+    // NFA input symbol (either a byte or a rune, depending on whether or not we
+    // are testing an ascii or utf8 regexp)
     #[derive(Clone, Copy)]
     pub enum Input {
         Byte(u8),
         Rune(char),
     }
 
+    /// State->state transition label.
     #[derive(PartialEq, Eq, Hash, Clone, Copy)]
     pub enum Label {
         None,
+        /// Currently, we aren't testing for byte strings.
         _ByteRange(u8, u8),
+        /// A range of Unicode codepoints.
         RuneRange(char, char),
+        /// A capture group boundary save.
+        Save(usize),
     }
 
     /// A directed transition. The start state is implied. A label of None is an
@@ -32,7 +42,6 @@ mod nfa {
     struct Transition {
         pub dest: StateId,
         pub label: Label,
-        pub save: Option<usize>,
     }
 
     /// A NFA (nondeterministic finite automaton) for matching character
@@ -42,13 +51,18 @@ mod nfa {
         matches: HashSet<StateId>,
     }
 
+    /// Pike VM thread: holds its current state and matched capture groups.
     pub struct Thread {
         state_id: StateId,
         saves: Vec<usize>,
     }
 
     impl Thread {
+        /// Sentinel value to denote an unmatched capture group boundary (i.e.,
+        /// the corresponding save label hasn't been crossed)
         pub const UNSET_SLOT: usize = usize::MAX;
+
+        /// Create the initial thread for the NFA, given a starting state.
         pub fn root(state_id: StateId) -> Thread {
             Thread {
                 state_id,
@@ -56,6 +70,7 @@ mod nfa {
             }
         }
 
+        /// Create a copy of this thread with a new state.
         pub fn fork(&self, state_id: StateId) -> Thread {
             Thread {
                 state_id,
@@ -63,6 +78,8 @@ mod nfa {
             }
         }
 
+        /// Create a copy of this thread, while saving the current position at
+        /// the given save slot index.
         pub fn fork_with(&self, state_id: StateId, idx: usize, pos: usize) -> Thread {
             let mut next_saves = self.saves.clone();
             let want_len = ((idx / 2) * 2) + 2;
@@ -77,9 +94,80 @@ mod nfa {
         }
     }
 
-    enum FollowSpec {
-        Thread(Thread),
-        Char(Thread),
+    /// Set of threads, includes a hash table for fast membership lookup.
+    pub struct ThreadSet {
+        threads: Vec<Thread>,
+        hash: HashSet<StateId>,
+    }
+
+    impl ThreadSet {
+        /// Creates an empty ThreadSet.
+        pub fn new() -> ThreadSet {
+            ThreadSet {
+                threads: vec![],
+                hash: Default::default(),
+            }
+        }
+
+        /// Clear without freeing backing memory.
+        pub fn clear(&mut self) {
+            self.threads.clear();
+            self.hash.clear();
+        }
+
+        /// Insert a thread into this set, returning true if the thread was
+        /// newly-inserted.
+        pub fn insert(&mut self, thrd: Thread) -> bool {
+            let result = self.hash.insert(thrd.state_id);
+            if result {
+                self.threads.push(thrd);
+            }
+            result
+        }
+
+        /// Drain the elements from the internal dense array.
+        pub fn drain(&mut self) -> std::vec::Drain<'_, Thread> {
+            self.threads.drain(0..)
+        }
+
+        /// Return true if there are no threads in this set.
+        pub fn is_empty(&self) -> bool {
+            self.threads.is_empty()
+        }
+
+        /// Return the number of threads in this set.
+        pub fn len(&self) -> usize {
+            self.threads.len()
+        }
+
+        /// Return an iterator into the dense array.
+        pub fn iter(&self) -> std::slice::Iter<'_, Thread> {
+            self.threads.iter()
+        }
+
+        /// Remove all threads after the position `posn`.
+        pub fn truncate(&mut self, posn: usize) {
+            self.threads.truncate(posn);
+        }
+    }
+
+    /// Allows ThreadSet to be indexed like a vector.
+    impl Index<usize> for ThreadSet {
+        type Output = Thread;
+
+        fn index(&self, idx: usize) -> &Self::Output {
+            &self.threads[idx]
+        }
+    }
+
+    /// Automatically forwards the dense array's iterator.
+    impl IntoIterator for ThreadSet {
+        type Item = Thread;
+        type IntoIter = std::vec::IntoIter<Self::Item>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.threads.into_iter()
+        }
     }
 
     impl Nfa {
@@ -110,106 +198,61 @@ mod nfa {
         pub fn link(&mut self, start: StateId, label: Label, dest: StateId) {
             assert!(!matches!(label, Label::None) <= self.trans[start].is_empty());
             assert!(!self.matches.contains(&start));
-            self.trans[start].push(Transition {
-                dest,
-                label,
-                save: None,
-            })
+            self.trans[start].push(Transition { dest, label })
         }
 
         pub fn link_with_save(&mut self, start: StateId, save: usize, dest: StateId) {
             self.trans[start].push(Transition {
                 dest,
-                label: Label::None,
-                save: Some(save),
+                label: Label::Save(save),
             })
         }
 
         /// Follow all epsilon transitions in the given set of states.
-        pub fn follow(
-            &self,
-            threads: &mut Vec<Thread>,
-            threads_out: &mut Vec<Thread>,
-            states_hash_out: &mut HashSet<StateId>,
-            pos: usize,
-        ) {
+        pub fn follow(&self, threads_in: &mut ThreadSet, threads_out: &mut ThreadSet, pos: usize) {
             let mut found = HashSet::<StateId>::new();
-            let mut stk = Vec::<FollowSpec>::new();
-            stk.extend(threads.drain(0..).map(|elt| FollowSpec::Thread(elt)));
+            let mut stk = Vec::<Thread>::new();
+            stk.extend(threads_in.drain());
             threads_out.clear();
-            states_hash_out.clear();
-            while let Some(fspec) = stk.pop() {
-                match fspec {
-                    FollowSpec::Thread(elt) => {
-                        if found.contains(&elt.state_id) {
-                            continue;
-                        }
-                        if self.matches.contains(&elt.state_id)
-                            && (states_hash_out.insert(elt.state_id))
-                        {
-                            threads_out.push(elt.fork(elt.state_id));
-                            break;
-                        }
-                        for Transition {
-                            dest: state,
-                            label,
-                            save,
-                        } in self.trans[elt.state_id].iter().rev()
-                        {
-                            match label {
-                                Label::None => match save {
-                                    None => stk.push(FollowSpec::Thread(elt.fork(*state))),
-                                    Some(idx) => stk
-                                        .push(FollowSpec::Thread(elt.fork_with(*state, *idx, pos))),
-                                },
-                                _ => {
-                                    stk.push(FollowSpec::Char(elt.fork(elt.state_id)));
-                                }
+            while let Some(elt) = stk.pop() {
+                if found.contains(&elt.state_id) {
+                    continue;
+                }
+                if self.matches.contains(&elt.state_id) {
+                    threads_out.insert(elt.fork(elt.state_id));
+                    break;
+                }
+                found.insert(elt.state_id);
+                for Transition { dest: state, label } in self.trans[elt.state_id].iter().rev() {
+                    match label {
+                        Label::None => stk.push(elt.fork(*state)),
+                        Label::Save(idx) => stk.push(elt.fork_with(*state, *idx, pos)),
+                        _ => {
+                            let next_elt = elt.fork(elt.state_id);
+                            if !found.contains(&next_elt.state_id) {
+                                threads_out.insert(next_elt);
                             }
                         }
-                        found.insert(elt.state_id);
-                    }
-                    FollowSpec::Char(elt) => {
-                        if found.contains(&elt.state_id) {
-                            continue;
-                        }
-                        threads_out.push(elt);
                     }
                 }
             }
         }
 
         /// Feed a character to the given set of states.
-        pub fn feed(
-            &self,
-            ch: Input,
-            states: &Vec<Thread>,
-            states_out: &mut Vec<Thread>,
-            states_hash_out: &mut HashSet<StateId>,
-        ) {
-            states_out.clear();
-            states_hash_out.clear();
-            for state in states {
-                for Transition {
-                    dest: next,
-                    label,
-                    save: _save,
-                } in &self.trans[state.state_id]
-                {
+        pub fn feed(&self, ch: Input, threads_in: &mut ThreadSet, threads_out: &mut ThreadSet) {
+            threads_out.clear();
+            for thread in threads_in.iter() {
+                for Transition { dest: next, label } in &self.trans[thread.state_id] {
                     match label {
                         Label::_ByteRange(min, max) => match ch {
                             Input::Byte(byte) if byte >= *min && byte <= *max => {
-                                if states_hash_out.insert(*next) {
-                                    states_out.push(state.fork(*next));
-                                }
+                                threads_out.insert(thread.fork(*next));
                             }
                             _ => {}
                         },
                         Label::RuneRange(min, max) => match ch {
                             Input::Rune(rune) if rune >= *min && rune <= *max => {
-                                if states_hash_out.insert(*next) {
-                                    states_out.push(state.fork(*next));
-                                }
+                                threads_out.insert(thread.fork(*next));
                             }
                             _ => {}
                         },
@@ -226,28 +269,21 @@ mod nfa {
             target: StateId,
             rng: &mut R,
         ) -> Option<(Vec<u8>, Vec<usize>)> {
-            let mut threads_vec = Vec::<Thread>::new();
-            let mut threads_vec_next = Vec::<Thread>::new();
-            let mut states_hash = HashSet::<StateId>::new();
+            let mut threads = ThreadSet::new();
+            let mut threads_next = ThreadSet::new();
             let mut options_vec = Vec::<Label>::new();
             let mut options_hash = HashSet::<Label>::new();
             let mut flattened = Vec::<u8>::new();
             let mut previous_result: Option<(usize, Vec<usize>)> = None;
-            threads_vec.push(Thread::root(start));
-            states_hash.insert(start);
+            threads.insert(Thread::root(start));
             loop {
-                assert!(!threads_vec.is_empty());
-                self.follow(
-                    &mut threads_vec,
-                    &mut threads_vec_next,
-                    &mut states_hash,
-                    flattened.len(),
-                );
-                (threads_vec, threads_vec_next) = (threads_vec_next, threads_vec);
-                for i in 0..threads_vec.len() {
-                    if threads_vec[i].state_id == target {
+                assert!(!threads.is_empty());
+                self.follow(&mut threads, &mut threads_next, flattened.len());
+                (threads, threads_next) = (threads_next, threads);
+                for i in 0..threads.len() {
+                    if threads[i].state_id == target {
                         if i == 0 {
-                            return Some((flattened, threads_vec.remove(i).saves));
+                            return Some((flattened, threads[i].saves.clone()));
                         } else {
                             if previous_result.is_some() && rng.gen_range(0..5) == 4 {
                                 // just arbitrarily end the string here
@@ -255,13 +291,13 @@ mod nfa {
                                 flattened.truncate(prev_len);
                                 return Some((flattened, prev_saves));
                             }
-                            previous_result = Some((flattened.len(), threads_vec[i].saves.clone()));
-                            threads_vec.truncate(i);
+                            previous_result = Some((flattened.len(), threads[i].saves.clone()));
+                            threads.truncate(i);
                             break;
                         }
                     }
                 }
-                if threads_vec.len() == 0 {
+                if threads.len() == 0 {
                     if previous_result.is_some() {
                         let (prev_len, prev_saves) = previous_result.unwrap();
                         flattened.truncate(prev_len);
@@ -270,16 +306,11 @@ mod nfa {
                         return None;
                     }
                 }
-                assert!(!threads_vec.is_empty());
+                assert!(!threads.is_empty());
                 options_vec.clear();
                 options_hash.clear();
-                for state in &threads_vec {
-                    for Transition {
-                        dest: _,
-                        label,
-                        save: _,
-                    } in &self.trans[state.state_id]
-                    {
+                for state in threads.iter() {
+                    for Transition { dest: _, label } in &self.trans[state.state_id] {
                         match label {
                             Label::None => {}
                             _ => {
@@ -306,8 +337,8 @@ mod nfa {
                         flattened.extend_from_slice(encoded.as_bytes());
                     }
                 }
-                self.feed(next, &threads_vec, &mut threads_vec_next, &mut states_hash);
-                (threads_vec, threads_vec_next) = (threads_vec_next, threads_vec);
+                self.feed(next, &mut threads, &mut threads_next);
+                (threads, threads_next) = (threads_next, threads);
             }
         }
     }
@@ -635,11 +666,11 @@ extern "C" {
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Args {
-    // Number of test cases to generate
+    /// Number of test cases to generate
     #[arg(short, long, default_value_t = 1)]
     number: u64,
 
-    // Seed for the random number generator
+    /// Seed for the random number generator
     #[arg(short, long, default_value_t = 0)]
     seed: u64,
 }
