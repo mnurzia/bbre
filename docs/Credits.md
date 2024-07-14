@@ -12,4 +12,8 @@ Most of the techniques used in this library are not original. I would have been 
 
 [Andrew Gallant](https://github.com/BurntSushi): Wrote [Rust's regex crate](https://github.com/rust-lang/regex), which is an excellent library that everyone should use. When writing bbre, I took heavy inspiration from its intuitive API.
 
+[Chris Wellons](https://nullprogram.com/): Wrote the [integer hash function](https://nullprogram.com/blog/2018/07/31/) used in this library. Also, his blog is a great resource for learning about modern idiomatic C.
+
+[Bjoern Hoehrmann](https://bjoern.hoehrmann.de/): Wrote a [DFA-based UTF-8 decoder](https://bjoern.hoehrmann.de/utf-8/decoder/dfa/) which serves as the design basis for the respective component in this library.
+
 We all stand on the shoulders of giants. I have immense respect for these individuals and their contributions to the field.

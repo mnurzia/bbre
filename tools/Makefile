@@ -291,8 +291,8 @@ check_sources:
 	$(PYTHON) scripts/check_sources.py $(BBRE_C) $(BBRE_H)
 
 ## run all soak tests and checks
-car_shaker:
-	./car_shaker.sh
+precommit:
+	./precommit.sh
 
 ## show code complexity statistics
 loc: $(BBRE_C) $(BBRE_H)

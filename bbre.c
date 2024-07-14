@@ -49,7 +49,7 @@ typedef enum bbre_ast_type {
    *   Argument 3: capture index (number) */
   BBRE_AST_TYPE_GROUP,
   /* An inline group: /(?i)a/
-   *   Argument 0: child tree (AST)
+   *   Argument 0: child tree must be a CAT (AST)
    *   Argument 1: group flags, bitset of `enum group_flag` (number)
    *   Argument 2: scratch used by the parser to store old flags (number) */
   BBRE_AST_TYPE_IGROUP,
@@ -610,38 +610,43 @@ static bbre_alloc bbre_alloc_make(const bbre_alloc *input)
 static int bbre_compile(bbre *r);
 
 int bbre_builder_init(
-    bbre_builder **pspec, const char *s, size_t n, const bbre_alloc *palloc)
+    bbre_builder **pbuild, const char *s, size_t n, const bbre_alloc *palloc)
 {
   int err = 0;
-  bbre_builder *spec;
+  bbre_builder *build;
   bbre_alloc alloc = bbre_alloc_make(palloc);
-  spec = bbre_ialloc(&alloc, NULL, 0, sizeof(bbre_builder));
-  *pspec = spec;
-  if (!spec) {
+  build = bbre_ialloc(&alloc, NULL, 0, sizeof(bbre_builder));
+  *pbuild = build;
+  if (!build) {
     err = BBRE_ERR_MEM;
     goto error;
   }
-  memset(spec, 0, sizeof(*spec));
-  spec->alloc = alloc;
-  spec->expr = (const bbre_byte *)s;
-  spec->expr_size = n;
-  spec->flags = 0;
+  memset(build, 0, sizeof(*build));
+  build->alloc = alloc;
+  build->expr = (const bbre_byte *)s;
+  build->expr_size = n;
+  build->flags = 0;
 error:
   return err;
 }
 
-void bbre_builder_destroy(bbre_builder *spec)
+void bbre_builder_destroy(bbre_builder *build)
 {
-  if (!spec)
+  if (!build)
     goto done;
-  bbre_ialloc(&spec->alloc, spec, sizeof(bbre_builder), 0);
+  bbre_ialloc(&build->alloc, build, sizeof(bbre_builder), 0);
 done:
   return;
 }
 
-void bbre_builder_flags(bbre_builder *b, bbre_flags flags) { b->flags = flags; }
+void bbre_builder_flags(bbre_builder *build, bbre_flags flags)
+{
+  build->flags = flags;
+}
 
-static int bbre_parse(bbre *r, const bbre_byte *s, size_t sz, bbre_uint *root);
+static int bbre_parse(
+    bbre *r, const bbre_byte *s, size_t sz, bbre_uint *root,
+    bbre_flags start_flags);
 
 static void bbre_prog_init(bbre_prog *prog, bbre_alloc alloc, bbre_error *error)
 {
@@ -728,7 +733,8 @@ int bbre_init(bbre **pr, const bbre_builder *spec, const bbre_alloc *palloc)
   int err = 0;
   if ((err = bbre_init_internal(pr, palloc)))
     goto error;
-  if ((err = bbre_parse(*pr, spec->expr, spec->expr_size, &(*pr)->ast_root)))
+  if ((err = bbre_parse(
+           *pr, spec->expr, spec->expr_size, &(*pr)->ast_root, spec->flags)))
     goto error;
   (*pr)->prog.npat = 1;
   if ((err = bbre_compile(*pr)))
@@ -1358,14 +1364,29 @@ error:
 }
 
 /* Parse a regular expression, storing its resulting AST node into *root. */
-static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
+static int bbre_parse(
+    bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root,
+    bbre_flags start_flags)
 {
   int err;
-  bbre_uint flags = 0;
+  /* convert ABI flags to internal flags */
+  bbre_uint flags =
+      (start_flags & BBRE_FLAG_INSENSITIVE ? BBRE_GROUP_FLAG_INSENSITIVE : 0) |
+      (start_flags & BBRE_FLAG_MULTILINE ? BBRE_GROUP_FLAG_MULTILINE : 0) |
+      (start_flags & BBRE_FLAG_DOTNEWLINE ? BBRE_GROUP_FLAG_DOTNEWLINE : 0) |
+      (start_flags & BBRE_FLAG_UNGREEDY ? BBRE_GROUP_FLAG_UNGREEDY : 0);
   r->expr = ts;
   r->expr_size = tsz, r->expr_pos = 0;
   if ((err = bbre_parse_checkutf8(r)))
     goto error;
+  if (flags) {
+    bbre_uint igrp = 0, cat = 0;
+    if ((err = bbre_ast_make(
+             r, &cat, BBRE_AST_TYPE_CAT, BBRE_REF_NONE, BBRE_REF_NONE)) ||
+        (err = bbre_ast_make(r, &igrp, BBRE_AST_TYPE_IGROUP, cat, flags, 0)) ||
+        (err = bbre_buf_push(&r->alloc, &r->op_stk, igrp)))
+      goto error;
+  }
   while (bbre_parse_has_more(r)) {
     bbre_uint ch = bbre_parse_next(r), res = BBRE_REF_NONE;
     if (ch == '*' || ch == '+' || ch == '?') {
@@ -1377,7 +1398,7 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
         goto error;
       }
       if (bbre_parse_has_more(r) && bbre_peek_next(r) == '?')
-        bbre_parse_next(r), greedy = 0;
+        bbre_parse_next(r), greedy = !greedy;
       if ((err = bbre_ast_make(
                r, &res, greedy ? BBRE_AST_TYPE_QUANT : BBRE_AST_TYPE_UQUANT,
                *bbre_buf_peek(&r->arg_stk, 0) /* child */, q == '+' /* min */,
@@ -1488,11 +1509,15 @@ static int bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root)
       assert(BBRE_IMPLIES(inline_group, !named_group));
       assert(BBRE_IMPLIES(named_group, !inline_group));
       /* arg_stk: |  R  | */
-      if ((err = bbre_ast_make(
-               r, &res,
-               inline_group ? BBRE_AST_TYPE_IGROUP : BBRE_AST_TYPE_GROUP, child,
-               flags, old_flags, bbre_buf_size(r->group_names) + 1)) ||
-          (err = bbre_buf_push(&r->alloc, &r->op_stk, res)))
+      if (!inline_group) {
+        if ((err = bbre_ast_make(
+                 r, &res, BBRE_AST_TYPE_GROUP, child, flags, old_flags,
+                 bbre_buf_size(r->group_names) + 1)))
+          goto error;
+      } else if ((err = bbre_ast_make(
+                      r, &res, BBRE_AST_TYPE_IGROUP, child, flags, old_flags)))
+        goto error;
+      if ((err = bbre_buf_push(&r->alloc, &r->op_stk, res)))
         goto error;
       if (!inline_group && !(flags & BBRE_GROUP_FLAG_NONCAPTURING)) {
         bbre_group_name name;

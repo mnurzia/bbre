@@ -45,8 +45,8 @@ typedef struct bbre_alloc {
  ** given to bbre_builder_flags() in order to enable them out-of-band. */
 typedef enum bbre_flags {
   BBRE_FLAG_INSENSITIVE = 1, /* (?i) Case insensitive matching */
-  BBRE_FLAG_MULTILINE = 2,   /* (?m) Multiline matching */
-  BBRE_FLAG_DOTNEWLINE = 4,  /* (?s) '.' matches '\\n' */
+  BBRE_FLAG_MULTILINE = 2,   /* (?m) Multiline ('^'/'$' match line start/end) */
+  BBRE_FLAG_DOTNEWLINE = 4,  /* (?s) '.' matches '\n' */
   BBRE_FLAG_UNGREEDY = 8     /* (?U) Quantifiers become ungreedy */
 } bbre_flags;
 

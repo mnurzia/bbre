@@ -82,9 +82,10 @@ int check_match_results(
   return 0;
 }
 
-int check_matches_n(
-    const char *regex, size_t regex_n, const char *s, size_t n,
-    unsigned int max_span, bbre_span *check_span, unsigned int *did_match)
+int check_matches_nf(
+    const char *regex, size_t regex_n, bbre_flags flags, const char *s,
+    size_t n, unsigned int max_span, bbre_span *check_span,
+    unsigned int *did_match)
 {
   bbre *r = NULL, *r2 = NULL;
   bbre_builder *spec = NULL;
@@ -93,9 +94,10 @@ int check_matches_n(
   if ((err = bbre_builder_init(&spec, regex, regex_n, NULL)) == BBRE_ERR_MEM)
     goto oom_re;
   ASSERT_EQm(err, 0, "bbre_builder_init() returned a nonzero value");
+  bbre_builder_flags(spec, flags);
   if ((err = bbre_init(&r, spec, NULL)) == BBRE_ERR_MEM)
     goto oom_re;
-  ASSERT_EQm(err, 0, "bbre_init_spec() returned a nonzero value");
+  ASSERT_EQm(err, 0, "bbre_init() returned a nonzero value");
   if ((err = check_match_results(
            r, s, n, max_span, check_span, did_match, !!max_span)))
     goto oom_re;
@@ -122,12 +124,29 @@ oom_re:
   OOM();
 }
 
+int check_matches_n(
+    const char *regex, size_t regex_n, const char *s, size_t n,
+    unsigned int max_span, bbre_span *check_span, unsigned int *did_match)
+{
+  return check_matches_nf(
+      regex, regex_n, 0, s, n, max_span, check_span, did_match);
+}
+
 int check_match(
     const char *regex, const char *s, size_t n, unsigned int max_span,
     bbre_span *check_span, unsigned int *did_match)
 {
   size_t regex_n = strlen(regex);
   return check_matches_n(regex, regex_n, s, n, max_span, check_span, did_match);
+}
+
+int check_match_f(
+    const char *regex, bbre_flags flags, const char *s, size_t n,
+    unsigned int max_span, bbre_span *check_span, unsigned int *did_match)
+{
+  size_t regex_n = strlen(regex);
+  return check_matches_nf(
+      regex, regex_n, flags, s, n, max_span, check_span, did_match);
 }
 
 int check_not_fullmatch_n(const char *regex, const char *s, size_t n)
@@ -152,6 +171,22 @@ int check_match_g1_n(
 int check_match_g1(const char *regex, const char *s, size_t b, size_t e)
 {
   return check_match_g1_n(regex, s, strlen(s), b, e);
+}
+
+int check_match_g1_nf(
+    const char *regex, bbre_flags flags, const char *s, size_t n, size_t b,
+    size_t e)
+{
+  bbre_span g;
+  unsigned int did = 1;
+  g.begin = b, g.end = e;
+  return check_match_f(regex, flags, s, n, 1, &g, &did);
+}
+
+int check_match_g1_f(
+    const char *regex, bbre_flags flags, const char *s, size_t b, size_t e)
+{
+  return check_match_g1_nf(regex, flags, s, strlen(s), b, e);
 }
 
 int check_match_g2(
@@ -182,6 +217,8 @@ int check_fullmatch(const char *regex, const char *s)
   PROPAGATE(check_not_fullmatch_n(regex, str, sz));
 #define ASSERT_MATCH_G1(regex, str, b, e)                                      \
   PROPAGATE(check_match_g1(regex, str, b, e))
+#define ASSERT_MATCH_G1_F(regex, flags, str, b, e)                             \
+  PROPAGATE(check_match_g1_f(regex, flags, str, b, e))
 #define ASSERT_MATCH_G2(regex, str, b, e, b2, e2)                              \
   PROPAGATE(check_match_g2(regex, str, b, e, b2, e2))
 
@@ -385,12 +422,45 @@ TEST(init_bad)
   PASS();
 }
 
+TEST(init_flag_insensitive)
+{
+  ASSERT_MATCH_G1_F("A", BBRE_FLAG_INSENSITIVE, "a", 0, 1);
+  PASS();
+}
+
+TEST(init_flag_multiline)
+{
+  ASSERT_MATCH_G1_F("^A$", BBRE_FLAG_MULTILINE, "a\nA\n", 2, 3);
+  PASS();
+}
+
+TEST(init_flag_dotnewline)
+{
+  ASSERT_MATCH_G1_F(".", BBRE_FLAG_DOTNEWLINE, "\n", 0, 1);
+  PASS();
+}
+
+TEST(init_flag_ungreedy)
+{
+  ASSERT_MATCH_G1_F("A*", BBRE_FLAG_UNGREEDY, "AA", 0, 0);
+  PASS();
+}
+
+SUITE(init_flag)
+{
+  RUN_TEST(init_flag_insensitive);
+  RUN_TEST(init_flag_multiline);
+  RUN_TEST(init_flag_dotnewline);
+  RUN_TEST(init_flag_ungreedy);
+}
+
 SUITE(init)
 {
   RUN_TEST(init_empty);
   RUN_TEST(init_some);
   RUN_TEST(init_bad);
   RUN_TEST(init_full_default_alloc);
+  RUN_SUITE(init_flag);
 }
 
 TEST(chr_1)

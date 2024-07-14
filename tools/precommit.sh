@@ -1,18 +1,16 @@
 #!/bin/sh
-# Run soak tests, fuzzington, and benchmarks.
-# Soak it up!
 PROGRAM=$0
 
 STDOUT=$(mktemp)
 STDERR=$(mktemp)
 
 step() {
-  if [ "$CAR_SHAKER_COUNT" = "1" ]; then
+  if [ "$PRECOMMIT_COUNT" = "1" ]; then
     printf "\n"
     return
   fi
   if [ -z "$TOTAL_STEPS" ]; then
-    TOTAL_STEPS=$(CAR_SHAKER_COUNT=1 $PROGRAM | wc -l)
+    TOTAL_STEPS=$(PRECOMMIT_COUNT=1 $PROGRAM | wc -l)
     CURRENT_STEP=1
   fi
   printf "[%2i/%2i] %s: " "$CURRENT_STEP" "$TOTAL_STEPS" "$1"
@@ -29,7 +27,7 @@ step() {
     exit 1
   fi
   if [ "$CURRENT_STEP" = "$((TOTAL_STEPS + 1))" ]; then
-    echo "Soaked! Commit commit commit!"
+    echo "OK"
   fi
 }
 
@@ -40,7 +38,7 @@ step "Check Sources" make check_sources
 step "Build Tests" make test_build
 step "Run Tests" make test
 step "Run OOM Tests" make testoom
-# step "Run and Check Coverage" make check_cov
+step "Run and Check Coverage" make cov_check
 step "Run Benchmarks" make PROFILE=bench bench
 step "Run Hello World" make port_build
 step "Generate Docs" make docs
