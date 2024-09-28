@@ -347,10 +347,16 @@ class _BuiltinCC(NamedTuple):
         )
 
 
-def _gen_builtin_ccs(args) -> set[_BuiltinCC]:
+class _CompoundBuiltinCC(NamedTuple):
+    cctype: _BuiltinCCType
+    name: str
+    parts: tuple[str, ...]
+
+
+def _gen_builtin_ccs(args) -> set[_BuiltinCC | _CompoundBuiltinCC]:
     udata = UnicodeData(args.db, args.version)
     logger.debug("loading unicode property data...")
-    builtin_ccs: set[_BuiltinCC] = set()
+    builtin_ccs: set = set()
     categories: dict[str, set[int]] = {}
     for code_str, _, general_category, *_ in udata.load_file(Path("UnicodeData.txt")):
         categories[general_category] = categories.get(general_category, set())
@@ -361,6 +367,19 @@ def _gen_builtin_ccs(args) -> set[_BuiltinCC]:
                 _BuiltinCCType.UNICODE_PROPERTY,
                 category,
                 tuple(_normalize_ords(sorted(ords))),
+            )
+        )
+    for compound_category in "CLMNPSZ":
+        builtin_ccs.add(
+            _CompoundBuiltinCC(
+                _BuiltinCCType.UNICODE_PROPERTY,
+                compound_category,
+                tuple(
+                    filter(
+                        lambda name: name.startswith(compound_category),
+                        categories.keys(),
+                    )
+                ),
             )
         )
     for name, cc in ASCII_CHARCLASSES.items():
@@ -389,11 +408,17 @@ def _cmd_gen_ccs_impl(args) -> int:
     lines, out = make_appender_func()
     encoded_arr = []
     encoded_locs = {}
+    data_ccs = []
+    compound_ccs = []
     for builtin_cc in sorted(builtin_ccs):
+        if isinstance(builtin_cc, _CompoundBuiltinCC):
+            compound_ccs.append(builtin_cc)
+            continue
         if builtin_cc.ranges not in encoded_locs:
             encoded_locs[builtin_cc.ranges] = len(encoded_arr)
             encoded_arr.extend(builtin_cc.encode())
-    num_ranges = sum([len(bcc.ranges) for bcc in builtin_ccs])
+        data_ccs.append(builtin_cc)
+    num_ranges = sum([len(bcc.ranges) for bcc in data_ccs])
     out(
         f"/* {num_ranges} ranges, {num_ranges * 2} integers, {len(encoded_arr) * 4} bytes */"
     )
@@ -401,14 +426,18 @@ def _cmd_gen_ccs_impl(args) -> int:
     out(",".join(f"0x{e:08X}" for e in encoded_arr))
     out("};")
     for cc_type in _BuiltinCCType:
-        ccs = sorted([cc for cc in builtin_ccs if cc.cctype == cc_type])
+        my_ccs = sorted([cc for cc in data_ccs if cc.cctype == cc_type])
+        my_compound_ccs = sorted([cc for cc in compound_ccs if cc.cctype == cc_type])
         out(
-            f"static const bbre_builtin_cc bbre_builtin_ccs_{cc_type}[{len(ccs) + 1}] = {{"
+            f"static const bbre_builtin_cc bbre_builtin_ccs_{cc_type}[{len(my_ccs) + len(my_compound_ccs) + 1}] = {{"
         )
-        for builtin_cc in ccs:
+        for builtin_cc in my_ccs:
             out(
                 f'{{ {len(builtin_cc.name)}, {len(builtin_cc.ranges)}, {encoded_locs[builtin_cc.ranges]}, "{builtin_cc.name}"}},'
             )
+        for compound_cc in my_compound_ccs:
+            name_arr = ",".join(compound_cc.parts)
+            out(f'{{ {len(compound_cc.name)}, 0, 0, "{compound_cc.name}{name_arr}"}},')
         out('{0, 0, 0, ""}')
         out("};")
     insert_c_file(args.file, lines, "gen_ccs impl")
@@ -442,6 +471,10 @@ def _cmd_gen_ccs_test(args) -> int:
             }}
             """
 
+    ccs_lut: dict[tuple[_BuiltinCCType, str], _BuiltinCC] = {
+        (cc.cctype, cc.name): cc for cc in builtin_ccs if isinstance(cc, _BuiltinCC)
+    }
+
     for cctype in _BuiltinCCType:
         ccs = sorted([cc for cc in builtin_ccs if cc.cctype == cctype])
         tests: dict[str, str] = {}
@@ -459,7 +492,19 @@ def _cmd_gen_ccs_test(args) -> int:
                         regexp = f"\\{cc.name.upper() if inverted else cc.name}"
                     case _:
                         raise ValueError("unknown cc type")
-                tests[test_name] = make_test(test_name, cc.ranges, regexp, inverted)
+                if isinstance(cc, _CompoundBuiltinCC):
+                    ranges = tuple(
+                        sum(
+                            [
+                                list(ccs_lut[(cc.cctype, part)].ranges)
+                                for part in cc.parts
+                            ],
+                            [],
+                        )
+                    )
+                else:
+                    ranges = cc.ranges
+                tests[test_name] = make_test(test_name, ranges, regexp, inverted)
         out("\n".join(tests.values()))
         out(make_suite(f"cls_builtin_{cctype}", tests))
     out(

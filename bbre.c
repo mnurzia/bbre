@@ -11,8 +11,8 @@
   #include BBRE_CONFIG_HEADER_FILE
 #endif
 
-#define BBRE_REF_NONE 0
-#define BBRE_UTF_MAX  0x10FFFF
+#define BBRE_NIL     0
+#define BBRE_UTF_MAX 0x10FFFF
 
 typedef unsigned int bbre_uint;
 typedef unsigned char bbre_byte;
@@ -53,16 +53,25 @@ typedef enum bbre_ast_type {
    *   Argument 1: group flags, bitset of `enum group_flag` (number)
    *   Argument 2: scratch used by the parser to store old flags (number) */
   BBRE_AST_TYPE_IGROUP,
-  /* A character class: /[a-zA-Z]/
-   *   Argument 0: BBRE_REF_NONE or another CC node in the charclass (AST)
-   *   Argument 1: character range begin (number)
-   *   Argument 2: character range end (number) */
-  BBRE_AST_TYPE_CC,
-  /* An inverted character class: /[^a-zA-Z]/
-   *   Argument 0: BBRE_REF_NONE or another CC node in the charclass (AST)
-   *   Argument 1: character range begin (number)
-   *   Argument 2: character range end (number) */
-  BBRE_AST_TYPE_ICC,
+  /* A single range in a character class: /[a-z]/
+   *   Argument 0: character range begin (number)
+   *   Argument 1: character range end (number) */
+  BBRE_AST_TYPE_CC_LEAF,
+  /* A builtin character class: /[:digit:]/
+   *   Argument 0: starting index into the builtin_cc array
+   *   Argument 1: number of character ranges to parse */
+  BBRE_AST_TYPE_CC_BUILTIN,
+  /* The set-inversion of a character class: //
+   *   Argument 0: child tree (AST) */
+  BBRE_AST_TYPE_CC_NOT,
+  /* The set-disjunction of a character class: //
+   *   Argument 0: child tree A (AST)
+   *   Argument 1: child tree B (AST) */
+  BBRE_AST_TYPE_CC_OR,
+  /* The set-conjunction of a character class: //
+   *   Argument 0: child tree A (AST)
+   *   Argument 1: child tree B (AST) */
+  BBRE_AST_TYPE_CC_AND,
   /* Matches any byte: /\C/ */
   BBRE_AST_TYPE_ANYBYTE,
   /* Empty assertion: /\b/
@@ -82,9 +91,28 @@ static const unsigned int bbre_ast_type_lens[] = {
     3, /* IGROUP */
     3, /* CC */
     3, /* ICC */
+    2, /* CC_LEAF */
+    2, /* CC_BUILTIN */
+    1, /* CC_NOT */
+    2, /* CC_OR */
+    2, /* CC_AND */
     0, /* ANYBYTE */
     1, /* AASSERT */
 };
+
+#define BBRE_AST_MAX_ARGS 4
+
+/* Represents an inclusive range of bytes. */
+typedef struct bbre_byte_range {
+  bbre_byte l, /* min ordinal */
+      h;       /* max ordinal */
+} bbre_byte_range;
+
+/* Represents an inclusive range of runes. */
+typedef struct bbre_rune_range {
+  bbre_uint l, /* min ordinal */
+      h;       /* max ordinal */
+} bbre_rune_range;
 
 typedef enum bbre_group_flag {
   BBRE_GROUP_FLAG_INSENSITIVE = 1,   /* case-insensitive matching */
@@ -186,18 +214,6 @@ typedef struct bbre_inst {
                          /* \                  a = assert_flag (ASSERT) */
 } bbre_inst;
 
-/* Represents an inclusive range of bytes. */
-typedef struct bbre_byte_range {
-  bbre_byte l, /* min ordinal */
-      h;       /* max ordinal */
-} bbre_byte_range;
-
-/* Represents an inclusive range of runes. */
-typedef struct bbre_rune_range {
-  bbre_uint l, /* min ordinal */
-      h;       /* max ordinal */
-} bbre_rune_range;
-
 /* Auxiliary data for tree nodes used for accelerating compilation. */
 typedef union bbre_compcc_tree_aux {
   bbre_uint hash, /* node hash, used for tree reduction */
@@ -276,20 +292,20 @@ typedef struct bbre_group_name {
 
 /* A compiled regular expression. */
 struct bbre {
-  bbre_alloc alloc;                      /* allocator function */
-  bbre_buf(bbre_uint) ast;               /* AST arena */
-  bbre_uint ast_root;                    /* AST root node reference */
-  bbre_buf(bbre_group_name) group_names; /* Named group names */
-  bbre_buf(bbre_uint) arg_stk;           /* parser argument stack */
-  bbre_buf(bbre_uint) op_stk;            /* parser operator stack */
-  bbre_buf(
-      bbre_compframe) comp_stk; /* compiler frame stack (see bbre_compframe) */
-  bbre_compcc_data compcc;      /* data used for the charclass compiler */
-  bbre_prog prog;               /* NFA program */
-  const bbre_byte *expr;        /* input parser expression */
-  size_t expr_pos,              /* current position in expr */
-      expr_size;                /* number of bytes in expr */
-  bbre_error error;             /* error message and/or pos */
+  bbre_alloc alloc;                           /* allocator function */
+  bbre_buf(bbre_uint) ast;                    /* AST arena */
+  bbre_uint ast_root;                         /* AST root node reference */
+  bbre_buf(bbre_group_name) group_names;      /* Named group names */
+  bbre_buf(bbre_uint) arg_stk;                /* parser argument stack */
+  bbre_buf(bbre_uint) op_stk;                 /* parser operator stack */
+  bbre_buf(bbre_compframe) comp_stk;          /* compiler frame stack */
+  bbre_buf(bbre_buf(bbre_rune_range)) cc_stk; /* compiler CC stack */
+  bbre_compcc_data compcc; /* data used for the charclass compiler */
+  bbre_prog prog;          /* NFA program */
+  const bbre_byte *expr;   /* input parser expression */
+  size_t expr_pos,         /* current position in expr */
+      expr_size;           /* number of bytes in expr */
+  bbre_error error;        /* error message and/or pos */
   bbre_exec *exec; /* local execution context, NULL until actually used */
 };
 
@@ -716,7 +732,8 @@ static int bbre_init_internal(bbre **pr, const bbre_alloc *palloc)
   bbre_buf_init(&r->ast);
   r->ast_root = 0;
   bbre_buf_init(&r->group_names), bbre_buf_init(&r->arg_stk),
-      bbre_buf_init(&r->op_stk), bbre_buf_init(&r->comp_stk);
+      bbre_buf_init(&r->op_stk), bbre_buf_init(&r->comp_stk),
+      bbre_buf_init(&r->cc_stk);
   bbre_buf_init(&r->compcc.ranges), bbre_buf_init(&r->compcc.tree),
       bbre_buf_init(&r->compcc.ranges_2), bbre_buf_init(&r->compcc.tree_2),
       bbre_buf_init(&r->compcc.hash);
@@ -759,6 +776,9 @@ void bbre_destroy(bbre *r)
   bbre_buf_destroy(&r->alloc, &r->op_stk),
       bbre_buf_destroy(&r->alloc, &r->arg_stk),
       bbre_buf_destroy(&r->alloc, &r->comp_stk);
+  for (i = 0; i < bbre_buf_size(r->cc_stk); i++)
+    bbre_buf_destroy(&r->alloc, &r->cc_stk[i]);
+  bbre_buf_destroy(&r->alloc, &r->cc_stk);
   bbre_buf_destroy(&r->alloc, &r->compcc.ranges),
       bbre_buf_destroy(&r->alloc, &r->compcc.ranges_2),
       bbre_buf_destroy(&r->alloc, &r->compcc.tree),
@@ -853,6 +873,16 @@ static bbre_uint *bbre_ast_param_ref(bbre *r, bbre_uint node, bbre_uint n)
 {
   assert(bbre_ast_type_lens[*bbre_ast_type_ref(r, node)] > n);
   return r->ast + node + 1 + n;
+}
+
+/* Returns true if the given ast type is part of a character class subtree. */
+static int bbre_ast_type_is_cc(bbre_uint ast_type)
+{
+  return (ast_type == BBRE_AST_TYPE_CC_LEAF) ||
+         (ast_type == BBRE_AST_TYPE_CC_BUILTIN) ||
+         (ast_type == BBRE_AST_TYPE_CC_NOT) ||
+         (ast_type == BBRE_AST_TYPE_CC_OR) ||
+         (ast_type == BBRE_AST_TYPE_CC_AND);
 }
 
 /* Below is a UTF-8 decoder implemented as a compact DFA. This was heavily
@@ -997,7 +1027,7 @@ static int bbre_fold(bbre *r)
   int err = 0;
   if (!bbre_buf_size(r->arg_stk)) {
     /* arg_stk: | */
-    err = bbre_buf_push(&r->alloc, &r->arg_stk, /* epsilon */ BBRE_REF_NONE);
+    err = bbre_buf_push(&r->alloc, &r->arg_stk, /* epsilon */ BBRE_NIL);
     /* arg_stk: | eps |*/
     goto error;
   }
@@ -1070,19 +1100,20 @@ static void bbre_fold_alts(bbre *r, bbre_uint *flags)
   assert(bbre_buf_size(r->arg_stk) == 1);
 }
 
-/* Add the CC node `rest` to the CC node `first`. */
-static bbre_uint bbre_ast_cls_union(bbre *r, bbre_uint rest, bbre_uint first)
+/* Create a BBRE_AST_TYPE_CC_OR node with the given two character classes.*/
+static int
+bbre_ast_cls_union(bbre *r, bbre_uint *out, bbre_uint right, bbre_uint left)
 {
-  bbre_uint cur = first, *next;
-  assert(first);
-  assert(
-      *bbre_ast_type_ref(r, first) == BBRE_AST_TYPE_CC ||
-      *bbre_ast_type_ref(r, first) == BBRE_AST_TYPE_ICC);
-  assert(BBRE_IMPLIES(rest, *bbre_ast_type_ref(r, rest) == BBRE_AST_TYPE_CC));
-  while (*(next = bbre_ast_param_ref(r, cur, 0)))
-    cur = *next;
-  *next = rest;
-  return first;
+  assert(bbre_ast_type_is_cc(*bbre_ast_type_ref(r, left)));
+  assert(bbre_ast_type_is_cc(*bbre_ast_type_ref(r, right)));
+  return bbre_ast_make(r, out, BBRE_AST_TYPE_CC_OR, left, right);
+}
+
+/* Create a BBRE_AST_TYPE_CC_NOT node with the given character class. */
+static int bbre_ast_cls_invert(bbre *r, bbre_uint *out, bbre_uint child)
+{
+  assert(bbre_ast_type_is_cc(*bbre_ast_type_ref(r, child)));
+  return bbre_ast_make(r, out, BBRE_AST_TYPE_CC_NOT, child);
 }
 
 /* Helper function to add a character to the argument stack.
@@ -1128,11 +1159,11 @@ static int bbre_parse_is_octdig(bbre_uint ch)
  * to look up a charclass by name and create an AST node representing that
  * charclass.*/
 static int bbre_builtin_cc_ascii(
-    bbre *r, const bbre_byte *name, size_t name_len, int invert);
+    bbre *r, const bbre_byte *name, size_t name_len, bbre_uint *out_ref);
 static int bbre_builtin_cc_unicode_property(
-    bbre *r, const bbre_byte *name, size_t name_len, int invert);
+    bbre *r, const bbre_byte *name, size_t name_len, bbre_uint *out_ref);
 static int bbre_builtin_cc_perl(
-    bbre *r, const bbre_byte *name, size_t name_len, int invert);
+    bbre *r, const bbre_byte *name, size_t name_len, bbre_uint *out_ref);
 
 /* This function is called after receiving a \ character when parsing an
  * expression or character class. Since some escape sequences are forbidden
@@ -1143,6 +1174,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
 {
   bbre_uint ch;
   int err = 0;
+  bbre_uint res; /* resulting AST node, used many times in this function */
   if ((err = bbre_parse_next_or(r, &ch, "expected escape sequence")))
     goto error;
   if (                              /* single character escapes */
@@ -1225,7 +1257,6 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
       return bbre_err_parse(r, "ordinal value out of range [0, 0x10FFFF]");
     return bbre_parse_escape_addchr(r, ord, allowed_outputs);
   } else if (ch == 'C') { /* any byte: \C */
-    bbre_uint res;        /* resulting AST node */
     if (!(allowed_outputs & (1 << BBRE_AST_TYPE_ANYBYTE))) {
       err = bbre_err_parse(r, "cannot use \\C here");
       goto error;
@@ -1234,8 +1265,8 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
         (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
       goto error;
   } else if (ch == 'Q') { /* quote string */
-    bbre_uint cat = BBRE_REF_NONE /* accumulator for concatenations */,
-              chr = BBRE_REF_NONE /* generated chr node for each character in
+    bbre_uint cat = BBRE_NIL /* accumulator for concatenations */,
+              chr = BBRE_NIL /* generated chr node for each character in
                                    the quoted string */
         ;
     if (!(allowed_outputs & (1 << BBRE_AST_TYPE_CAT))) {
@@ -1280,12 +1311,16 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
     int inverted =
         ch == 'D' || ch == 'S' || ch == 'W'; /* uppercase are inverted */
     bbre_byte lower = inverted ? ch - 'A' + 'a' : ch; /* convert to lowercase */
-    if (!(allowed_outputs & (1 << BBRE_AST_TYPE_CC))) {
+    if (!(allowed_outputs & (1 << BBRE_AST_TYPE_CC_BUILTIN))) {
       err = bbre_err_parse(r, "cannot use a character class here");
       goto error;
     }
     /* lookup the charclass, optionally invert it */
-    if ((err = bbre_builtin_cc_perl(r, &lower, 1, inverted)))
+    if ((err = bbre_builtin_cc_perl(r, &lower, 1, &res)))
+      goto error;
+    if (inverted && (err = bbre_ast_cls_invert(r, &res, res)))
+      goto error;
+    if ((err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
       goto error;
   } else if (ch == 'P' || ch == 'p') { /* Unicode properties */
     size_t name_start_pos = r->expr_pos, name_end_pos;
@@ -1306,18 +1341,20 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
     } else
       /* single-character property */
       name_end_pos = r->expr_pos;
-    if (!(allowed_outputs & (1 << BBRE_AST_TYPE_CC))) {
+    if (!(allowed_outputs & (1 << BBRE_AST_TYPE_CC_BUILTIN))) {
       err = bbre_err_parse(r, "cannot use a character class here");
       goto error;
     }
     assert(name_end_pos >= name_start_pos);
     if ((err = bbre_builtin_cc_unicode_property(
-             r, r->expr + name_start_pos, name_end_pos - name_start_pos,
-             inverted)))
+             r, r->expr + name_start_pos, name_end_pos - name_start_pos, &res)))
+      goto error;
+    if (inverted && (err = bbre_ast_cls_invert(r, &res, res)))
+      goto error;
+    if ((err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
       goto error;
   } else if (ch == 'A' || ch == 'z' || ch == 'B' || ch == 'b') {
     /* empty asserts */
-    bbre_uint res; /* resulting AST node */
     if (!(allowed_outputs & (1 << BBRE_AST_TYPE_ASSERT))) {
       err = bbre_err_parse(r, "cannot use an epsilon assertion here");
       goto error;
@@ -1381,14 +1418,13 @@ static int bbre_parse(
     goto error;
   if (flags) {
     bbre_uint igrp = 0, cat = 0;
-    if ((err = bbre_ast_make(
-             r, &cat, BBRE_AST_TYPE_CAT, BBRE_REF_NONE, BBRE_REF_NONE)) ||
+    if ((err = bbre_ast_make(r, &cat, BBRE_AST_TYPE_CAT, BBRE_NIL, BBRE_NIL)) ||
         (err = bbre_ast_make(r, &igrp, BBRE_AST_TYPE_IGROUP, cat, flags, 0)) ||
         (err = bbre_buf_push(&r->alloc, &r->op_stk, igrp)))
       goto error;
   }
   while (bbre_parse_has_more(r)) {
-    bbre_uint ch = bbre_parse_next(r), res = BBRE_REF_NONE;
+    bbre_uint ch = bbre_parse_next(r), res = BBRE_NIL;
     if (ch == '*' || ch == '+' || ch == '?') {
       bbre_uint q = ch, greedy = 1;
       /* arg_stk: | ... |  R  | */
@@ -1415,7 +1451,7 @@ static int bbre_parse(
       /* arg_stk: |  R  | */
       if ((err = bbre_ast_make(
                r, &res, BBRE_AST_TYPE_ALT, bbre_buf_pop(&r->arg_stk) /* left */,
-               BBRE_REF_NONE /* right */)) ||
+               BBRE_NIL /* right */)) ||
           (err = bbre_buf_push(&r->alloc, &r->op_stk, res)))
         goto error;
       /* arg_stk: | */
@@ -1574,14 +1610,17 @@ static int bbre_parse(
       /* op_stk:  | ... | */
     } else if (ch == '.') { /* any char */
       /* arg_stk: | ... | */
+      bbre_uint left = BBRE_NIL, right = BBRE_NIL;
       if (((flags & BBRE_GROUP_FLAG_DOTNEWLINE) &&
            (err = bbre_ast_make(
-                r, &res, BBRE_AST_TYPE_CC, BBRE_REF_NONE, 0, BBRE_UTF_MAX))) ||
+                r, &res, BBRE_AST_TYPE_CC_LEAF, 0, BBRE_UTF_MAX))) ||
           (!(flags & BBRE_GROUP_FLAG_DOTNEWLINE) &&
-           ((err = bbre_ast_make(
-                 r, &res, BBRE_AST_TYPE_CC, BBRE_REF_NONE, 0, '\n' - 1)) ||
+           ((err =
+                 bbre_ast_make(r, &left, BBRE_AST_TYPE_CC_LEAF, 0, '\n' - 1)) ||
             (err = bbre_ast_make(
-                 r, &res, BBRE_AST_TYPE_CC, res, '\n' + 1, BBRE_UTF_MAX)))) ||
+                 r, &right, BBRE_AST_TYPE_CC_LEAF, '\n' + 1, BBRE_UTF_MAX)) ||
+            (err =
+                 bbre_ast_make(r, &res, BBRE_AST_TYPE_CC_OR, left, right)))) ||
           (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
         goto error;
       /* arg_stk: | ... |  .  | */
@@ -1589,7 +1628,7 @@ static int bbre_parse(
       size_t cc_start_pos = r->expr_pos; /* starting position of charclass */
       bbre_uint inverted = 0 /* is the charclass inverted? */,
                 min /* min value of range */, max /* max value of range */;
-      res = BBRE_REF_NONE; /* resulting CC node */
+      res = BBRE_NIL; /* resulting CC node */
       while (1) {
         bbre_uint next; /* temp var to store child classes */
         if ((err = bbre_parse_next_or(r, &ch, "unclosed character class")))
@@ -1607,18 +1646,25 @@ static int bbre_parse(
             break;               /* charclass done */
         } else if (ch == '\\') { /* escape */
           if ((err = bbre_parse_escape(
-                   r, (1 << BBRE_AST_TYPE_CHR) | (1 << BBRE_AST_TYPE_CC))))
+                   r,
+                   (1 << BBRE_AST_TYPE_CHR) | (1 << BBRE_AST_TYPE_CC_BUILTIN |
+                                               (1 << BBRE_AST_TYPE_CC_LEAF)))))
             /* parse_escape() could return ERR_PARSE if for example \A */
             goto error;
           next = bbre_buf_pop(&r->arg_stk);
           assert(
               *bbre_ast_type_ref(r, next) == BBRE_AST_TYPE_CHR ||
-              *bbre_ast_type_ref(r, next) == BBRE_AST_TYPE_CC);
+              bbre_ast_type_is_cc(*bbre_ast_type_ref(r, next)));
           if (*bbre_ast_type_ref(r, next) == BBRE_AST_TYPE_CHR)
             min = *bbre_ast_param_ref(r, next, 0); /* single-character escape */
           else {
-            assert(*bbre_ast_type_ref(r, next) == BBRE_AST_TYPE_CC);
-            res = bbre_ast_cls_union(r, res, next);
+            assert(bbre_ast_type_is_cc(*bbre_ast_type_ref(r, next)));
+            if (res) {
+              if ((err = bbre_ast_cls_union(r, &res, res, next)))
+                goto error;
+            } else {
+              res = next;
+            }
             /* we parsed an entire class, so there's no ending character */
             continue;
           }
@@ -1657,12 +1703,17 @@ static int bbre_parse(
           /* lookup the charclass name in the labyrinth of tables */
           if ((err = bbre_builtin_cc_ascii(
                    r, r->expr + name_start_pos, (name_end_pos - name_start_pos),
-                   named_inverted)))
+                   &res)))
+            goto error;
+          if (named_inverted && (err = bbre_ast_cls_invert(r, &res, res)))
+            goto error;
+          if ((err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
             goto error;
           next = bbre_buf_pop(&r->arg_stk);
           /* ensure that builtin_cc_ascii returned a value */
-          assert(next && *bbre_ast_type_ref(r, next) == BBRE_AST_TYPE_CC);
-          res = bbre_ast_cls_union(r, res, next);
+          assert(next && bbre_ast_type_is_cc(*bbre_ast_type_ref(r, next)));
+          if ((err = bbre_ast_cls_union(r, &res, res, next)))
+            goto error;
           continue;
         }
         max = min;
@@ -1685,17 +1736,31 @@ static int bbre_parse(
             max = ch; /* non-escaped character */
           }
         }
-        if ((err = bbre_ast_make(r, &res, BBRE_AST_TYPE_CC, res, min, max)))
+        {
+          bbre_uint tmp;
+          if ((err = bbre_ast_make(
+                   r, &tmp, BBRE_AST_TYPE_CC_LEAF, min < max ? min : max,
+                   min < max ? max : min)))
+            goto error;
+          if (res != BBRE_NIL) {
+            if ((err = bbre_ast_make(r, &res, BBRE_AST_TYPE_CC_OR, res, tmp)))
+              goto error;
+          } else
+            res = tmp;
+        }
+      }
+      assert(res); /* charclass cannot be empty */
+      if (inverted) {
+        /* inverted character class */
+        if ((err = bbre_ast_make(r, &res, BBRE_AST_TYPE_CC_NOT, res)))
           goto error;
       }
-      assert(res);  /* charclass cannot be empty */
-      if (inverted) /* inverted character class */
-        *bbre_ast_type_ref(r, res) = BBRE_AST_TYPE_ICC;
       if ((err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
         goto error;
     } else if (ch == '\\') { /* escape */
       if ((err = bbre_parse_escape(
-               r, 1 << BBRE_AST_TYPE_CHR | 1 << BBRE_AST_TYPE_CC |
+               r, 1 << BBRE_AST_TYPE_CHR | 1 << BBRE_AST_TYPE_CC_LEAF |
+                      1 << BBRE_AST_TYPE_CC_BUILTIN |
                       1 << BBRE_AST_TYPE_ANYBYTE | 1 << BBRE_AST_TYPE_CAT |
                       1 << BBRE_AST_TYPE_ASSERT)))
         goto error;
@@ -1917,7 +1982,7 @@ static void bbre_patch_merge(bbre *r, bbre_compframe *p, bbre_compframe *q)
     goto done;
   bbre_patch_set(r, p->patch_tail, q->patch_head);
   p->patch_tail = q->patch_tail;
-  q->patch_head = q->patch_tail = BBRE_REF_NONE;
+  q->patch_head = q->patch_tail = BBRE_NIL;
 done:
   return;
 }
@@ -1927,7 +1992,7 @@ static void bbre_patch_xfer(bbre_compframe *dst, bbre_compframe *src)
 {
   dst->patch_head = src->patch_head;
   dst->patch_tail = src->patch_tail;
-  src->patch_head = src->patch_tail = BBRE_REF_NONE;
+  src->patch_head = src->patch_tail = BBRE_NIL;
 }
 
 /* Rip through the patch list in `f`, setting each branch target in the
@@ -1939,7 +2004,7 @@ static void bbre_patch_apply(bbre *r, bbre_compframe *f, bbre_uint dest_pc)
     bbre_inst prev = bbre_patch_set(r, i, dest_pc);
     i = i & 1 ? bbre_inst_param(prev) : bbre_inst_next(prev);
   }
-  f->patch_head = f->patch_tail = BBRE_REF_NONE;
+  f->patch_head = f->patch_tail = BBRE_NIL;
 }
 
 /* We sort arrays of rune_range by their lower bound. */
@@ -2489,11 +2554,11 @@ static void bbre_compcc_tree_xpose(
   bbre_compcc_tree *src_node = cc_tree_in + node_ref;
   bbre_compcc_tree *dst_node = cc_tree_out + node_ref, *parent_node;
   bbre_uint child_sibling_ref = src_node->child_ref;
-  assert(node_ref != BBRE_REF_NONE);
+  assert(node_ref != BBRE_NIL);
   /* There needs to be enough space in the output tree. This space is
    * preallocated to simplify this function's error checking. */
   assert(bbre_buf_size(cc_tree_out) == bbre_buf_size(cc_tree_in));
-  dst_node->sibling_ref = dst_node->child_ref = BBRE_REF_NONE;
+  dst_node->sibling_ref = dst_node->child_ref = BBRE_NIL;
   dst_node->aux.pc = 0;
   if (!child_sibling_ref) {
     parent_node = cc_tree_out + root_ref;
@@ -2506,7 +2571,7 @@ static void bbre_compcc_tree_xpose(
     bbre_compcc_tree_xpose(
         cc_tree_in, cc_tree_out, child_sibling_ref, root_ref, 0);
     if (!is_root) {
-      assert(parent_node->child_ref == BBRE_REF_NONE);
+      assert(parent_node->child_ref == BBRE_NIL);
       parent_node->child_ref = node_ref;
     }
     child_sibling_ref = child_sibling_node->sibling_ref;
@@ -2518,14 +2583,79 @@ static int bbre_compcc_fold_range(
     bbre *r, bbre_uint begin, bbre_uint end,
     bbre_buf(bbre_rune_range) * cc_out);
 
+static int bbre_compcc2(
+    bbre *r, bbre_compframe *frame, bbre_buf(bbre_rune_range) ranges,
+    int reversed)
+{
+  int err = 0;
+  bbre_uint start_pc = 0; /* start PC of the compiled charclass, this is filled
+                          in by rendertree() */
+  /* clear temporary buffers (their space is reserved) */
+  bbre_buf_clear(&r->compcc.tree), bbre_buf_clear(&r->compcc.tree_2),
+      bbre_buf_clear(&r->compcc.hash);
+  if (!bbre_buf_size(ranges)) {
+    /* here, it's actually possible to have a charclass that matches no chars,
+     * consider the inversion of [\x00-\x{10FFFF}]. Since this case is so rare,
+     * we just stub it out by creating an assert that never matches. */
+    if ((err = bbre_prog_emit(
+             &r->prog,
+             bbre_inst_make(
+                 BBRE_OPCODE_ASSERT, 0,
+                 BBRE_ASSERT_WORD | BBRE_ASSERT_NOT_WORD),
+             frame->set_idx))) /* never matches */
+      goto error;
+    /* just return immediately, the code below assumes that there are actually
+     * ranges to compile */
+    bbre_patch_add(r, frame, bbre_prog_size(&r->prog) - 1, 0);
+    goto error;
+  }
+  /* build the concat/alt tree */
+  if ((err = bbre_compcc_tree_build(r, ranges, &r->compcc.tree)))
+    goto error;
+  /* hash the tree */
+  if ((err = bbre_compcc_hash_init(r, r->compcc.tree, &r->compcc.hash)))
+    goto error;
+  bbre_compcc_tree_hash(r, r->compcc.tree, 1);
+  if (reversed) {
+    /* optionally reverse the tree, if we're compiling in reverse mode */
+    bbre_uint i;
+    bbre_buf(bbre_compcc_tree) tmp;
+    /* copy all nodes from compcc.tree to compcc.tree_2, this has the side
+     * effect of reserving exactly enough space to store the reversed tree */
+    bbre_buf_clear(&r->compcc.tree_2);
+    for (i = 1 /* skip sentinel */; i < bbre_buf_size(r->compcc.tree); i++) {
+      if ((err = bbre_compcc_tree_new(
+               r, &r->compcc.tree_2, r->compcc.tree[i], NULL)) == BBRE_ERR_MEM)
+        goto error;
+      assert(!err);
+    }
+    /* detach new root */
+    r->compcc.tree_2[1].child_ref = BBRE_NIL;
+    /* reverse all concatenation edges in the tree */
+    bbre_compcc_tree_xpose(r->compcc.tree, r->compcc.tree_2, 1, 1, 1);
+    tmp = r->compcc.tree;
+    r->compcc.tree = r->compcc.tree_2;
+    r->compcc.tree_2 = tmp;
+  }
+  /* reduce the tree */
+  bbre_compcc_tree_reduce(
+      r, r->compcc.tree, r->compcc.hash, r->compcc.tree[1].child_ref,
+      &start_pc);
+  /* finally, generate the charclass' instructions */
+  if ((err = bbre_compcc_tree_render(
+           r, r->compcc.tree, r->compcc.tree[1].child_ref, &start_pc, frame)))
+    goto error;
+error:
+  return err;
+}
+
 /* Main function for the character class compiler. `ast_root` is the AST ID of
  * the CC node, `frame` is the compiler frame allocated for that node, and
  * `reversed` tells us whether to compile the charclass in reverse. */
-static int
-bbre_compcc(bbre *r, bbre_uint ast_root, bbre_compframe *frame, int reversed)
+int bbre_compcc(
+    bbre *r, bbre_uint ast_root, bbre_compframe *frame, int reversed)
 {
-  int err = 0,
-      is_inverted = *bbre_ast_type_ref(r, frame->root_ref) == BBRE_AST_TYPE_ICC,
+  int err = 0, is_inverted = 0,
       is_insensitive = !!(frame->flags & BBRE_GROUP_FLAG_INSENSITIVE);
   bbre_uint start_pc = 0; /* start PC of the compiled charclass, this is filled
                           in by rendertree() */
@@ -2670,7 +2800,7 @@ bbre_compcc(bbre *r, bbre_uint ast_root, bbre_compframe *frame, int reversed)
       assert(!err);
     }
     /* detach new root */
-    r->compcc.tree_2[1].child_ref = BBRE_REF_NONE;
+    r->compcc.tree_2[1].child_ref = BBRE_NIL;
     /* reverse all concatenation edges in the tree */
     bbre_compcc_tree_xpose(r->compcc.tree, r->compcc.tree_2, 1, 1, 1);
     tmp = r->compcc.tree;
@@ -2729,7 +2859,7 @@ static int bbre_compile_dup(
   *dst = *src;
   bbre_patch_apply(r, src, dest_pc);
   dst->pc = bbre_prog_size(&r->prog);
-  dst->patch_head = dst->patch_tail = BBRE_REF_NONE;
+  dst->patch_head = dst->patch_tail = BBRE_NIL;
   for (i = src->pc; i < src_end; i++) {
     bbre_inst inst = bbre_prog_get(&r->prog, i),
               next_inst = bbre_inst_relocate(inst, src->pc, dst->pc);
@@ -2797,6 +2927,87 @@ error:
   return err;
 }
 
+/* Helper function to allocate and append an array of rune ranges to the cc_stk
+ * member of a bbre. */
+static int bbre_compile_alloc_cc(bbre *r)
+{
+  int err = 0;
+  bbre_buf(bbre_rune_range) target;
+  bbre_buf_init(&target);
+  if ((err = bbre_buf_push(&r->alloc, &r->cc_stk, target))) {
+    bbre_buf_destroy(&r->alloc, &target);
+    goto error;
+  }
+error:
+  return err;
+}
+
+/* Helper function to pop and destroy an array of rune ranges from the cc_stk
+ * member of a bbre. */
+static void bbre_compile_free_cc(bbre *r)
+{
+  bbre_buf(bbre_rune_range) memb = bbre_buf_pop(&r->cc_stk);
+  bbre_buf_destroy(&r->alloc, &memb);
+}
+
+/* Helper function to casefold the character class on the top of the cc_stk. */
+static int bbre_compile_casefold_cc(bbre *r)
+{
+  int err = 0;
+  bbre_buf(bbre_rune_range) in = bbre_buf_pop(&r->cc_stk);
+  bbre_buf(bbre_rune_range) out_denorm;
+  bbre_buf(bbre_rune_range) * out;
+  size_t i;
+  bbre_buf_init(&out_denorm);
+  if ((err = bbre_compile_alloc_cc(r)))
+    goto error;
+  out = &r->cc_stk[bbre_buf_size(r->cc_stk) - 1];
+  for (i = 0; i < bbre_buf_size(in); i++) {
+    bbre_rune_range rr = in[i];
+    if ((err = bbre_buf_push(&r->alloc, &out_denorm, rr)))
+      goto error;
+    if ((err = bbre_compcc_fold_range(r, rr.l, rr.h, &out_denorm)))
+      goto error;
+  }
+  bbre_compcc_hsort(out_denorm);
+  {
+    /* normalize ranges */
+    bbre_rune_range next /* currently processed range */,
+        prev /* previously processed range, yet to be added to the array */;
+    for (i = 0; i < bbre_buf_size(out_denorm); i++) {
+      next = out_denorm[i];
+      assert(next.l <= next.h); /* ensure ranges are not swapped */
+      if (!i)
+        /* this is the first range */
+        prev = bbre_rune_range_make(next.l, next.h);
+      else if (next.l <= prev.h + 1) {
+        /* next intersects or is adjacent to prev, merge the two ranges by
+         * expanding prev so that it envelops both prev and next */
+        prev.h = next.h > prev.h ? next.h : prev.h;
+      } else {
+        /* next and prev are disjoint */
+        /* since ranges strictly increase, we know that prev does not
+         * intersect with any other range in the input array, so we can push
+         * it and move on. */
+        if ((err = bbre_buf_push(&r->alloc, out, prev)))
+          goto error;
+        prev = next;
+      }
+    }
+    if ((err = bbre_buf_push(&r->alloc, out, prev)))
+      goto error;
+  }
+error:
+  bbre_buf_destroy(&r->alloc, &in);
+  bbre_buf_destroy(&r->alloc, &out_denorm);
+  return err;
+}
+
+/* This function reads from the builtin CC ROM and is defined later. */
+static int bbre_builtin_cc_decode2(
+    bbre *r, bbre_uint start, bbre_uint num_range,
+    bbre_buf(bbre_rune_range) * out);
+
 /* Main compiler function. Given an AST node through `ast_root`, convert it to
  * compiled instructions. Optionally generate the reversed program if `reverse`
  * is specified. */
@@ -2809,9 +3020,7 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
           {0} /* after a child node is compiled, its frame is returned here */,
       child_frame = {
           0}; /* filled when we want to request a child to be compiled */
-  bbre_uint sub_idx = 0 /* current subpattern index */,
-            tmp_cc_ast = BBRE_REF_NONE; /* temporary AST node for converting CHR
-                                         nodes into CC nodes */
+  bbre_uint sub_idx = 0; /* current subpattern index */
   /* add sentinel 0th instruction, this compiles to all zeroes */
   if (!bbre_prog_size(&r->prog) &&
       ((err = bbre_buf_push(
@@ -2823,7 +3032,7 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
   /* create the frame for the root node */
   initial_frame.root_ref = ast_root;
   initial_frame.child_ref = initial_frame.patch_head =
-      initial_frame.patch_tail = BBRE_REF_NONE;
+      initial_frame.patch_tail = BBRE_NIL;
   initial_frame.idx = 0;
   initial_frame.pc = bbre_prog_size(&r->prog);
   /* set the entry point for the forward or reverse program */
@@ -2834,7 +3043,7 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
     /* walk the AST tree recursively until we are done visiting nodes */
     bbre_compframe frame = *bbre_buf_peek(&r->comp_stk, 0);
     bbre_ast_type type; /* AST node type */
-    bbre_uint args[4] = {0} /* AST node args */,
+    bbre_uint args[BBRE_AST_MAX_ARGS] = {0} /* AST node args */,
               my_pc =
                   bbre_prog_size(&r->prog); /* PC of this node's instructions */
     /* we tell the compiler to visit a child by setting `frame.child_ref` to
@@ -2843,7 +3052,7 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
     frame.child_ref = frame.root_ref;
 
     child_frame.child_ref = child_frame.root_ref = child_frame.patch_head =
-        child_frame.patch_tail = BBRE_REF_NONE;
+        child_frame.patch_tail = BBRE_NIL;
     child_frame.idx = child_frame.pc = 0;
     type = *bbre_ast_type_ref(r, frame.root_ref); /* may return 0 if epsilon */
     if (frame.root_ref)
@@ -2868,17 +3077,18 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
           goto error;
         bbre_patch_add(r, &frame, my_pc, 0);
       } else { /* unicode */
-        /* create temp ast */
-        if (!tmp_cc_ast &&
-            (err = bbre_ast_make(
-                 r, &tmp_cc_ast, BBRE_AST_TYPE_CC, BBRE_REF_NONE, 0, 0)))
+        if ((err = bbre_compile_alloc_cc(r)) ||
+            (err = bbre_buf_push(
+                 &r->alloc, &r->cc_stk[0],
+                 bbre_rune_range_make(args[0], args[0]))))
           goto error;
-        /* create a CC node with a range comprising the single codepoint */
-        *bbre_ast_param_ref(r, tmp_cc_ast, 1) =
-            *bbre_ast_param_ref(r, tmp_cc_ast, 2) = args[0];
+        if ((frame.flags & BBRE_GROUP_FLAG_INSENSITIVE) &&
+            (err = bbre_compile_casefold_cc(r)))
+          goto error;
         /* call the character class compiler on the single CC node */
-        if ((err = bbre_compcc(r, tmp_cc_ast, &frame, reverse)))
+        if ((err = bbre_compcc2(r, &frame, r->cc_stk[0], reverse)))
           goto error;
+        bbre_compile_free_cc(r);
       }
     } else if (type == BBRE_AST_TYPE_ANYBYTE) {
       /* \C */
@@ -3097,11 +3307,141 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
            * ---> [X] ----> */
           bbre_patch_merge(r, &frame, &returned_frame);
       }
-    } else if (type == BBRE_AST_TYPE_CC || type == BBRE_AST_TYPE_ICC) {
-      /* charclasses: pass off compilation to the character class compiler */
-      bbre_patch_apply(r, &frame, my_pc);
-      if ((err = bbre_compcc(r, frame.root_ref, &frame, reverse)))
-        goto error;
+    } else if (bbre_ast_type_is_cc(type)) {
+      /* Character class subtree. */
+      if (type == BBRE_AST_TYPE_CC_LEAF) {
+        /* Leaf: create an array of length 1 containing the character class. */
+        if ((err = bbre_compile_alloc_cc(r)))
+          goto error;
+        if ((err = bbre_buf_push(
+                 &r->alloc, &r->cc_stk[bbre_buf_size(r->cc_stk) - 1],
+                 bbre_rune_range_make(args[0], args[1]))))
+          goto error;
+        if ((frame.flags & BBRE_GROUP_FLAG_INSENSITIVE) &&
+            (err = bbre_compile_casefold_cc(r)))
+          goto error;
+      } else if (type == BBRE_AST_TYPE_CC_BUILTIN) {
+        /* Builtins: read the character class from ROM. */
+        if ((err = bbre_compile_alloc_cc(r)))
+          goto error;
+        if ((err = bbre_builtin_cc_decode2(
+                 r, args[0], args[1],
+                 &r->cc_stk[bbre_buf_size(r->cc_stk) - 1])))
+          goto error;
+        if ((frame.flags & BBRE_GROUP_FLAG_INSENSITIVE) &&
+            (err = bbre_compile_casefold_cc(r)))
+          goto error;
+      } else if (type == BBRE_AST_TYPE_CC_NOT) {
+        /* Negation: evaluate child, then negate it. */
+        if (frame.idx == 0) {
+          if ((err = bbre_compile_alloc_cc(r))) /* push our output array */
+            goto error;
+          frame.child_ref = args[0]; /* push child */
+          frame.idx++;
+        } else {
+          bbre_buf(bbre_rune_range) *a =
+              &r->cc_stk[bbre_buf_size(r->cc_stk) - 1];
+          bbre_buf(bbre_rune_range) *o =
+              &r->cc_stk[bbre_buf_size(r->cc_stk) - 2];
+          size_t a_idx = 0;
+          bbre_uint current = 0;
+          assert(frame.idx == 1);
+          for (a_idx = 0; a_idx < bbre_buf_size(*a); a_idx++) {
+            bbre_rune_range next = (*a)[a_idx];
+            if (next.l > current &&
+                (err = bbre_buf_push(
+                     &r->alloc, o, bbre_rune_range_make(current, next.l - 1))))
+              goto error;
+            current = next.h + 1;
+          }
+          if (current < BBRE_UTF_MAX &&
+              (err = bbre_buf_push(
+                   &r->alloc, o, bbre_rune_range_make(current, BBRE_UTF_MAX))))
+            goto error;
+          bbre_compile_free_cc(r); /* free child */
+        }
+      } else if (type == BBRE_AST_TYPE_CC_OR || type == BBRE_AST_TYPE_CC_AND) {
+        /* Conjunction/disjunction: evaluate left and right children, then
+         * compose them into a single character class. */
+        if (frame.idx == 0) {
+          if ((err = bbre_compile_alloc_cc(r))) /* push our output array */
+            goto error;
+          frame.child_ref = args[0]; /* push left child */
+          frame.idx++;
+        } else if (frame.idx == 1) {
+          frame.child_ref = args[1]; /* push right child */
+          frame.idx++;
+        } else {
+          /* evaluate both children */
+          bbre_buf(bbre_rune_range) *a =
+              &r->cc_stk[bbre_buf_size(r->cc_stk) - 1];
+          bbre_buf(bbre_rune_range) *b =
+              &r->cc_stk[bbre_buf_size(r->cc_stk) - 2];
+          bbre_buf(bbre_rune_range) *o =
+              &r->cc_stk[bbre_buf_size(r->cc_stk) - 3];
+          size_t a_idx = 0, b_idx = 0;
+          bbre_rune_range current = {BBRE_UTF_MAX + 1, BBRE_UTF_MAX + 1},
+                          next = {0};
+          assert(frame.idx == 2);
+          while (1) {
+            int a_done = a_idx == bbre_buf_size(*a),
+                b_done = b_idx == bbre_buf_size(*b);
+            if (a_done && b_done)
+              break;
+            assert(
+                BBRE_IMPLIES(a_done, !b_done) && BBRE_IMPLIES(b_done, !a_done));
+            if (b_done || (!a_done && (*a)[a_idx].l < (*b)[b_idx].l))
+              next = (*a)[a_idx++];
+            else
+              next = (*b)[b_idx++];
+            if (type == BBRE_AST_TYPE_CC_OR) {
+              if (current.l == BBRE_UTF_MAX + 1)
+                current = next;
+              else if (next.l <= current.h)
+                current = bbre_rune_range_make(
+                    current.l, next.h > current.h ? next.h : current.h);
+              else if (next.l == current.h + 1)
+                current = bbre_rune_range_make(current.l, next.h);
+              else if (next.l > current.h + 1) {
+                if ((err = bbre_buf_push(&r->alloc, o, current)))
+                  goto error;
+                current = next;
+              }
+            } else {
+              assert(type == BBRE_AST_TYPE_CC_AND);
+              if (current.l == BBRE_UTF_MAX + 1)
+                current = next;
+              else if (next.l <= current.h) {
+                bbre_uint lo = current.h < next.h ? current.h : next.h,
+                          hi = current.h > next.h ? current.h : next.h;
+                if ((err = bbre_buf_push(
+                         &r->alloc, o, bbre_rune_range_make(next.l, lo))))
+                  goto error;
+                if (lo != hi)
+                  current = bbre_rune_range_make(lo + 1, hi);
+              } else if (next.l == current.h + 1 || next.l > current.h + 1)
+                current = next;
+            }
+          }
+          if (current.l != BBRE_UTF_MAX + 1 && type == BBRE_AST_TYPE_CC_OR &&
+              (err = bbre_buf_push(&r->alloc, o, current)))
+            goto error;
+          bbre_compile_free_cc(r); /* free right child */
+          bbre_compile_free_cc(r); /* free left child */
+        }
+      }
+      assert(BBRE_IMPLIES(
+          frame.child_ref == frame.root_ref, bbre_buf_size(r->cc_stk)));
+      if (frame.child_ref == frame.root_ref &&
+          (bbre_buf_size(r->cc_stk) == 1)) {
+        /* If we're done compiling this AST node, and this is the root of a CC
+         * subtree, then we can hand off the normalized range array to the
+         * character class compiler. */
+        bbre_patch_apply(r, &frame, my_pc);
+        if ((err = bbre_compcc2(r, &frame, r->cc_stk[0], reverse)))
+          goto error;
+        bbre_compile_free_cc(r);
+      }
     } else if (type == BBRE_AST_TYPE_ASSERT) {
       /* assertions: add a single ASSERT instruction */
       /*  in     out
@@ -3155,6 +3495,8 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
   if ((err = bbre_compile_dotstar(&r->prog, reverse, 1)))
     goto error;
 error:
+  /* we should have a balanced character class stack when exiting this func */
+  assert(!bbre_buf_size(r->cc_stk));
   return err;
 }
 
@@ -4975,37 +5317,44 @@ static const bbre_builtin_cc bbre_builtin_ccs_ascii[16] = {
     {6,  3, 19, "xdigit"    },
     {0,  0, 0,  ""          }
 };
-static const bbre_builtin_cc bbre_builtin_ccs_unicode_property[30] = {
-    {2, 2,   21,   "Cc"},
-    {2, 21,  23,   "Cf"},
-    {2, 6,   36,   "Co"},
-    {2, 4,   41,   "Cs"},
-    {2, 658, 44,   "Ll"},
-    {2, 71,  139,  "Lm"},
-    {2, 524, 174,  "Lo"},
-    {2, 10,  400,  "Lt"},
-    {2, 646, 404,  "Lu"},
-    {2, 182, 492,  "Mc"},
-    {2, 5,   559,  "Me"},
-    {2, 346, 563,  "Mn"},
-    {2, 64,  700,  "Nd"},
-    {2, 12,  742,  "Nl"},
-    {2, 72,  750,  "No"},
-    {2, 6,   795,  "Pc"},
-    {2, 19,  799,  "Pd"},
-    {2, 76,  808,  "Pe"},
-    {2, 10,  823,  "Pf"},
-    {2, 11,  827,  "Pi"},
-    {2, 187, 831,  "Po"},
-    {2, 79,  914,  "Ps"},
-    {2, 21,  930,  "Sc"},
-    {2, 31,  942,  "Sk"},
-    {2, 64,  957,  "Sm"},
-    {2, 185, 984,  "So"},
-    {2, 1,   1074, "Zl"},
-    {2, 1,   1075, "Zp"},
-    {2, 7,   1076, "Zs"},
-    {0, 0,   0,    ""  }
+static const bbre_builtin_cc bbre_builtin_ccs_unicode_property[37] = {
+    {2, 2,   21,   "Cc"                   },
+    {2, 21,  23,   "Cf"                   },
+    {2, 6,   36,   "Co"                   },
+    {2, 4,   41,   "Cs"                   },
+    {2, 658, 44,   "Ll"                   },
+    {2, 71,  139,  "Lm"                   },
+    {2, 524, 174,  "Lo"                   },
+    {2, 10,  400,  "Lt"                   },
+    {2, 646, 404,  "Lu"                   },
+    {2, 182, 492,  "Mc"                   },
+    {2, 5,   559,  "Me"                   },
+    {2, 346, 563,  "Mn"                   },
+    {2, 64,  700,  "Nd"                   },
+    {2, 12,  742,  "Nl"                   },
+    {2, 72,  750,  "No"                   },
+    {2, 6,   795,  "Pc"                   },
+    {2, 19,  799,  "Pd"                   },
+    {2, 76,  808,  "Pe"                   },
+    {2, 10,  823,  "Pf"                   },
+    {2, 11,  827,  "Pi"                   },
+    {2, 187, 831,  "Po"                   },
+    {2, 79,  914,  "Ps"                   },
+    {2, 21,  930,  "Sc"                   },
+    {2, 31,  942,  "Sk"                   },
+    {2, 64,  957,  "Sm"                   },
+    {2, 185, 984,  "So"                   },
+    {2, 1,   1074, "Zl"                   },
+    {2, 1,   1075, "Zp"                   },
+    {2, 7,   1076, "Zs"                   },
+    {1, 0,   0,    "CCc,Cf,Cs,Co"         },
+    {1, 0,   0,    "LLu,Ll,Lo,Lt,Lm"      },
+    {1, 0,   0,    "MMn,Me,Mc"            },
+    {1, 0,   0,    "NNd,No,Nl"            },
+    {1, 0,   0,    "PPo,Ps,Pe,Pd,Pc,Pi,Pf"},
+    {1, 0,   0,    "SSc,Sm,Sk,So"         },
+    {1, 0,   0,    "ZZs,Zl,Zp"            },
+    {0, 0,   0,    ""                     }
 };
 static const bbre_builtin_cc bbre_builtin_ccs_perl[4] = {
     {1, 1, 7,  "d"},
@@ -5026,16 +5375,13 @@ static int bbre_builtin_cc_next_bit(const bbre_uint **p, bbre_uint *idx)
   return (int)!!out;
 }
 
-static int bbre_builtin_cc_decode(
-    bbre *r, const bbre_byte *name, size_t name_len, int invert,
-    const bbre_builtin_cc *start)
+static int bbre_builtin_cc_make(
+    bbre *r, const bbre_byte *name, size_t name_len,
+    const bbre_builtin_cc *start, bbre_uint *out_ref)
 {
-
   const bbre_builtin_cc *p = NULL, *found = NULL;
-  const bbre_uint *read; /* pointer to compressed data */
-  bbre_uint i, bit_idx, prev = BBRE_UTF_MAX + 1, accum = 0, res = BBRE_REF_NONE;
-  bbre_uint max = 0, range[2];
-  int err;
+  int err = 0;
+  *out_ref = 0;
   /* Find the property with the matching name. */
   for (p = start; p->name_len; p++)
     if (p->name_len == name_len && !memcmp(p->name, name, name_len)) {
@@ -5046,10 +5392,49 @@ static int bbre_builtin_cc_decode(
     err = bbre_err_parse(r, "invalid Unicode property name");
     goto error;
   }
+  if (found->num_range) {
+    if ((err = bbre_ast_make(
+             r, out_ref, BBRE_AST_TYPE_CC_BUILTIN, found->start,
+             found->num_range)))
+      goto error;
+  } else {
+    /* if !found->num_range, then this is the logical OR of several classes */
+    const char *name_begin = p->name + p->name_len;
+    while (*name_begin) {
+      bbre_uint subcls = BBRE_NIL;
+      const char *name_end = name_begin;
+      while (*name_end && *name_end != ',')
+        name_end++;
+      if ((err = bbre_builtin_cc_make(
+               r, (const bbre_byte *)name_begin, name_end - name_begin, start,
+               &subcls)))
+        goto error;
+      if (!*out_ref)
+        *out_ref = subcls;
+      else if ((err = bbre_ast_make(
+                    r, out_ref, BBRE_AST_TYPE_CC_OR, *out_ref, subcls)))
+        goto error;
+      if (*name_end == ',')
+        name_end++;
+      name_begin = name_end;
+    }
+  }
+error:
+  return err;
+}
+
+static int bbre_builtin_cc_decode2(
+    bbre *r, bbre_uint start, bbre_uint num_range,
+    bbre_buf(bbre_rune_range) * out)
+{
+
+  const bbre_uint *read; /* pointer to compressed data */
+  bbre_uint i, bit_idx, prev = BBRE_UTF_MAX + 1, accum = 0, range[2];
+  int err;
   /* Start reading from the p->start offset in the compressed bit stream. */
-  read = bbre_builtin_cc_data + p->start, bit_idx = 0;
-  assert(p->num_range); /* there are always ranges in builtin charclasses */
-  for (i = 0; i < p->num_range; i++) {
+  read = bbre_builtin_cc_data + start, bit_idx = 0;
+  assert(num_range); /* there are always ranges in builtin charclasses */
+  for (i = 0; i < num_range; i++) {
     bbre_uint *number, k;
     range[0] = 0, range[1] = 0;
     /* Read two integers per range. */
@@ -5079,57 +5464,38 @@ static int bbre_builtin_cc_decode(
       /* Add the accumulated delta, and then update the accumulator itself. */
       *number = accum + *number, accum = *number;
     }
-    {
-      /* We now have decoded the low and high ordinals of the range, so
-       * optionally invert it. */
-      if (!invert) {
-        if ((err = bbre_ast_make(
-                 r, &res, BBRE_AST_TYPE_CC, res, range[0], range[1])))
-          goto error;
-      } else {
-        assert(range[0] >= max);
-        if (max != range[0] &&
-            (err = bbre_ast_make(
-                 r, &res, BBRE_AST_TYPE_CC, res, max, range[0] - 1)))
-          goto error;
-        else
-          max = range[1] + 1;
-      }
-    }
+    /* We now have decoded the low and high ordinals of the range. */
+    if ((err = bbre_buf_push(
+             &r->alloc, out, bbre_rune_range_make(range[0], range[1]))))
+      goto error;
   }
   assert(
       range[1] <
       BBRE_UTF_MAX); /* builtin charclasses never reach BBRE_UTF_MAX */
   assert(i);         /* builtin charclasses are not length zero */
-  if (invert &&
-      (err = bbre_ast_make(
-           r, &res, BBRE_AST_TYPE_CC, res, range[1] + 1, BBRE_UTF_MAX)))
-    goto error;
-  if ((err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
-    goto error;
 error:
   return err;
 }
 
 static int bbre_builtin_cc_unicode_property(
-    bbre *r, const bbre_byte *name, size_t name_len, int invert)
+    bbre *r, const bbre_byte *name, size_t name_len, bbre_uint *out_ref)
 {
-  return bbre_builtin_cc_decode(
-      r, name, name_len, invert, bbre_builtin_ccs_unicode_property);
+  return bbre_builtin_cc_make(
+      r, name, name_len, bbre_builtin_ccs_unicode_property, out_ref);
 }
 
 static int bbre_builtin_cc_ascii(
-    bbre *r, const bbre_byte *name, size_t name_len, int invert)
+    bbre *r, const bbre_byte *name, size_t name_len, bbre_uint *out_ref)
 {
-  return bbre_builtin_cc_decode(
-      r, name, name_len, invert, bbre_builtin_ccs_ascii);
+  return bbre_builtin_cc_make(
+      r, name, name_len, bbre_builtin_ccs_ascii, out_ref);
 }
 
 static int bbre_builtin_cc_perl(
-    bbre *r, const bbre_byte *name, size_t name_len, int invert)
+    bbre *r, const bbre_byte *name, size_t name_len, bbre_uint *out_ref)
 {
-  return bbre_builtin_cc_decode(
-      r, name, name_len, invert, bbre_builtin_ccs_perl);
+  return bbre_builtin_cc_make(
+      r, name, name_len, bbre_builtin_ccs_perl, out_ref);
 }
 
 #ifdef BBRE_DEBUG_UTILS

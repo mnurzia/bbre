@@ -1,4 +1,4 @@
-#ifndef BBRE_REF_NONE
+#ifndef BBRE_NIL
   #include "../bbre.c"
 #endif
 
@@ -94,16 +94,19 @@ void d_ast_i(bbre *r, bbre_uint root, bbre_uint ilvl, int format)
   bbre_uint sub[2] = {0xFF, 0xFF};
   char buf[32] = {0}, buf2[32] = {0};
   const char *node_name =
-      root == BBRE_REF_NONE             ? "\xc9\x9b" /* epsilon */
-      : (first == BBRE_AST_TYPE_CHR)    ? "CHR"
-      : (first == BBRE_AST_TYPE_CAT)    ? (sub[0] = 0, sub[1] = 1, "CAT")
-      : (first == BBRE_AST_TYPE_ALT)    ? (sub[0] = 0, sub[1] = 1, "ALT")
-      : (first == BBRE_AST_TYPE_QUANT)  ? (sub[0] = 0, "QUANT")
-      : (first == BBRE_AST_TYPE_UQUANT) ? (sub[0] = 0, "UQUANT")
-      : (first == BBRE_AST_TYPE_GROUP)  ? (sub[0] = 0, "GROUP")
-      : (first == BBRE_AST_TYPE_IGROUP) ? (sub[0] = 0, "IGROUP")
-      : (first == BBRE_AST_TYPE_CC)     ? (sub[0] = 0, "CLS")
-      : (first == BBRE_AST_TYPE_ICC)    ? (sub[0] = 0, "ICLS")
+      root == BBRE_NIL                      ? "\xc9\x9b" /* epsilon */
+      : (first == BBRE_AST_TYPE_CHR)        ? "CHR"
+      : (first == BBRE_AST_TYPE_CAT)        ? (sub[0] = 0, sub[1] = 1, "CAT")
+      : (first == BBRE_AST_TYPE_ALT)        ? (sub[0] = 0, sub[1] = 1, "ALT")
+      : (first == BBRE_AST_TYPE_QUANT)      ? (sub[0] = 0, "QUANT")
+      : (first == BBRE_AST_TYPE_UQUANT)     ? (sub[0] = 0, "UQUANT")
+      : (first == BBRE_AST_TYPE_GROUP)      ? (sub[0] = 0, "GROUP")
+      : (first == BBRE_AST_TYPE_IGROUP)     ? (sub[0] = 0, "IGROUP")
+      : (first == BBRE_AST_TYPE_CC_LEAF)    ? "CC_LEAF"
+      : (first == BBRE_AST_TYPE_CC_BUILTIN) ? "CC_BUILTIN"
+      : (first == BBRE_AST_TYPE_CC_NOT)     ? (sub[0] = 0, "CC_NOT")
+      : (first == BBRE_AST_TYPE_CC_OR)      ? (sub[0] = 0, sub[1] = 1, "CC_OR")
+      : (first == BBRE_AST_TYPE_CC_AND)     ? (sub[0] = 0, sub[1] = 1, "CC_AND")
       : (first == BBRE_AST_TYPE_ANYBYTE)
           ? "ANYBYTE"
           : /* (first == BBRE_AST_TYPE_ASSERT) */ "ASSERT";
@@ -128,10 +131,16 @@ void d_ast_i(bbre *r, bbre_uint root, bbre_uint ilvl, int format)
     printf(
         "%s-%s", d_quant(buf, *bbre_ast_param_ref(r, root, 1)),
         d_quant(buf2, *bbre_ast_param_ref(r, root, 2)));
-  else if (first == BBRE_AST_TYPE_CC || first == BBRE_AST_TYPE_ICC)
+  else if (first == BBRE_AST_TYPE_CC_LEAF)
     printf(
-        "%s-%s", d_chr_unicode(buf, *bbre_ast_param_ref(r, root, 1)),
-        d_chr_unicode(buf2, *bbre_ast_param_ref(r, root, 2)));
+        "%s-%s", d_chr_unicode(buf, *bbre_ast_param_ref(r, root, 0)),
+        d_chr_unicode(buf2, *bbre_ast_param_ref(r, root, 1)));
+  else if (first == BBRE_AST_TYPE_CC_BUILTIN)
+    printf(
+        "%i/%i", *bbre_ast_param_ref(r, root, 0),
+        *bbre_ast_param_ref(r, root, 1));
+  else if (first == BBRE_AST_TYPE_ASSERT)
+    printf("%s", d_assert(buf, *bbre_ast_param_ref(r, root, 0)));
   if (format == GRAPHVIZ)
     printf(
         "\"]\nsubgraph cluster_%04X { "

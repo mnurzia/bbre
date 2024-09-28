@@ -26,7 +26,14 @@ CFLAGS=\
 	-DBBRE_DEBUG_UTILS=\"tools/debug_utils.c\"\
 	$(CFLAGS_$(PROFILE))
 
-GDB=ASAN_OPTIONS=halt_on_error=0 lldb --
+GDB=\
+	ASAN_OPTIONS=halt_on_error=1\
+	UBSAN_OPTIONS=halt_on_error=1\
+	lldb\
+		-o "rbreak ^__ubsan_handle_"\
+		-o "b __asan::ReportGenericError"\
+		--
+
 FORMAT=clang-format -i
 PYTHON=/usr/bin/env python3
 UDATA=$(PYTHON) scripts/unicode_data.py --debug --db scripts/.ucd.zip
