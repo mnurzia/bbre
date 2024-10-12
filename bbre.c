@@ -352,6 +352,13 @@ typedef struct bbre_nfa {
 
 #define BBRE_DFA_MAX_NUM_STATES 256
 
+typedef enum bbre_dfa_match_flags {
+  BBRE_DFA_MATCH_FLAG_REVERSED = 1,
+  BBRE_DFA_MATCH_FLAG_PRI = 2,
+  BBRE_DFA_MATCH_FLAG_EXIT_EARLY = 4,
+  BBRE_DFA_MATCH_FLAG_MANY = 8
+} bbre_dfa_match_flags;
+
 typedef enum bbre_dfa_state_flag {
   BBRE_DFA_STATE_FLAG_FROM_TEXT_BEGIN = 1,
   BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN = 2,
@@ -4191,10 +4198,14 @@ static void bbre_dfa_save_matches(bbre_dfa *dfa, bbre_dfa_state *state)
 
 static int bbre_dfa_match(
     bbre_exec *exec, bbre_byte *s, size_t n, size_t pos, size_t *out_pos,
-    const int reversed, const int pri, const int exit_early, const int many)
+    const bbre_dfa_match_flags flags)
 {
   int err;
   bbre_dfa_state *state = NULL;
+  int reversed = !!(flags & BBRE_DFA_MATCH_FLAG_REVERSED);
+  int pri = !!(flags & BBRE_DFA_MATCH_FLAG_PRI);
+  int exit_early = !!(flags & BBRE_DFA_MATCH_FLAG_EXIT_EARLY);
+  int many = !!(flags & BBRE_DFA_MATCH_FLAG_MANY);
   bbre_uint entry =
       !reversed ? BBRE_PROG_ENTRY_DOTSTAR : BBRE_PROG_ENTRY_REVERSE;
   bbre_uint prev_ch = reversed ? (pos == n ? BBRE_SENTINEL_CH : s[pos])
@@ -4351,16 +4362,18 @@ static int bbre_exec_match(
   bbre_uint prev_ch = BBRE_SENTINEL_CH;
   assert(BBRE_IMPLIES(max_span, out_span));
   if (max_span == 0) {
-    err = bbre_dfa_match(exec, (bbre_byte *)s, n, pos, NULL, 0, 0, 1, 0);
+    err = bbre_dfa_match(
+        exec, (bbre_byte *)s, n, pos, NULL, BBRE_DFA_MATCH_FLAG_EXIT_EARLY);
     goto error;
   } else if (max_span == 1) {
     err = bbre_dfa_match(
-        exec, (bbre_byte *)s, n, pos, &out_span[0].end, 0, 1, 0, 0);
+        exec, (bbre_byte *)s, n, pos, &out_span[0].end,
+        BBRE_DFA_MATCH_FLAG_PRI);
     if (err <= 0)
       goto error;
     err = bbre_dfa_match(
-        exec, (bbre_byte *)s, n, out_span[0].end, &out_span[0].begin, 1, 1, 0,
-        0);
+        exec, (bbre_byte *)s, n, out_span[0].end, &out_span[0].begin,
+        BBRE_DFA_MATCH_FLAG_REVERSED | BBRE_DFA_MATCH_FLAG_PRI);
     if (err < 0)
       goto error;
     assert(err == 1);
@@ -4498,11 +4511,15 @@ static int bbre_exec_set_match(
   assert(BBRE_IMPLIES(idxs_size, out_idxs != NULL));
   if (!idxs_size) {
     /* boolean match */
-    err = bbre_dfa_match(exec, (bbre_byte *)s, n, pos, NULL, 0, 1, 1, 0);
+    err = bbre_dfa_match(
+        exec, (bbre_byte *)s, n, pos, NULL,
+        BBRE_DFA_MATCH_FLAG_PRI | BBRE_DFA_MATCH_FLAG_EXIT_EARLY);
   } else {
     bbre_uint i, j;
     size_t dummy;
-    err = bbre_dfa_match(exec, (bbre_byte *)s, n, pos, &dummy, 0, 1, 0, 1);
+    err = bbre_dfa_match(
+        exec, (bbre_byte *)s, n, pos, &dummy,
+        BBRE_DFA_MATCH_FLAG_PRI | BBRE_DFA_MATCH_FLAG_MANY);
     if (err < 0)
       goto error;
     for (i = 0, j = 0; i < exec->prog->npat && j < idxs_size; i++) {
