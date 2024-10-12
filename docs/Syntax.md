@@ -75,6 +75,7 @@ In addition to every single-character expression except `.`, the following escap
 [:word:]       [0-9A-Z_a-z]
 [:xdigit:]     [0-9A-Fa-f]
 ```
+
 ## Quantifiers
 ```
 x*          zero or more of x, prefer more

@@ -56,8 +56,10 @@ static char *d_assert(char *buf, bbre_assert_flag af)
   return buf;
 }
 
-static char *d_group_flag(char *buf, bbre_group_flag gf)
+static char *d_group_flag(char *buf, bbre_group_flag gf, char *pos_neg)
 {
+  if (gf)
+    buf = strcat(buf, pos_neg);
   buf = strcat(buf, gf & BBRE_GROUP_FLAG_INSENSITIVE ? "i" : "");
   buf = strcat(buf, gf & BBRE_GROUP_FLAG_MULTILINE ? "m" : "");
   buf = strcat(buf, gf & BBRE_GROUP_FLAG_DOTNEWLINE ? "s" : "");
@@ -106,7 +108,7 @@ void d_ast_i(bbre *r, bbre_uint root, bbre_uint ilvl, int format)
       : (first == BBRE_AST_TYPE_CC_BUILTIN) ? "CC_BUILTIN"
       : (first == BBRE_AST_TYPE_CC_NOT)     ? (sub[0] = 0, "CC_NOT")
       : (first == BBRE_AST_TYPE_CC_OR)      ? (sub[0] = 0, sub[1] = 1, "CC_OR")
-      : (first == BBRE_AST_TYPE_CC_AND)     ? (sub[0] = 0, sub[1] = 1, "CC_AND")
+      : (first == BBRE_AST_TYPE_ANYCHAR)    ? ("ANYCHAR")
       : (first == BBRE_AST_TYPE_ANYBYTE)
           ? "ANYBYTE"
           : /* (first == BBRE_AST_TYPE_ASSERT) */ "ASSERT";
@@ -123,10 +125,13 @@ void d_ast_i(bbre *r, bbre_uint root, bbre_uint ilvl, int format)
     printf("%s", d_chr_unicode(buf, *bbre_ast_param_ref(r, root, 0)));
   else if (first == BBRE_AST_TYPE_GROUP)
     printf(
-        "%s/%u", d_group_flag(buf, *bbre_ast_param_ref(r, root, 1)),
+        "%s/%s/%u", d_group_flag(buf, *bbre_ast_param_ref(r, root, 1), "+"),
+        d_group_flag(buf, *bbre_ast_param_ref(r, root, 2), "-"),
         *bbre_ast_param_ref(r, root, 3));
   else if (first == BBRE_AST_TYPE_IGROUP)
-    printf("%s", d_group_flag(buf, *bbre_ast_param_ref(r, root, 1)));
+    printf(
+        "%s/%s", d_group_flag(buf, *bbre_ast_param_ref(r, root, 1), "+"),
+        d_group_flag(buf, *bbre_ast_param_ref(r, root, 2), "-"));
   else if (first == BBRE_AST_TYPE_QUANT || first == BBRE_AST_TYPE_UQUANT)
     printf(
         "%s-%s", d_quant(buf, *bbre_ast_param_ref(r, root, 1)),
@@ -163,6 +168,15 @@ void d_ast_i(bbre *r, bbre_uint root, bbre_uint ilvl, int format)
 void d_ast(bbre *r) { d_ast_i(r, r->ast_root, 0, TERM); }
 
 void d_ast_gv(bbre *r) { d_ast_i(r, r->ast_root, 0, GRAPHVIZ); }
+
+void d_op_stk(bbre *r)
+{
+  bbre_uint i;
+  printf("%lu:\n", bbre_buf_size(r->op_stk));
+  for (i = 0; i < bbre_buf_size(r->op_stk); i++) {
+    printf("%u\n", r->op_stk[i]);
+  }
+}
 
 void d_sset(bbre_sset *s)
 {

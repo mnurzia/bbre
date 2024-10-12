@@ -79,7 +79,7 @@ int check_match_results(
           did_match[i], found_did_match[i],
           "capture group's match status was wrong");
     }
-  return 0;
+  PASS();
 }
 
 int check_matches_nf(
@@ -92,32 +92,35 @@ int check_matches_nf(
   int err;
   ASSERT_LTEm(max_span, TEST_MAX_SPAN, "too many spans to match");
   if ((err = bbre_builder_init(&spec, regex, regex_n, NULL)) == BBRE_ERR_MEM)
-    goto oom_re;
+    goto oom;
   ASSERT_EQm(err, 0, "bbre_builder_init() returned a nonzero value");
   bbre_builder_flags(spec, flags);
   if ((err = bbre_init(&r, spec, NULL)) == BBRE_ERR_MEM)
-    goto oom_re;
+    goto oom;
   ASSERT_EQm(err, 0, "bbre_init() returned a nonzero value");
   if ((err = check_match_results(
            r, s, n, max_span, check_span, did_match, !!max_span)))
-    goto oom_re;
+    goto error;
   ASSERT(!err);
   if ((err = check_match_results(r, s, n, 0, NULL, NULL, !!max_span)))
-    goto oom_re;
-  if ((err = bbre_clone(&r2, r, NULL)))
-    goto oom_re;
+    goto error;
+  ASSERT(!err);
+  if ((err = bbre_clone(&r2, r, NULL)) == BBRE_ERR_MEM)
+    goto oom;
+  ASSERT(!err);
   if ((err = check_match_results(
            r2, s, n, max_span, check_span, did_match, !!max_span)))
-    goto oom_re;
+    goto error;
   ASSERT(!err);
   if ((err = check_match_results(r2, s, n, 0, NULL, NULL, !!max_span)))
-    goto oom_re;
+    goto error;
   ASSERT(!err);
+error:
   bbre_destroy(r);
   bbre_destroy(r2);
   bbre_builder_destroy(spec);
-  PASS();
-oom_re:
+  return err;
+oom:
   bbre_destroy(r);
   bbre_destroy(r2);
   bbre_builder_destroy(spec);
@@ -868,6 +871,17 @@ TEST(cls_escape_quote_range_end)
   PASS();
 }
 
+TEST(cls_escape_cls_after_some)
+{
+  ASSERT_MATCH(
+      "a["
+      "abcdef\\d\\D\\s\\S\\d\\D\\s\\S\\PL\\PC\\w\\W\\w\\W\\w\\W\\w\\W\\w\\W\\w"
+      "\\W\\"
+      "w]",
+      "aa");
+  PASS();
+}
+
 SUITE(cls_escape)
 {
   RUN_TEST(cls_escape_any_byte);
@@ -877,6 +891,7 @@ SUITE(cls_escape)
   RUN_TEST(cls_escape_range_both);
   RUN_TEST(cls_escape_quote);
   RUN_TEST(cls_escape_quote_range_end);
+  RUN_TEST(cls_escape_cls_after_some);
 }
 
 TEST(cls_empty)
@@ -918,6 +933,18 @@ TEST(cls_left_bracket_invalid_notcolon)
 TEST(cls_single)
 {
   ASSERT_CC_MATCH("[a]", "a");
+  PASS();
+}
+
+TEST(cls_single_inverted)
+{
+  ASSERT_CC_MATCH("[^a]", "0x0 0x60,0x62 0x10FFFF");
+  PASS();
+}
+
+TEST(cls_inverted_aftersome)
+{
+  ASSERT_MATCH("a[^a]", "ab");
   PASS();
 }
 
@@ -1001,9 +1028,27 @@ TEST(cls_named_unknown)
   PASS();
 }
 
+TEST(cls_named_simple)
+{
+  ASSERT_CC_MATCH("[[:alnum:]]", "0x30 0x39,0x41 0x5A,0x61 0x7A");
+  PASS();
+}
+
+TEST(cls_named_inverted_aftersome)
+{
+  ASSERT_MATCH("a[[:^alnum:]]", "a%");
+  PASS();
+}
+
 TEST(cls_insensitive)
 {
   ASSERT_CC_MATCH("(?i:[a])", "a a,A A");
+  PASS();
+}
+
+TEST(cls_insensitive_small_range)
+{
+  ASSERT_CC_MATCH("(?i:[A-B])", "A B,a b");
   PASS();
 }
 
@@ -1016,6 +1061,24 @@ TEST(cls_subclass)
 TEST(cls_subclass_range_end)
 {
   ASSERT_NOPARSE("[a-\\w]", "cannot use a character class here", 5);
+  PASS();
+}
+
+TEST(cls_unicode_property)
+{
+  ASSERT_CC_MATCH("[\\p{Cc}]", "0x0 0x1F,0x7F 0x9F");
+  PASS();
+}
+
+TEST(cls_unicode_property_inverted)
+{
+  ASSERT_CC_MATCH("[\\P{Cc}]", "0x20 0x7E,0xA0 0x10FFFF");
+  PASS();
+}
+
+TEST(cls_unicode_property_range_end)
+{
+  ASSERT_NOPARSE("[a-\\p{Cc}]", "cannot use a character class here", 9);
   PASS();
 }
 
@@ -1149,6 +1212,12 @@ TEST(cls_utf8_insensitive_ascii_many_non_adjacent_1)
   PASS();
 }
 
+TEST(cls_utf8_insensitive_posix)
+{
+  ASSERT_CC_MATCH("(?i)[[:alpha:]]", "A Z,a z");
+  PASS();
+}
+
 TEST(cls_utf8_insensitive_inverted)
 {
   ASSERT_CC_MATCH("(?i)[^BDF]", "0 A,C C,E E,G a,c c,e e,g 0x10FFFF");
@@ -1183,6 +1252,7 @@ SUITE(cls_utf8)
   RUN_TEST(cls_utf8_insensitive_ascii);
   RUN_TEST(cls_utf8_insensitive_ascii_many_non_adjacent);
   RUN_TEST(cls_utf8_insensitive_ascii_many_non_adjacent_1);
+  RUN_TEST(cls_utf8_insensitive_posix);
   RUN_TEST(cls_utf8_insensitive_inverted);
   RUN_TEST(cls_utf8_ranges_common_first_bytes);
 }
@@ -1199,8 +1269,10 @@ SUITE(cls)
   RUN_TEST(cls_left_bracket_malformed);
   RUN_TEST(cls_left_bracket_invalid_notcolon);
   RUN_TEST(cls_single);
+  RUN_TEST(cls_single_inverted);
   RUN_TEST(cls_single_malformed);
   RUN_TEST(cls_single_unfinished);
+  RUN_TEST(cls_inverted_aftersome);
   RUN_TEST(cls_range_one);
   RUN_TEST(cls_range_one_inverted);
   RUN_TEST(cls_range_one_unfinished);
@@ -1212,9 +1284,15 @@ SUITE(cls)
   RUN_TEST(cls_named_unfinished_aftercolon);
   RUN_TEST(cls_named_invalid_norightbracket);
   RUN_TEST(cls_named_unknown);
+  RUN_TEST(cls_named_simple);
+  RUN_TEST(cls_named_inverted_aftersome);
   RUN_TEST(cls_insensitive);
+  RUN_TEST(cls_insensitive_small_range);
   RUN_TEST(cls_subclass);
   RUN_TEST(cls_subclass_range_end);
+  RUN_TEST(cls_unicode_property);
+  RUN_TEST(cls_unicode_property_inverted);
+  RUN_TEST(cls_unicode_property_range_end);
   RUN_TEST(cls_nevermatch);
   RUN_TEST(cls_reversed);
   RUN_TEST(cls_reversed_nonmatch);
@@ -1669,6 +1747,29 @@ TEST(escape_unicode_property_inverted_simple)
   PASS();
 }
 
+TEST(escape_unicode_property_complex)
+{
+  /* tests memory allocation corner cases, this is somewhat bad practice */
+  ASSERT_MATCH("ae\\PCdef", "aefdef");
+  PASS();
+}
+
+TEST(escape_unicode_property_unfinished)
+{
+  ASSERT_NOPARSE(
+      "\\p",
+      "expected one-character property name or bracketed property name "
+      "for Unicode property escape",
+      2);
+  PASS();
+}
+
+TEST(escape_unicode_property_bracketed_unfinished)
+{
+  ASSERT_NOPARSE("\\p{", "expected '}' to close bracketed property name", 3);
+  PASS();
+}
+
 TEST(escape_unfinished)
 {
   ASSERT_NOPARSE("\\", "expected escape sequence", 1);
@@ -1714,6 +1815,9 @@ SUITE(escape)
   RUN_TEST(escape_invalid);
   RUN_TEST(escape_unicode_property_simple);
   RUN_TEST(escape_unicode_property_inverted_simple);
+  RUN_TEST(escape_unicode_property_complex);
+  RUN_TEST(escape_unicode_property_unfinished);
+  RUN_TEST(escape_unicode_property_bracketed_unfinished);
 }
 
 TEST(repetition_zero_empty)
@@ -2008,7 +2112,7 @@ TEST(repetition_upper_badsep)
 
 TEST(repetition_empty_regex)
 {
-  ASSERT_NOPARSE("{2,3}", "cannot apply quantifier to empty regex", 5);
+  ASSERT_NOPARSE("{2,3}", "cannot apply quantifier to empty regex", 1);
   PASS();
 }
 
@@ -2460,6 +2564,12 @@ TEST(grp_nested_inlines)
   PASS();
 }
 
+TEST(grp_nested_inlines_resetting)
+{
+  ASSERT_NMATCH("(?i)(a(?-i)A)a", "AaA");
+  PASS();
+}
+
 TEST(grp_invalid_unmatched_rparen)
 {
   ASSERT_NOPARSE(")", "extra close parenthesis", 1);
@@ -2517,10 +2627,30 @@ SUITE(grp)
   RUN_TEST(grp_concat);
   RUN_TEST(grp_concat_alts);
   RUN_TEST(grp_nested_inlines);
+  RUN_TEST(grp_nested_inlines_resetting);
   RUN_TEST(grp_invalid_unmatched_rparen);
   RUN_TEST(grp_invalid_unmatched_lparen);
   RUN_TEST(grp_nested_in_nonmatching);
   RUN_TEST(grp_too_many_captures);
+}
+
+TEST(set_init_patterns)
+{
+  const char *pats[] = {"a", "b*a", "c"};
+  unsigned int out_idxs[3] = {0, 0, 0};
+  unsigned int num_idxs = 0;
+  bbre_set *set = bbre_set_init_patterns(pats, 3);
+  if (!set && test_alloc_last_was_null)
+    OOM();
+  ASSERT_NEQ(set, NULL);
+  if (bbre_set_matches(set, "a", 1, out_idxs, 3, &num_idxs) == BBRE_ERR_MEM)
+    goto oom;
+  ASSERT_EQ(num_idxs, 2);
+  bbre_set_destroy(set);
+  PASS();
+oom:
+  bbre_set_destroy(set);
+  OOM();
 }
 
 TEST(set_many)
@@ -2574,7 +2704,11 @@ oom:
   OOM();
 }
 
-SUITE(set) { RUN_TEST(set_many); }
+SUITE(set)
+{
+  RUN_TEST(set_init_patterns);
+  RUN_TEST(set_many);
+}
 
 TEST(assert_line_begin_empty)
 {

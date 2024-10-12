@@ -302,7 +302,7 @@ def _encode_shit4(arr: Iterator[int]) -> Iterator[int]:
         prev = el
 
 
-def _pack_bits_words(arr: Iterator[int]) -> Iterator[int]:
+def _pack_bits_words(arr: Iterable[int]) -> Iterator[int]:
     i, idx = 0, 0
     for el in arr:
         i |= el << idx
@@ -339,10 +339,8 @@ class _BuiltinCC(NamedTuple):
 
     def encode(self) -> list[int]:
         return list(
-            _pack_bits_words(
-                _encode_shit4(
-                    chain(iter(_encode_array_deltas(_flatten_ords(iter(self.ranges)))))
-                )
+            _encode_shit4(
+                chain(iter(_encode_array_deltas(_flatten_ords(iter(self.ranges)))))
             )
         )
 
@@ -406,7 +404,7 @@ def _gen_builtin_ccs(args) -> set[_BuiltinCC | _CompoundBuiltinCC]:
 def _cmd_gen_ccs_impl(args) -> int:
     builtin_ccs = _gen_builtin_ccs(args)
     lines, out = make_appender_func()
-    encoded_arr = []
+    encoded_bits: list[int] = []
     encoded_locs = {}
     data_ccs = []
     compound_ccs = []
@@ -415,10 +413,11 @@ def _cmd_gen_ccs_impl(args) -> int:
             compound_ccs.append(builtin_cc)
             continue
         if builtin_cc.ranges not in encoded_locs:
-            encoded_locs[builtin_cc.ranges] = len(encoded_arr)
-            encoded_arr.extend(builtin_cc.encode())
+            encoded_locs[builtin_cc.ranges] = len(encoded_bits)
+            encoded_bits.extend(builtin_cc.encode())
         data_ccs.append(builtin_cc)
     num_ranges = sum([len(bcc.ranges) for bcc in data_ccs])
+    encoded_arr = list(_pack_bits_words(encoded_bits))
     out(
         f"/* {num_ranges} ranges, {num_ranges * 2} integers, {len(encoded_arr) * 4} bytes */"
     )
@@ -480,31 +479,39 @@ def _cmd_gen_ccs_test(args) -> int:
         tests: dict[str, str] = {}
         for cc in ccs:
             for inverted in [False, True]:
-                test_name = f"cls_builtin_{cctype}_{cc.name}" + (
-                    "_inverted" if inverted else ""
-                )
-                match cctype:
-                    case _BuiltinCCType.ASCII:
-                        regexp = f"[[:{'^' if inverted else ''}{cc.name}:]]"
-                    case _BuiltinCCType.UNICODE_PROPERTY:
-                        regexp = f"\\{'P' if inverted else 'p'}{{{cc.name}}}"
-                    case _BuiltinCCType.PERL:
-                        regexp = f"\\{cc.name.upper() if inverted else cc.name}"
-                    case _:
-                        raise ValueError("unknown cc type")
-                if isinstance(cc, _CompoundBuiltinCC):
-                    ranges = tuple(
-                        sum(
-                            [
-                                list(ccs_lut[(cc.cctype, part)].ranges)
-                                for part in cc.parts
-                            ],
-                            [],
-                        )
+                variants = [""]
+                if cctype == _BuiltinCCType.UNICODE_PROPERTY and len(cc.name) == 1:
+                    variants = ["", "_single"]
+                for variant in variants:
+                    test_name = f"cls_builtin_{cctype}_{cc.name}{variant}" + (
+                        "_inverted" if inverted else ""
                     )
-                else:
-                    ranges = cc.ranges
-                tests[test_name] = make_test(test_name, ranges, regexp, inverted)
+                    match cctype:
+                        case _BuiltinCCType.ASCII:
+                            regexp = f"[[:{'^' if inverted else ''}{cc.name}:]]"
+                        case _BuiltinCCType.UNICODE_PROPERTY:
+                            invert_char = "P" if inverted else "p"
+                            if variant == "":
+                                regexp = f"\\{invert_char}{{{cc.name}}}"
+                            elif variant == "_single":
+                                regexp = f"\\{invert_char}{cc.name}"
+                        case _BuiltinCCType.PERL:
+                            regexp = f"\\{cc.name.upper() if inverted else cc.name}"
+                        case _:
+                            raise ValueError("unknown cc type")
+                    if isinstance(cc, _CompoundBuiltinCC):
+                        ranges = tuple(
+                            sum(
+                                [
+                                    list(ccs_lut[(cc.cctype, part)].ranges)
+                                    for part in cc.parts
+                                ],
+                                [],
+                            )
+                        )
+                    else:
+                        ranges = cc.ranges
+                    tests[test_name] = make_test(test_name, ranges, regexp, inverted)
         out("\n".join(tests.values()))
         out(make_suite(f"cls_builtin_{cctype}", tests))
     out(

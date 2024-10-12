@@ -16,4 +16,6 @@ Most of the techniques used in this library are not original. I would have been 
 
 [Bjoern Hoehrmann](https://bjoern.hoehrmann.de/): Wrote a [DFA-based UTF-8 decoder](https://bjoern.hoehrmann.de/utf-8/decoder/dfa/) which serves as the design basis for the respective component in this library.
 
+[Alexander Pankratov](https://swapped.cc/): Did an [informative writeup](https://github.com/apankrat/notes/blob/master/fast-case-conversion/README.md) on Wine's Unicode casefold array compression algorithm, a derivation of which is used in this library. The [original idea](https://github.com/wine-mirror/wine/commit/a02ce81082ef2f27fdfcf577efbe491582becd28a) seems to have come from [jgriffiths](https://github.com/jgriffiths).
+
 We all stand on the shoulders of giants. I have immense respect for these individuals and their contributions to the field.

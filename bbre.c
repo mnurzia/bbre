@@ -42,16 +42,16 @@ typedef enum bbre_ast_type {
    *   Argument 1: lower bound, always <= upper bound (number)
    *   Argument 2: upper bound, might be the constant `BBRE_INFTY` (number) */
   BBRE_AST_TYPE_UQUANT,
-  /* A matching group: /(a)/
+  /* A matching group: /(?i-s:a)/
    *   Argument 0: child tree (AST)
-   *   Argument 1: group flags, bitset of `enum group_flag` (number)
-   *   Argument 2: scratch used by the parser to store old flags (number)
+   *   Argument 1: group flags pulled up, bitset of `enum group_flag` (number)
+   *   Argument 2: group flags pulled down (number)
    *   Argument 3: capture index (number) */
   BBRE_AST_TYPE_GROUP,
-  /* An inline group: /(?i)a/
-   *   Argument 0: child tree must be a CAT (AST)
-   *   Argument 1: group flags, bitset of `enum group_flag` (number)
-   *   Argument 2: scratch used by the parser to store old flags (number) */
+  /* An inline group: /(?i-s)a/
+   *   Argument 0: child tree (AST)
+   *   Argument 1: group flags pulled up, bitset of `enum group_flag` (number)
+   *   Argument 2: group flags pulled down (number) */
   BBRE_AST_TYPE_IGROUP,
   /* A single range in a character class: /[a-z]/
    *   Argument 0: character range begin (number)
@@ -72,6 +72,8 @@ typedef enum bbre_ast_type {
    *   Argument 0: child tree A (AST)
    *   Argument 1: child tree B (AST) */
   BBRE_AST_TYPE_CC_AND,
+  /* Matches any character: /./ */
+  BBRE_AST_TYPE_ANYCHAR,
   /* Matches any byte: /\C/ */
   BBRE_AST_TYPE_ANYBYTE,
   /* Empty assertion: /\b/
@@ -79,25 +81,28 @@ typedef enum bbre_ast_type {
   BBRE_AST_TYPE_ASSERT
 } bbre_ast_type;
 
+typedef struct bbre_ast_type_info {
+  bbre_byte len, children, prec;
+} bbre_ast_type_info;
+
 /* Length (number of arguments) for each AST type. */
-static const unsigned int bbre_ast_type_lens[] = {
-    0, /* eps */
-    1, /* CHR */
-    2, /* CAT */
-    2, /* ALT */
-    3, /* QUANT */
-    3, /* UQUANT */
-    4, /* GROUP */
-    3, /* IGROUP */
-    3, /* CC */
-    3, /* ICC */
-    2, /* CC_LEAF */
-    2, /* CC_BUILTIN */
-    1, /* CC_NOT */
-    2, /* CC_OR */
-    2, /* CC_AND */
-    0, /* ANYBYTE */
-    1, /* AASSERT */
+static const bbre_ast_type_info bbre_ast_type_infos[] = {
+    {0, 0, 0}, /* eps */
+    {1, 0, 0}, /* CHR */
+    {2, 2, 0}, /* CAT */
+    {2, 2, 2}, /* ALT */
+    {3, 1, 0}, /* QUANT */
+    {3, 1, 0}, /* UQUANT */
+    {4, 1, 3}, /* GROUP */
+    {3, 1, 1}, /* IGROUP */
+    {2, 0, 0}, /* CC_LEAF */
+    {2, 0, 0}, /* CC_BUILTIN */
+    {1, 1, 0}, /* CC_NOT */
+    {2, 2, 0}, /* CC_OR */
+    {2, 2, 0}, /* CC_AND */
+    {0, 0, 0}, /* ANYCHAR */
+    {0, 0, 0}, /* ANYBYTE */
+    {1, 0, 0}, /* ASSERT */
 };
 
 #define BBRE_AST_MAX_ARGS 4
@@ -296,10 +301,9 @@ struct bbre {
   bbre_buf(bbre_uint) ast;                    /* AST arena */
   bbre_uint ast_root;                         /* AST root node reference */
   bbre_buf(bbre_group_name) group_names;      /* Named group names */
-  bbre_buf(bbre_uint) arg_stk;                /* parser argument stack */
   bbre_buf(bbre_uint) op_stk;                 /* parser operator stack */
   bbre_buf(bbre_compframe) comp_stk;          /* compiler frame stack */
-  bbre_buf(bbre_buf(bbre_rune_range)) cc_stk; /* compiler CC stack */
+  bbre_buf(bbre_buf(bbre_rune_range)) cc_stk; /* compiler charclass stack */
   bbre_compcc_data compcc; /* data used for the charclass compiler */
   bbre_prog prog;          /* NFA program */
   const bbre_byte *expr;   /* input parser expression */
@@ -660,9 +664,8 @@ void bbre_builder_flags(bbre_builder *build, bbre_flags flags)
   build->flags = flags;
 }
 
-static int bbre_parse(
-    bbre *r, const bbre_byte *s, size_t sz, bbre_uint *root,
-    bbre_flags start_flags);
+static int
+bbre_parse(bbre *r, const bbre_byte *s, size_t sz, bbre_flags start_flags);
 
 static void bbre_prog_init(bbre_prog *prog, bbre_alloc alloc, bbre_error *error)
 {
@@ -731,9 +734,8 @@ static int bbre_init_internal(bbre **pr, const bbre_alloc *palloc)
   r->alloc = alloc;
   bbre_buf_init(&r->ast);
   r->ast_root = 0;
-  bbre_buf_init(&r->group_names), bbre_buf_init(&r->arg_stk),
-      bbre_buf_init(&r->op_stk), bbre_buf_init(&r->comp_stk),
-      bbre_buf_init(&r->cc_stk);
+  bbre_buf_init(&r->group_names), bbre_buf_init(&r->op_stk),
+      bbre_buf_init(&r->comp_stk), bbre_buf_init(&r->cc_stk);
   bbre_buf_init(&r->compcc.ranges), bbre_buf_init(&r->compcc.tree),
       bbre_buf_init(&r->compcc.ranges_2), bbre_buf_init(&r->compcc.tree_2),
       bbre_buf_init(&r->compcc.hash);
@@ -750,8 +752,7 @@ int bbre_init(bbre **pr, const bbre_builder *spec, const bbre_alloc *palloc)
   int err = 0;
   if ((err = bbre_init_internal(pr, palloc)))
     goto error;
-  if ((err = bbre_parse(
-           *pr, spec->expr, spec->expr_size, &(*pr)->ast_root, spec->flags)))
+  if ((err = bbre_parse(*pr, spec->expr, spec->expr_size, spec->flags)))
     goto error;
   (*pr)->prog.npat = 1;
   if ((err = bbre_compile(*pr)))
@@ -774,7 +775,6 @@ void bbre_destroy(bbre *r)
   }
   bbre_buf_destroy(&r->alloc, &r->group_names);
   bbre_buf_destroy(&r->alloc, &r->op_stk),
-      bbre_buf_destroy(&r->alloc, &r->arg_stk),
       bbre_buf_destroy(&r->alloc, &r->comp_stk);
   for (i = 0; i < bbre_buf_size(r->cc_stk); i++)
     bbre_buf_destroy(&r->alloc, &r->cc_stk[i]);
@@ -834,17 +834,16 @@ static bbre_rune_range bbre_rune_range_make(bbre_uint l, bbre_uint h)
 static int bbre_ast_make(bbre *r, bbre_uint *out_node, bbre_ast_type type, ...)
 {
   va_list in_args;
-  bbre_uint args[5], arg_idx = 0, i;
+  bbre_uint args[6], arg_idx = 0, i = 0;
   int err = 0;
   va_start(in_args, type);
+  if (!bbre_buf_size(r->ast))
+    args[arg_idx++] = 0; /* sentinel */
+  *out_node = bbre_buf_size(r->ast) + arg_idx;
   args[arg_idx++] = type;
-  while (arg_idx < bbre_ast_type_lens[type] + 1)
-    args[arg_idx++] = va_arg(in_args, bbre_uint);
-  assert(arg_idx == bbre_ast_type_lens[type] + 1);
-  if (type && !bbre_buf_size(r->ast) &&
-      (err = bbre_ast_make(r, out_node, 0))) /* sentinel node */
-    goto error;
-  *out_node = bbre_buf_size(r->ast);
+  while (i < bbre_ast_type_infos[type].len)
+    args[arg_idx++] = va_arg(in_args, bbre_uint), i++;
+  assert(i == bbre_ast_type_infos[type].len);
   for (i = 0; i < arg_idx; i++)
     if ((err = bbre_buf_push(&r->alloc, &r->ast, args[i])))
       goto error;
@@ -858,20 +857,21 @@ static void bbre_ast_decompose(bbre *r, bbre_uint node, bbre_uint *out_args)
 {
   bbre_uint *in_args = r->ast + node;
   bbre_uint i;
-  for (i = 0; i < bbre_ast_type_lens[*in_args]; i++)
+  for (i = 0; i < bbre_ast_type_infos[*in_args].len; i++)
     out_args[i] = in_args[i + 1];
 }
 
 /* Get the type of the given AST node. */
 static bbre_uint *bbre_ast_type_ref(bbre *r, bbre_uint node)
 {
+  assert(node != BBRE_NIL);
   return r->ast + node;
 }
 
 /* Get a pointer to the `n`'th parameter of the given AST node. */
 static bbre_uint *bbre_ast_param_ref(bbre *r, bbre_uint node, bbre_uint n)
 {
-  assert(bbre_ast_type_lens[*bbre_ast_type_ref(r, node)] > n);
+  assert(bbre_ast_type_infos[*bbre_ast_type_ref(r, node)].len > n);
   return r->ast + node + 1 + n;
 }
 
@@ -1019,85 +1019,75 @@ static bbre_uint bbre_peek_next(bbre *r)
 /* Sentinel value to represent an infinite repetition. */
 #define BBRE_INFTY (BBRE_LIMIT_REPETITION_COUNT + 1)
 
-/* Given nodes R_1..R_N on the argument stack, fold them into a single CAT
- * node. If there are no nodes on the stack, create an epsilon node.
- * Returns `BBRE_ERR_MEM` if out of memory. */
-static int bbre_fold(bbre *r)
+/* Based on node precedence, pop nodes on the operator stack. */
+static bbre_uint bbre_ast_pop_prec(bbre *r, bbre_ast_type pop_type)
+{
+  bbre_uint popped = BBRE_NIL;
+  assert(bbre_buf_size(r->op_stk));
+  /* The top node is the cat node, it should always be popped. */
+  popped = bbre_buf_pop(&r->op_stk);
+  while (bbre_buf_size(r->op_stk)) {
+    bbre_uint top_ref = *bbre_buf_peek(&r->op_stk, 0);
+    bbre_ast_type top_type = top_ref ? *bbre_ast_type_ref(r, top_ref) : 0;
+    bbre_uint top_prec = bbre_ast_type_infos[top_type].prec,
+              pop_prec = bbre_ast_type_infos[pop_type].prec;
+    if (top_prec < pop_prec)
+      popped = bbre_buf_pop(&r->op_stk);
+    else
+      break;
+  }
+  return popped;
+}
+
+/* Link the top node on the AST stack to the preceding node on the stack. */
+static void bbre_ast_fix(bbre *r)
+{
+  bbre_uint top_node;
+  assert(bbre_buf_size(r->op_stk) > 0);
+  top_node = *bbre_buf_peek(&r->op_stk, 0);
+  if (bbre_buf_size(r->op_stk) == 1)
+    r->ast_root = top_node;
+  else {
+    bbre_uint parent_node = *bbre_buf_peek(&r->op_stk, 1);
+    bbre_ast_type parent_type = *bbre_ast_type_ref(r, parent_node);
+    assert(bbre_ast_type_infos[parent_type].children > 0);
+    *bbre_ast_param_ref(
+        r, parent_node, bbre_ast_type_infos[parent_type].children - 1) =
+        top_node;
+  }
+}
+
+/* Push an AST node to the operator stack, and fixup the furthest right child
+ * pointer of the parent node. */
+static int bbre_ast_push(bbre *r, bbre_uint node_ref)
 {
   int err = 0;
-  if (!bbre_buf_size(r->arg_stk)) {
-    /* arg_stk: | */
-    err = bbre_buf_push(&r->alloc, &r->arg_stk, /* epsilon */ BBRE_NIL);
-    /* arg_stk: | eps |*/
+  if ((err = bbre_buf_push(&r->alloc, &r->op_stk, node_ref)))
     goto error;
-  }
-  while (bbre_buf_size(r->arg_stk) > 1) {
-    /* arg_stk: | ... | R_N-1 | R_N | */
-    bbre_uint right, left, rest;
-    right = bbre_buf_pop(&r->arg_stk);
-    left = *bbre_buf_peek(&r->arg_stk, 0);
-    if ((err = bbre_ast_make(r, &rest, BBRE_AST_TYPE_CAT, left, right)))
-      goto error;
-    *bbre_buf_peek(&r->arg_stk, 0) = rest;
-    /* arg_stk: | ... | R_N-1R_N | */
-  }
-  /* arg_stk: | R1R2...Rn | */
+  bbre_ast_fix(r);
 error:
   return err;
 }
 
-/* Given a node R on the argument stack and an arbitrary number of ALT nodes at
- * the end of the operator stack, fold and finish each ALT node into a single
- * resulting ALT node on the argument stack.
- * Returns `BBRE_ERR_MEM` if out of memory. */
-static void bbre_fold_alts(bbre *r, bbre_uint *flags)
+/* Create a CAT node on the top of the stack. */
+static int bbre_ast_cat(bbre *r, bbre_uint right_child_ref)
 {
-  assert(bbre_buf_size(r->arg_stk) == 1);
-  /* First pop all inline groups. */
-  while (bbre_buf_size(r->op_stk) &&
-         *bbre_ast_type_ref(r, *bbre_buf_peek(&r->op_stk, 0)) ==
-             BBRE_AST_TYPE_IGROUP) {
-    /* arg_stk: |  R  | */
-    /* op_stk:  | ... | (S) | */
-    bbre_uint igrp = bbre_buf_pop(&r->op_stk),
-              cat = *bbre_ast_param_ref(r, igrp, 0),
-              old_flags = *bbre_ast_param_ref(r, igrp, 2);
-    *bbre_ast_param_ref(r, igrp, 0) = *bbre_buf_peek(&r->arg_stk, 0);
-    *flags = old_flags;
-    *bbre_ast_param_ref(r, cat, 1) = igrp;
-    *bbre_buf_peek(&r->arg_stk, 0) = cat;
-    /* arg_stk: | S(R)| */
-    /* op_stk:  | ... | */
+  int err = 0;
+  bbre_uint *top;
+  assert(bbre_buf_size(r->op_stk));
+  top = bbre_buf_peek(&r->op_stk, 0);
+  if (!*top) {
+    *top = right_child_ref;
+    bbre_ast_fix(r);
+  } else {
+    if ((err = bbre_ast_make(r, top, BBRE_AST_TYPE_CAT, *top, right_child_ref)))
+      goto error;
+    bbre_ast_fix(r);
+    if ((err = bbre_ast_push(r, right_child_ref)))
+      goto error;
   }
-  assert(bbre_buf_size(r->arg_stk) == 1);
-  /* arg_stk: |  R  | */
-  /* op_stk:  | ... | */
-  if (bbre_buf_size(r->op_stk) &&
-      *bbre_ast_type_ref(r, *bbre_buf_peek(&r->op_stk, 0)) ==
-          BBRE_AST_TYPE_ALT) {
-    /* op_stk:  | ... |  A  | */
-    /* finish the last alt */
-    *bbre_ast_param_ref(r, *bbre_buf_peek(&r->op_stk, 0), 1) =
-        *bbre_buf_peek(&r->arg_stk, 0);
-    /* arg_stk: | */
-    /* op_stk:  | ... | */
-    while (bbre_buf_size(r->op_stk) > 1 &&
-           *bbre_ast_type_ref(r, *bbre_buf_peek(&r->op_stk, 1)) ==
-               BBRE_AST_TYPE_ALT) {
-      /* op_stk:  | ... | A_1 | A_2 | */
-      bbre_uint right = bbre_buf_pop(&r->op_stk),
-                left = *bbre_buf_peek(&r->op_stk, 0);
-      *bbre_ast_param_ref(r, left, 1) = right;
-      *bbre_buf_peek(&r->op_stk, 0) = left;
-      /* op_stk:  | ... | A_1(|A_2) | */
-    }
-    /* op_stk:  | ... |  A  | */
-    assert(bbre_buf_size(r->arg_stk) == 1);
-    *bbre_buf_peek(&r->arg_stk, 0) = bbre_buf_pop(&r->op_stk);
-    /* arg_stk: |  A  | */
-    /* op_stk:  | ... | */
-  }
-  assert(bbre_buf_size(r->arg_stk) == 1);
+error:
+  return err;
 }
 
 /* Create a BBRE_AST_TYPE_CC_OR node with the given two character classes.*/
@@ -1118,14 +1108,12 @@ static int bbre_ast_cls_invert(bbre *r, bbre_uint *out, bbre_uint child)
 
 /* Helper function to add a character to the argument stack.
  * Returns `BBRE_ERR_MEM` if out of memory. */
-static int
-bbre_parse_escape_addchr(bbre *r, bbre_uint ch, bbre_uint allowed_outputs)
+static int bbre_parse_escape_addchr(
+    bbre *r, bbre_uint ch, bbre_uint allowed_outputs, bbre_uint *out)
 {
   int err = 0;
-  bbre_uint res;
   (void)allowed_outputs, assert(allowed_outputs & (1 << BBRE_AST_TYPE_CHR));
-  if ((err = bbre_ast_make(r, &res, BBRE_AST_TYPE_CHR, ch)) ||
-      (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
+  if ((err = bbre_ast_make(r, out, BBRE_AST_TYPE_CHR, ch)))
     goto error;
 error:
   return err;
@@ -1170,11 +1158,10 @@ static int bbre_builtin_cc_perl(
  * within different contexts (for example: charclasses), a bitmap
  * `allowed_outputs` encodes, at each bit position, the respective ast_type that
  * is allowed to be created in this context. */
-static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
+static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs, bbre_uint *out)
 {
   bbre_uint ch;
   int err = 0;
-  bbre_uint res; /* resulting AST node, used many times in this function */
   if ((err = bbre_parse_next_or(r, &ch, "expected escape sequence")))
     goto error;
   if (                              /* single character escapes */
@@ -1199,7 +1186,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
       (ch == '-') ||                /* dash */
       (ch == '.') ||                /* dot */
       (ch == '\\') /* escaped slash */) {
-    err = bbre_parse_escape_addchr(r, ch, allowed_outputs);
+    err = bbre_parse_escape_addchr(r, ch, allowed_outputs, out);
     goto error;
   } else if (bbre_parse_is_octdig(ch) >= 0) { /* octal escape */
     int digs = 1;                             /* number of read octal digits */
@@ -1213,7 +1200,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
       assert(!err && bbre_parse_is_octdig(ch) >= 0);
       ord = ord * 8 + bbre_parse_is_octdig(ch);
     }
-    err = bbre_parse_escape_addchr(r, ord, allowed_outputs);
+    err = bbre_parse_escape_addchr(r, ord, allowed_outputs, out);
     goto error;
   } else if (ch == 'x') { /* hex escape */
     bbre_uint ord = 0 /* accumulates ordinal value */,
@@ -1255,14 +1242,13 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
     }
     if (ord > BBRE_UTF_MAX)
       return bbre_err_parse(r, "ordinal value out of range [0, 0x10FFFF]");
-    return bbre_parse_escape_addchr(r, ord, allowed_outputs);
+    return bbre_parse_escape_addchr(r, ord, allowed_outputs, out);
   } else if (ch == 'C') { /* any byte: \C */
     if (!(allowed_outputs & (1 << BBRE_AST_TYPE_ANYBYTE))) {
       err = bbre_err_parse(r, "cannot use \\C here");
       goto error;
     }
-    if ((err = bbre_ast_make(r, &res, BBRE_AST_TYPE_ANYBYTE)) ||
-        (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
+    if ((err = bbre_ast_make(r, out, BBRE_AST_TYPE_ANYBYTE)))
       goto error;
   } else if (ch == 'Q') { /* quote string */
     bbre_uint cat = BBRE_NIL /* accumulator for concatenations */,
@@ -1282,7 +1268,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
           /* \E : actually end the quote */
           ch = bbre_parse_next(r);
           assert(ch == 'E');
-          err = bbre_buf_push(&r->alloc, &r->arg_stk, cat);
+          *out = cat;
           goto error;
         } else if (ch == '\\') {
           /* \\ : insert a literal backslash */
@@ -1302,8 +1288,7 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
         goto error;
     }
     /* we got to the end of the string: push the partial quote */
-    if ((err = bbre_buf_push(&r->alloc, &r->arg_stk, cat)))
-      goto error;
+    *out = cat;
   } else if (
       ch == 'D' || ch == 'd' || ch == 'S' || ch == 's' || ch == 'W' ||
       ch == 'w') {
@@ -1316,11 +1301,9 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
       goto error;
     }
     /* lookup the charclass, optionally invert it */
-    if ((err = bbre_builtin_cc_perl(r, &lower, 1, &res)))
+    if ((err = bbre_builtin_cc_perl(r, &lower, 1, out)))
       goto error;
-    if (inverted && (err = bbre_ast_cls_invert(r, &res, res)))
-      goto error;
-    if ((err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
+    if (inverted && (err = bbre_ast_cls_invert(r, out, *out)))
       goto error;
   } else if (ch == 'P' || ch == 'p') { /* Unicode properties */
     size_t name_start_pos = r->expr_pos, name_end_pos;
@@ -1347,11 +1330,9 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
     }
     assert(name_end_pos >= name_start_pos);
     if ((err = bbre_builtin_cc_unicode_property(
-             r, r->expr + name_start_pos, name_end_pos - name_start_pos, &res)))
+             r, r->expr + name_start_pos, name_end_pos - name_start_pos, out)))
       goto error;
-    if (inverted && (err = bbre_ast_cls_invert(r, &res, res)))
-      goto error;
-    if ((err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
+    if (inverted && (err = bbre_ast_cls_invert(r, out, *out)))
       goto error;
   } else if (ch == 'A' || ch == 'z' || ch == 'B' || ch == 'b') {
     /* empty asserts */
@@ -1360,12 +1341,11 @@ static int bbre_parse_escape(bbre *r, bbre_uint allowed_outputs)
       goto error;
     }
     if ((err = bbre_ast_make(
-             r, &res, BBRE_AST_TYPE_ASSERT,
+             r, out, BBRE_AST_TYPE_ASSERT,
              ch == 'A'   ? BBRE_ASSERT_TEXT_BEGIN
              : ch == 'z' ? BBRE_ASSERT_TEXT_END
              : ch == 'B' ? BBRE_ASSERT_NOT_WORD
-                         : BBRE_ASSERT_WORD)) ||
-        (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
+                         : BBRE_ASSERT_WORD)))
       goto error;
   } else {
     err = bbre_err_parse(r, "invalid escape sequence");
@@ -1401,13 +1381,12 @@ error:
 }
 
 /* Parse a regular expression, storing its resulting AST node into *root. */
-static int bbre_parse(
-    bbre *r, const bbre_byte *ts, size_t tsz, bbre_uint *root,
-    bbre_flags start_flags)
+static int
+bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_flags start_flags)
 {
   int err;
   /* convert ABI flags to internal flags */
-  bbre_uint flags =
+  bbre_uint begin_flags =
       (start_flags & BBRE_FLAG_INSENSITIVE ? BBRE_GROUP_FLAG_INSENSITIVE : 0) |
       (start_flags & BBRE_FLAG_MULTILINE ? BBRE_GROUP_FLAG_MULTILINE : 0) |
       (start_flags & BBRE_FLAG_DOTNEWLINE ? BBRE_GROUP_FLAG_DOTNEWLINE : 0) |
@@ -1416,49 +1395,86 @@ static int bbre_parse(
   r->expr_size = tsz, r->expr_pos = 0;
   if ((err = bbre_parse_checkutf8(r)))
     goto error;
-  if (flags) {
-    bbre_uint igrp = 0, cat = 0;
-    if ((err = bbre_ast_make(r, &cat, BBRE_AST_TYPE_CAT, BBRE_NIL, BBRE_NIL)) ||
-        (err = bbre_ast_make(r, &igrp, BBRE_AST_TYPE_IGROUP, cat, flags, 0)) ||
-        (err = bbre_buf_push(&r->alloc, &r->op_stk, igrp)))
+  assert(!bbre_buf_size(r->op_stk));
+  /* push the initial epsilon node */
+  if ((err = bbre_ast_push(r, BBRE_NIL)))
+    goto error;
+  if (begin_flags) {
+    bbre_uint igrp = 0;
+    if ((err = bbre_ast_make(
+             r, &igrp, BBRE_AST_TYPE_IGROUP, BBRE_NIL, begin_flags, 0)) ||
+        (err = bbre_ast_cat(r, igrp)) || (err = bbre_ast_push(r, BBRE_NIL)))
       goto error;
   }
   while (bbre_parse_has_more(r)) {
     bbre_uint ch = bbre_parse_next(r), res = BBRE_NIL;
-    if (ch == '*' || ch == '+' || ch == '?') {
-      bbre_uint q = ch, greedy = 1;
-      /* arg_stk: | ... |  R  | */
-      /* pop one from arg stk, create quant, push to arg stk */
-      if (!bbre_buf_size(r->arg_stk)) {
+    assert(bbre_buf_size(r->op_stk));
+    if (ch == '*' || ch == '+' || ch == '?' || ch == '{') { /* quantifiers */
+      bbre_uint greedy = 1, min_rep, max_rep;
+      if (*bbre_buf_peek(&r->op_stk, 0) == BBRE_NIL) {
         err = bbre_err_parse(r, "cannot apply quantifier to empty regex");
         goto error;
       }
+      if (ch != '{')
+        min_rep = ch == '+', max_rep = ch == '?' ? 1 : BBRE_INFTY;
+      else { /* counted repetition */
+        if ((err = bbre_parse_number(r, &min_rep, 6)))
+          goto error;
+        if ((err = bbre_parse_next_or(
+                 r, &ch, "expected } to end repetition expression")))
+          goto error;
+        if (ch == '}')
+          /* single number: simple repetition */
+          max_rep = min_rep;
+        else if (ch == ',') {
+          /* comma: either `min_rep` or more, or `min_rep` to `max_rep` */
+          if (!bbre_parse_has_more(r)) {
+            err = bbre_err_parse(
+                r, "expected upper bound or } to end repetition expression");
+            goto error;
+          }
+          ch = bbre_peek_next(r);
+          if (ch == '}')
+            /* `min_rep` or more (`min_rep` - `INFTY`) */
+            ch = bbre_parse_next(r), assert(ch == '}'), max_rep = BBRE_INFTY;
+          else {
+            /* `min_rep` to `max_rep` */
+            if ((err = bbre_parse_number(r, &max_rep, 6)))
+              goto error;
+            if ((err = bbre_parse_next_or(
+                     r, &ch, "expected } to end repetition expression")))
+              goto error;
+            if (ch != '}') {
+              err =
+                  bbre_err_parse(r, "expected } to end repetition expression");
+              goto error;
+            }
+          }
+        } else {
+          err = bbre_err_parse(r, "expected } or , for repetition expression");
+          goto error;
+        }
+      }
       if (bbre_parse_has_more(r) && bbre_peek_next(r) == '?')
         bbre_parse_next(r), greedy = !greedy;
+      /* pop one from op stk, create quant, push to op stk */
       if ((err = bbre_ast_make(
                r, &res, greedy ? BBRE_AST_TYPE_QUANT : BBRE_AST_TYPE_UQUANT,
-               *bbre_buf_peek(&r->arg_stk, 0) /* child */, q == '+' /* min */,
-               q == '?' ? 1 : BBRE_INFTY /* max */)))
+               *bbre_buf_peek(&r->op_stk, 0), min_rep, max_rep)))
         goto error;
-      *bbre_buf_peek(&r->arg_stk, 0) = res;
-      /* arg_stk: | ... | *(R) | */
+      *bbre_buf_peek(&r->op_stk, 0) = res;
+      bbre_ast_fix(r);
     } else if (ch == '|') {
-      /* fold the arg stk into a concat, create alt, push it to the arg stk */
-      /* op_stk:  | ... | */
-      /* arg_stk: | R_1 | R_2 | ... | R_N | */
-      if ((err = bbre_fold(r)))
-        goto error;
-      /* arg_stk: |  R  | */
+      /* pop nodes from op stk until we get one of lower precedence */
+      bbre_uint child = bbre_ast_pop_prec(r, BBRE_AST_TYPE_ALT);
       if ((err = bbre_ast_make(
-               r, &res, BBRE_AST_TYPE_ALT, bbre_buf_pop(&r->arg_stk) /* left */,
+               r, &res, BBRE_AST_TYPE_ALT, child /* left */,
                BBRE_NIL /* right */)) ||
-          (err = bbre_buf_push(&r->alloc, &r->op_stk, res)))
+          (err = bbre_ast_push(r, res)) || (err = bbre_ast_push(r, BBRE_NIL)))
         goto error;
-      /* arg_stk: | */
-      /* op_stk:  | ... | R(|) | */
     } else if (ch == '(') {
       /* capture group */
-      bbre_uint old_flags = flags, inline_group = 0, named_group = 0, child;
+      bbre_uint inline_group = 0, named_group = 0, hi_flags = 0, lo_flags = 0;
       size_t name_start = 0, name_end = name_start;
       if (!bbre_parse_has_more(r)) {
         err = bbre_err_parse(r, "expected ')' to close group");
@@ -1497,9 +1513,8 @@ static int bbre_parse(
           }
           name_end = r->expr_pos - 1; /* backtrack behind > */
         } else {
-          bbre_uint
-              neg = 0 /* should we negate flags? */,
-              flag = BBRE_GROUP_FLAG_UNGREEDY; /* default flag (this makes
+          bbre_uint neg = 0 /* should we negate flags? */,
+                    flag = BBRE_GROUP_FLAG_UNGREEDY; /* default flag (this makes
                                                   coverage testing simpler) */
           while (1) {
             if (ch == ':' /* noncapturing */ || ch == ')' /* inline */)
@@ -1517,7 +1532,10 @@ static int bbre_parse(
                 (ch == 's' && (flag = BBRE_GROUP_FLAG_DOTNEWLINE)) ||
                 (ch == 'u')) {
               /* unset bit if negated, set bit if not */
-              flags = neg ? flags & ~flag : flags | flag;
+              if (!neg)
+                hi_flags |= flag;
+              else
+                lo_flags |= flag;
             } else {
               err = bbre_err_parse(
                   r, "expected ':', ')', or group flags for special group");
@@ -1528,34 +1546,26 @@ static int bbre_parse(
                      "expected ':', ')', or group flags for special group")))
               goto error;
           }
-          flags |= BBRE_GROUP_FLAG_NONCAPTURING;
+          hi_flags |= BBRE_GROUP_FLAG_NONCAPTURING;
           if (ch == ')')
             /* flags only with no : to denote actual pattern */
             inline_group = 1;
         }
       }
-      /* op_stk:  | ... | */
-      /* arg_stk: | R_1 | R_2 | ... | R_N | */
-      if ((err = bbre_fold(r)))
-        goto error;
-      child = bbre_buf_pop(&r->arg_stk);
-      if (inline_group &&
-          (err = bbre_ast_make(r, &child, BBRE_AST_TYPE_CAT, child)))
-        goto error;
       assert(BBRE_IMPLIES(inline_group, !named_group));
       assert(BBRE_IMPLIES(named_group, !inline_group));
-      /* arg_stk: |  R  | */
       if (!inline_group) {
         if ((err = bbre_ast_make(
-                 r, &res, BBRE_AST_TYPE_GROUP, child, flags, old_flags,
+                 r, &res, BBRE_AST_TYPE_GROUP, BBRE_NIL, hi_flags, lo_flags,
                  bbre_buf_size(r->group_names) + 1)))
           goto error;
       } else if ((err = bbre_ast_make(
-                      r, &res, BBRE_AST_TYPE_IGROUP, child, flags, old_flags)))
+                      r, &res, BBRE_AST_TYPE_IGROUP, BBRE_NIL, hi_flags,
+                      lo_flags)))
         goto error;
-      if ((err = bbre_buf_push(&r->alloc, &r->op_stk, res)))
+      if ((err = bbre_ast_cat(r, res)) || (err = bbre_ast_push(r, BBRE_NIL)))
         goto error;
-      if (!inline_group && !(flags & BBRE_GROUP_FLAG_NONCAPTURING)) {
+      if (!inline_group && !(hi_flags & BBRE_GROUP_FLAG_NONCAPTURING)) {
         bbre_group_name name;
         name.name_size = name_end - name_start;
         name.name = NULL;
@@ -1574,56 +1584,18 @@ static int bbre_parse(
           goto error;
         }
       }
-      flags &= ~(BBRE_GROUP_FLAG_NONCAPTURING);
-      /* op_stk:  | ... | (R) | */
+      hi_flags &= ~(BBRE_GROUP_FLAG_NONCAPTURING);
     } else if (ch == ')') {
-      bbre_uint grp, prev;
-      /* arg_stk: | S_1 | S_2 | ... | S_N | */
-      /* op_stk:  | ... | (R) | ... | */
-      /* fold the arg stk into a concat, fold remaining alts, create group,
-       * push it to the arg stk */
-      if ((err = bbre_fold(r)))
-        goto error;
-      bbre_fold_alts(r, &flags);
-      /* arg_stk has one value */
-      assert(bbre_buf_size(r->arg_stk) == 1);
+      /* pop the cat node */
+      res = bbre_ast_pop_prec(r, BBRE_AST_TYPE_GROUP);
       if (!bbre_buf_size(r->op_stk)) {
         err = bbre_err_parse(r, "extra close parenthesis");
         goto error;
       }
-      /* arg_stk: |  S  | */
-      /* op_stk:  | ... | (R) | */
-      grp = *bbre_buf_peek(&r->op_stk, 0);
-      /* retrieve the previous contents of arg_stk */
-      prev = *bbre_ast_param_ref(r, grp, 0);
-      /* add it to the group */
-      *(bbre_ast_param_ref(r, grp, 0)) = *bbre_buf_peek(&r->arg_stk, 0);
-      /* restore group flags */
-      flags = *(bbre_ast_param_ref(r, grp, 2));
-      /* push the saved contents of arg_stk */
-      *bbre_buf_peek(&r->arg_stk, 0) = prev;
-      /* pop the group frame into arg_stk */
-      if ((err =
-               bbre_buf_push(&r->alloc, &r->arg_stk, bbre_buf_pop(&r->op_stk))))
-        goto error;
-      /* arg_stk: |  R  | (S) | */
-      /* op_stk:  | ... | */
     } else if (ch == '.') { /* any char */
-      /* arg_stk: | ... | */
-      bbre_uint left = BBRE_NIL, right = BBRE_NIL;
-      if (((flags & BBRE_GROUP_FLAG_DOTNEWLINE) &&
-           (err = bbre_ast_make(
-                r, &res, BBRE_AST_TYPE_CC_LEAF, 0, BBRE_UTF_MAX))) ||
-          (!(flags & BBRE_GROUP_FLAG_DOTNEWLINE) &&
-           ((err =
-                 bbre_ast_make(r, &left, BBRE_AST_TYPE_CC_LEAF, 0, '\n' - 1)) ||
-            (err = bbre_ast_make(
-                 r, &right, BBRE_AST_TYPE_CC_LEAF, '\n' + 1, BBRE_UTF_MAX)) ||
-            (err =
-                 bbre_ast_make(r, &res, BBRE_AST_TYPE_CC_OR, left, right)))) ||
-          (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
+      if ((err = bbre_ast_make(r, &res, BBRE_AST_TYPE_ANYCHAR)) ||
+          (err = bbre_ast_cat(r, res)))
         goto error;
-      /* arg_stk: | ... |  .  | */
     } else if (ch == '[') {              /* charclass */
       size_t cc_start_pos = r->expr_pos; /* starting position of charclass */
       bbre_uint inverted = 0 /* is the charclass inverted? */,
@@ -1648,10 +1620,10 @@ static int bbre_parse(
           if ((err = bbre_parse_escape(
                    r,
                    (1 << BBRE_AST_TYPE_CHR) | (1 << BBRE_AST_TYPE_CC_BUILTIN |
-                                               (1 << BBRE_AST_TYPE_CC_LEAF)))))
+                                               (1 << BBRE_AST_TYPE_CC_LEAF)),
+                   &next)))
             /* parse_escape() could return ERR_PARSE if for example \A */
             goto error;
-          next = bbre_buf_pop(&r->arg_stk);
           assert(
               *bbre_ast_type_ref(r, next) == BBRE_AST_TYPE_CHR ||
               bbre_ast_type_is_cc(*bbre_ast_type_ref(r, next)));
@@ -1659,12 +1631,10 @@ static int bbre_parse(
             min = *bbre_ast_param_ref(r, next, 0); /* single-character escape */
           else {
             assert(bbre_ast_type_is_cc(*bbre_ast_type_ref(r, next)));
-            if (res) {
-              if ((err = bbre_ast_cls_union(r, &res, res, next)))
-                goto error;
-            } else {
+            if (res && (err = bbre_ast_cls_union(r, &res, res, next)))
+              goto error;
+            else if (!res)
               res = next;
-            }
             /* we parsed an entire class, so there's no ending character */
             continue;
           }
@@ -1707,13 +1677,8 @@ static int bbre_parse(
             goto error;
           if (named_inverted && (err = bbre_ast_cls_invert(r, &res, res)))
             goto error;
-          if ((err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
-            goto error;
-          next = bbre_buf_pop(&r->arg_stk);
           /* ensure that builtin_cc_ascii returned a value */
-          assert(next && bbre_ast_type_is_cc(*bbre_ast_type_ref(r, next)));
-          if ((err = bbre_ast_cls_union(r, &res, res, next)))
-            goto error;
+          assert(res && bbre_ast_type_is_cc(*bbre_ast_type_ref(r, res)));
           continue;
         }
         max = min;
@@ -1727,9 +1692,8 @@ static int bbre_parse(
                    "range expression")))
             goto error;
           if (ch == '\\') { /* start of escape */
-            if ((err = bbre_parse_escape(r, (1 << BBRE_AST_TYPE_CHR))))
+            if ((err = bbre_parse_escape(r, (1 << BBRE_AST_TYPE_CHR), &next)))
               goto error;
-            next = bbre_buf_pop(&r->arg_stk);
             assert(*bbre_ast_type_ref(r, next) == BBRE_AST_TYPE_CHR);
             max = *bbre_ast_param_ref(r, next, 0);
           } else {
@@ -1750,99 +1714,46 @@ static int bbre_parse(
         }
       }
       assert(res); /* charclass cannot be empty */
-      if (inverted) {
+      if (inverted &&
+          ((err = bbre_ast_make(r, &res, BBRE_AST_TYPE_CC_NOT, res))))
         /* inverted character class */
-        if ((err = bbre_ast_make(r, &res, BBRE_AST_TYPE_CC_NOT, res)))
-          goto error;
-      }
-      if ((err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
+        goto error;
+      if ((err = bbre_ast_cat(r, res)))
         goto error;
     } else if (ch == '\\') { /* escape */
       if ((err = bbre_parse_escape(
-               r, 1 << BBRE_AST_TYPE_CHR | 1 << BBRE_AST_TYPE_CC_LEAF |
-                      1 << BBRE_AST_TYPE_CC_BUILTIN |
-                      1 << BBRE_AST_TYPE_ANYBYTE | 1 << BBRE_AST_TYPE_CAT |
-                      1 << BBRE_AST_TYPE_ASSERT)))
+               r,
+               1 << BBRE_AST_TYPE_CHR | 1 << BBRE_AST_TYPE_CC_LEAF |
+                   1 << BBRE_AST_TYPE_CC_BUILTIN | 1 << BBRE_AST_TYPE_ANYBYTE |
+                   1 << BBRE_AST_TYPE_CAT | 1 << BBRE_AST_TYPE_ASSERT,
+               &res)) ||
+          (err = bbre_ast_cat(r, res)))
         goto error;
-    } else if (ch == '{') { /* repetition */
-      bbre_uint min_rep = 0 /* minimum bound */,
-                max_rep = 0 /* maximum bound */;
-      if ((err = bbre_parse_number(r, &min_rep, 6)))
-        goto error;
-      if ((err = bbre_parse_next_or(
-               r, &ch, "expected } to end repetition expression")))
-        goto error;
-      if (ch == '}')
-        /* single number: simple repetition */
-        max_rep = min_rep;
-      else if (ch == ',') {
-        /* comma: either `min_rep` or more, or `min_rep` to `max_rep` */
-        if (!bbre_parse_has_more(r)) {
-          err = bbre_err_parse(
-              r, "expected upper bound or } to end repetition expression");
-          goto error;
-        }
-        ch = bbre_peek_next(r);
-        if (ch == '}')
-          /* `min_rep` or more (`min_rep` - `INFTY`) */
-          ch = bbre_parse_next(r), assert(ch == '}'), max_rep = BBRE_INFTY;
-        else {
-          /* `min_rep` to `max_rep` */
-          if ((err = bbre_parse_number(r, &max_rep, 6)))
-            goto error;
-          if ((err = bbre_parse_next_or(
-                   r, &ch, "expected } to end repetition expression")))
-            goto error;
-          if (ch != '}') {
-            err = bbre_err_parse(r, "expected } to end repetition expression");
-            goto error;
-          }
-        }
-      } else {
-        err = bbre_err_parse(r, "expected } or , for repetition expression");
-        goto error;
-      }
-      if (!bbre_buf_size(r->arg_stk)) {
-        err = bbre_err_parse(r, "cannot apply quantifier to empty regex");
-        goto error;
-      }
-      if ((err = bbre_ast_make(
-               r, &res, BBRE_AST_TYPE_QUANT, *bbre_buf_peek(&r->arg_stk, 0),
-               min_rep, max_rep)))
-        goto error;
-      *bbre_buf_peek(&r->arg_stk, 0) = res;
     } else if (ch == '^' || ch == '$') { /* beginning/end of text/line */
       /* these are similar enough that I put them into one condition */
       if ((err = bbre_ast_make(
                r, &res, BBRE_AST_TYPE_ASSERT,
-               ch == '^' ? (flags & BBRE_GROUP_FLAG_MULTILINE
-                                ? BBRE_ASSERT_LINE_BEGIN
-                                : BBRE_ASSERT_TEXT_BEGIN)
-                         : (flags & BBRE_GROUP_FLAG_MULTILINE
-                                ? BBRE_ASSERT_LINE_END
-                                : BBRE_ASSERT_TEXT_END))) ||
-          (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
+               ch == '^' ? BBRE_ASSERT_LINE_BEGIN : BBRE_ASSERT_LINE_END)) ||
+          (err = bbre_ast_cat(r, res)))
         goto error;
-    } else { /* char: push to the arg stk */
-      /* arg_stk: | ... | */
+    } else { /* char */
       if ((err = bbre_ast_make(r, &res, BBRE_AST_TYPE_CHR, ch)) ||
-          (err = bbre_buf_push(&r->alloc, &r->arg_stk, res)))
+          (err = bbre_ast_cat(r, res)))
         goto error;
-      /* arg_stk: | ... | chr | */
     }
   }
-  /* fold everything on the stacks into a single node */
-  if ((err = bbre_fold(r)))
-    goto error;
-  bbre_fold_alts(r, &flags);
-  if (bbre_buf_size(r->op_stk)) {
-    err = bbre_err_parse(r, "unmatched open parenthesis");
-    goto error;
+  bbre_buf_pop(&r->op_stk); /* pop argument node */
+  while (bbre_buf_size(r->op_stk)) {
+    if (*bbre_ast_type_ref(r, bbre_buf_pop(&r->op_stk)) ==
+        BBRE_AST_TYPE_GROUP) {
+      err = bbre_err_parse(r, "unmatched open parenthesis");
+      goto error;
+    }
   }
-  /* then wrap that node into a nonmatching subexpression group to denote a
+  /* wrap the top node into a nonmatching subexpression group to denote a
    * subpattern */
   if ((err = bbre_ast_make(
-           r, root, BBRE_AST_TYPE_GROUP, bbre_buf_pop(&r->arg_stk),
+           r, &r->ast_root, BBRE_AST_TYPE_GROUP, r->ast_root,
            BBRE_GROUP_FLAG_EXPRESSION, 0, 0)))
     goto error;
 error:
@@ -2583,6 +2494,10 @@ static int bbre_compcc_fold_range(
     bbre *r, bbre_uint begin, bbre_uint end,
     bbre_buf(bbre_rune_range) * cc_out);
 
+/* Main function for the character class compiler. `frame` is the compiler frame
+ * allocated for the resulting instructions, `ranges` is the normalized set of
+ * rune ranges that comprise this character class, and `reversed` tells us
+ * whether to compile the charclass in reverse. */
 static int bbre_compcc2(
     bbre *r, bbre_compframe *frame, bbre_buf(bbre_rune_range) ranges,
     int reversed)
@@ -2649,176 +2564,6 @@ error:
   return err;
 }
 
-/* Main function for the character class compiler. `ast_root` is the AST ID of
- * the CC node, `frame` is the compiler frame allocated for that node, and
- * `reversed` tells us whether to compile the charclass in reverse. */
-int bbre_compcc(
-    bbre *r, bbre_uint ast_root, bbre_compframe *frame, int reversed)
-{
-  int err = 0, is_inverted = 0,
-      is_insensitive = !!(frame->flags & BBRE_GROUP_FLAG_INSENSITIVE);
-  bbre_uint start_pc = 0; /* start PC of the compiled charclass, this is filled
-                          in by rendertree() */
-  /* clear temporary buffers (their space is reserved) */
-  bbre_buf_clear(&r->compcc.ranges), bbre_buf_clear(&r->compcc.ranges_2),
-      bbre_buf_clear(&r->compcc.tree), bbre_buf_clear(&r->compcc.tree_2),
-      bbre_buf_clear(&r->compcc.hash);
-  /* push ranges */
-  while (ast_root) {
-    /* decompose the tree of [I]CC nodes into a flat array in compcc.ranges */
-    bbre_uint args[3] = {0} /* ast arguments */,
-              rune_lo /* lower bound of rune range */,
-              rune_hi /* upper bound of rune range */;
-    bbre_ast_decompose(r, ast_root, args);
-    ast_root = args[0], rune_lo = args[1], rune_hi = args[2];
-    if ((err = bbre_buf_push(
-             &r->alloc, &r->compcc.ranges,
-             bbre_rune_range_make(
-                 /* handle out-of-order ranges (lo > hi) */
-                 rune_lo > rune_hi ? rune_hi : rune_lo,
-                 rune_lo > rune_hi ? rune_lo : rune_hi))))
-      goto error;
-  }
-  /* for now, we disallow empty charclasses */
-  assert(bbre_buf_size(r->compcc.ranges));
-  /* sort and normalize ranges. This is done in a loop, because we may need to
-   * do it twice in case the charclass is marked as case-insensitive */
-  do {
-    /* sort ranges: we want all ranges to be ordered by their lower bound, this
-     * makes all subsequent steps O(1). Ideally, we want compilation time to be
-     * dominated by this step. */
-    bbre_compcc_hsort(r->compcc.ranges);
-    /* normalize ranges: we want to eliminate all instances of range overlap,
-     * and we also want to merge adjacent ranges. */
-    {
-      size_t i;
-      bbre_rune_range next /* currently processed range */,
-          prev /* previously processed range, yet to be added to the array */;
-      for (i = 0; i < bbre_buf_size(r->compcc.ranges); i++) {
-        next = r->compcc.ranges[i];
-        assert(next.l <= next.h); /* ensure ranges are not swapped */
-        if (!i)
-          /* this is the first range */
-          prev = bbre_rune_range_make(next.l, next.h);
-        else if (next.l <= prev.h + 1) {
-          /* next intersects or is adjacent to prev, merge the two ranges by
-           * expanding prev so that it envelops both prev and next */
-          prev.h = next.h > prev.h ? next.h : prev.h;
-        } else {
-          /* next and prev are disjoint */
-          /* since ranges strictly increase, we know that prev does not
-           * intersect with any other range in the input array, so we can push
-           * it and move on. */
-          if ((err = bbre_buf_push(&r->alloc, &r->compcc.ranges_2, prev)))
-            goto error;
-          prev = next;
-        }
-      }
-      assert(i); /* the charclass is never empty here */
-      if ((err = bbre_buf_push(&r->alloc, &r->compcc.ranges_2, prev)))
-        goto error;
-      if (is_insensitive) {
-        /* casefold normalized ranges */
-        bbre_buf_clear(&r->compcc.ranges);
-        for (i = 0; i < bbre_buf_size(r->compcc.ranges_2); i++) {
-          next = r->compcc.ranges_2[i];
-          if ((err = bbre_buf_push(&r->alloc, &r->compcc.ranges, next)))
-            goto error;
-          if ((err = bbre_compcc_fold_range(
-                   r, next.l, next.h, &r->compcc.ranges)))
-            goto error;
-        }
-        bbre_buf_clear(&r->compcc.ranges_2);
-      }
-    }
-  } while (is_insensitive &&
-           is_insensitive-- /* re-normalize by looping again */);
-  if (is_inverted) {
-    /* invert ranges in place, if appropriate */
-    bbre_uint hi = 0 /* largest rune encountered plus one */,
-              read /* read index into `compcc_ranges_2` */,
-              write = 0 /* write index into `compcc_ranges_2` */,
-              old_size = bbre_buf_size(r->compcc.ranges_2);
-    bbre_rune_range cur = bbre_rune_range_make(0, 0);
-    for (read = 0; read < old_size; read++) {
-      cur = r->compcc.ranges_2[read];
-      /* for inverting in place to work, the write index must always lag the
-       * read index */
-      assert(write <= read);
-      if (cur.l > hi) {
-        /* create a range that 'fills in the gap' between the previous range and
-         * the next one */
-        r->compcc.ranges_2[write++] = bbre_rune_range_make(hi, cur.l - 1);
-        hi = cur.h + 1;
-      }
-    }
-    /* it is possible for the amount of inverted ranges to be greater than the
-     * amound of ranges (specifically, it may be exactly one greater if the
-     * input range does not extend to the maximum codepoint) */
-    if ((err = bbre_buf_reserve(
-             &r->alloc, &r->compcc.ranges_2, write += (cur.h < BBRE_UTF_MAX))))
-      goto error;
-    /* make the final inverted range */
-    if (cur.h < BBRE_UTF_MAX)
-      r->compcc.ranges_2[write - 1] =
-          bbre_rune_range_make(cur.h + 1, BBRE_UTF_MAX);
-  }
-  if (!bbre_buf_size(r->compcc.ranges_2)) {
-    /* here, it's actually possible to have a charclass that matches no chars,
-     * consider the inversion of [\x00-\x{10FFFF}]. Since this case is so rare,
-     * we just stub it out by creating an assert that never matches. */
-    if ((err = bbre_prog_emit(
-             &r->prog,
-             bbre_inst_make(
-                 BBRE_OPCODE_ASSERT, 0,
-                 BBRE_ASSERT_WORD | BBRE_ASSERT_NOT_WORD),
-             frame->set_idx))) /* never matches */
-      goto error;
-    /* just return immediately, the code below assumes that there are actually
-     * ranges to compile */
-    bbre_patch_add(r, frame, bbre_prog_size(&r->prog) - 1, 0);
-    goto error;
-  }
-  /* build the concat/alt tree */
-  if ((err = bbre_compcc_tree_build(r, r->compcc.ranges_2, &r->compcc.tree)))
-    goto error;
-  /* hash the tree */
-  if ((err = bbre_compcc_hash_init(r, r->compcc.tree, &r->compcc.hash)))
-    goto error;
-  bbre_compcc_tree_hash(r, r->compcc.tree, 1);
-  if (reversed) {
-    /* optionally reverse the tree, if we're compiling in reverse mode */
-    bbre_uint i;
-    bbre_buf(bbre_compcc_tree) tmp;
-    /* copy all nodes from compcc.tree to compcc.tree_2, this has the side
-     * effect of reserving exactly enough space to store the reversed tree */
-    bbre_buf_clear(&r->compcc.tree_2);
-    for (i = 1 /* skip sentinel */; i < bbre_buf_size(r->compcc.tree); i++) {
-      if ((err = bbre_compcc_tree_new(
-               r, &r->compcc.tree_2, r->compcc.tree[i], NULL)) == BBRE_ERR_MEM)
-        goto error;
-      assert(!err);
-    }
-    /* detach new root */
-    r->compcc.tree_2[1].child_ref = BBRE_NIL;
-    /* reverse all concatenation edges in the tree */
-    bbre_compcc_tree_xpose(r->compcc.tree, r->compcc.tree_2, 1, 1, 1);
-    tmp = r->compcc.tree;
-    r->compcc.tree = r->compcc.tree_2;
-    r->compcc.tree_2 = tmp;
-  }
-  /* reduce the tree */
-  bbre_compcc_tree_reduce(
-      r, r->compcc.tree, r->compcc.hash, r->compcc.tree[1].child_ref,
-      &start_pc);
-  /* finally, generate the charclass' instructions */
-  if ((err = bbre_compcc_tree_render(
-           r, r->compcc.tree, r->compcc.tree[1].child_ref, &start_pc, frame)))
-    goto error;
-error:
-  return err;
-}
-
 static bbre_uint
 bbre_inst_relocate_pc(bbre_uint orig, bbre_uint src, bbre_uint dst)
 {
@@ -2830,20 +2575,14 @@ static bbre_inst
 bbre_inst_relocate(bbre_inst inst, bbre_uint src, bbre_uint dst)
 {
   bbre_inst next_inst = inst;
-  switch (bbre_inst_opcode(inst)) {
-  case BBRE_OPCODE_SPLIT:
+  if (bbre_inst_opcode(inst) == BBRE_OPCODE_SPLIT)
     next_inst = bbre_inst_make(
         bbre_inst_opcode(next_inst), bbre_inst_next(next_inst),
         bbre_inst_relocate_pc(bbre_inst_param(next_inst), src, dst));
-    /* fall through */
-  case BBRE_OPCODE_RANGE:
-  case BBRE_OPCODE_MATCH:
-  case BBRE_OPCODE_ASSERT:
-    next_inst = bbre_inst_make(
-        bbre_inst_opcode(next_inst),
-        bbre_inst_relocate_pc(bbre_inst_next(next_inst), src, dst),
-        bbre_inst_param(next_inst));
-  }
+  next_inst = bbre_inst_make(
+      bbre_inst_opcode(next_inst),
+      bbre_inst_relocate_pc(bbre_inst_next(next_inst), src, dst),
+      bbre_inst_param(next_inst));
   return next_inst;
 }
 
@@ -2864,8 +2603,7 @@ static int bbre_compile_dup(
     bbre_inst inst = bbre_prog_get(&r->prog, i),
               next_inst = bbre_inst_relocate(inst, src->pc, dst->pc);
     int should_patch[2] = {0, 0}, j;
-    switch (bbre_inst_opcode(inst)) {
-    case BBRE_OPCODE_SPLIT:
+    if (bbre_inst_opcode(inst) == BBRE_OPCODE_SPLIT) {
       /* Any previous patches in `src` should have been linked to `dest_pc`. We
        * can track them thusly. */
       should_patch[1] = bbre_inst_param(inst) == dest_pc;
@@ -2873,16 +2611,12 @@ static int bbre_compile_dup(
       next_inst = bbre_inst_make(
           bbre_inst_opcode(next_inst), bbre_inst_next(next_inst),
           should_patch[1] ? 0 : bbre_inst_param(next_inst));
-      /* fall through */
-    case BBRE_OPCODE_RANGE:
-    case BBRE_OPCODE_MATCH:
-    case BBRE_OPCODE_ASSERT:
-      should_patch[0] = bbre_inst_next(inst) == dest_pc;
-      next_inst = bbre_inst_make(
-          bbre_inst_opcode(next_inst),
-          should_patch[0] ? 0 : bbre_inst_next(next_inst),
-          bbre_inst_param(next_inst));
     }
+    should_patch[0] = bbre_inst_next(inst) == dest_pc;
+    next_inst = bbre_inst_make(
+        bbre_inst_opcode(next_inst),
+        should_patch[0] ? 0 : bbre_inst_next(next_inst),
+        bbre_inst_param(next_inst));
     if ((err = bbre_prog_emit(&r->prog, next_inst, dst->set_idx)))
       goto error;
     /* if the above step found patch points, add them to `dst`'s patch list. */
@@ -2954,14 +2688,15 @@ static void bbre_compile_free_cc(bbre *r)
 static int bbre_compile_casefold_cc(bbre *r)
 {
   int err = 0;
-  bbre_buf(bbre_rune_range) in = bbre_buf_pop(&r->cc_stk);
+  bbre_buf(bbre_rune_range) in;
   bbre_buf(bbre_rune_range) out_denorm;
   bbre_buf(bbre_rune_range) * out;
   size_t i;
   bbre_buf_init(&out_denorm);
-  if ((err = bbre_compile_alloc_cc(r)))
-    goto error;
+  /* move the top of the cc_stk, and then reset it */
   out = &r->cc_stk[bbre_buf_size(r->cc_stk) - 1];
+  in = *out;
+  bbre_buf_init(out);
   for (i = 0; i < bbre_buf_size(in); i++) {
     bbre_rune_range rr = in[i];
     if ((err = bbre_buf_push(&r->alloc, &out_denorm, rr)))
@@ -3054,7 +2789,8 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
     child_frame.child_ref = child_frame.root_ref = child_frame.patch_head =
         child_frame.patch_tail = BBRE_NIL;
     child_frame.idx = child_frame.pc = 0;
-    type = *bbre_ast_type_ref(r, frame.root_ref); /* may return 0 if epsilon */
+    type = frame.root_ref ? *bbre_ast_type_ref(r, frame.root_ref)
+                          : 0 /* 0 for epsilon */;
     if (frame.root_ref)
       bbre_ast_decompose(r, frame.root_ref, args);
     if (type == BBRE_AST_TYPE_CHR) {
@@ -3062,8 +2798,7 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
        * instructions */
       bbre_patch_apply(r, &frame, my_pc);
       if (args[0] < 128 && !(frame.flags & BBRE_GROUP_FLAG_INSENSITIVE)) {
-        /* ascii characters -- these are common enough that it's worth
-         * bypassing
+        /* ascii characters -- these are common enough that it's worth bypassing
          * the charclass compiler and just emitting a single RANGE */
         /*  in     out
          * ---> R ----> */
@@ -3090,6 +2825,31 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
           goto error;
         bbre_compile_free_cc(r);
       }
+    } else if (type == BBRE_AST_TYPE_ANYCHAR) {
+      /* . */
+      /*  in            out
+       * ---> [varies] ----> */
+      assert(!bbre_buf_size(r->cc_stk));
+      bbre_patch_apply(r, &frame, my_pc);
+      if ((err = bbre_compile_alloc_cc(r)))
+        goto error;
+      if (frame.flags & BBRE_GROUP_FLAG_DOTNEWLINE) {
+        if ((err = bbre_buf_push(
+                 &r->alloc, &r->cc_stk[0],
+                 bbre_rune_range_make(0, BBRE_UTF_MAX))))
+          goto error;
+      } else {
+        if ((err = bbre_buf_push(
+                 &r->alloc, &r->cc_stk[0],
+                 bbre_rune_range_make(0, '\n' - 1))) ||
+            (err = bbre_buf_push(
+                 &r->alloc, &r->cc_stk[0],
+                 bbre_rune_range_make('\n' + 1, BBRE_UTF_MAX))))
+          goto error;
+      }
+      if ((err = bbre_compcc2(r, &frame, r->cc_stk[0], reverse)))
+        goto error;
+      bbre_compile_free_cc(r);
     } else if (type == BBRE_AST_TYPE_ANYBYTE) {
       /* \C */
       /*  in     out
@@ -3247,18 +3007,24 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
     } else if (type == BBRE_AST_TYPE_GROUP || type == BBRE_AST_TYPE_IGROUP) {
       /* groups: insert opening and closing match instructions, or nothing if
        * the group is a noncapturing group and simply modifies flag state */
-      bbre_uint child = args[0], flags = args[1], idx = args[3];
-      frame.flags =
-          flags &
-          ~BBRE_GROUP_FLAG_EXPRESSION; /* we shouldn't propagate this flag */
-      if (!frame.idx) {                /* before child */
+      bbre_uint child = args[0], hi_flags = args[1], lo_flags = args[2],
+                idx = args[3];
+      assert(/* these flags should never be set in `lo_flags` */
+             !(lo_flags &
+               (BBRE_GROUP_FLAG_NONCAPTURING | BBRE_GROUP_FLAG_EXPRESSION)));
+      frame.flags |=
+          (hi_flags &
+           ~(BBRE_GROUP_FLAG_NONCAPTURING |
+             BBRE_GROUP_FLAG_EXPRESSION)); /* we shouldn't propagate these */
+      frame.flags &= ~lo_flags;
+      if (!frame.idx) { /* before child */
         /* before child */
-        if (!(flags & BBRE_GROUP_FLAG_NONCAPTURING)) {
+        if (!(hi_flags & BBRE_GROUP_FLAG_NONCAPTURING)) {
           /* compile in the beginning match instruction */
           /*  in      out
            * ---> Mb ----> */
           bbre_patch_apply(r, &frame, my_pc);
-          if (flags & BBRE_GROUP_FLAG_EXPRESSION)
+          if (hi_flags & BBRE_GROUP_FLAG_EXPRESSION)
             frame.set_idx = ++sub_idx;
           if ((err = bbre_prog_emit(
                    &r->prog,
@@ -3278,7 +3044,7 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
         /* compile in the ending match instruction */
         /*  in                   out
          * ---> Mb -> [X] -> Me ----> */
-        if (!(flags & BBRE_GROUP_FLAG_NONCAPTURING)) {
+        if (!(hi_flags & BBRE_GROUP_FLAG_NONCAPTURING)) {
           bbre_patch_apply(r, &returned_frame, my_pc);
           if ((err = bbre_prog_emit(
                    &r->prog,
@@ -3289,7 +3055,7 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
                                          bbre_prog_get(&r->prog, frame.pc))))),
                    frame.set_idx)))
             goto error;
-          if (!(flags & BBRE_GROUP_FLAG_EXPRESSION))
+          if (!(hi_flags & BBRE_GROUP_FLAG_EXPRESSION))
             bbre_patch_add(r, &frame, my_pc, 0);
           else {
             /* for the ending match instruction that corresponds to a
@@ -3446,25 +3212,29 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
       /* assertions: add a single ASSERT instruction */
       /*  in     out
        * ---> A ----> */
-      bbre_uint assert_flag = args[0], real_assert_flag = 0;
+      bbre_uint flag = args[0], real_flag;
       bbre_patch_apply(r, &frame, my_pc);
       if (reverse) {
-        if (assert_flag & BBRE_ASSERT_TEXT_BEGIN)
-          real_assert_flag |= BBRE_ASSERT_TEXT_END;
-        if (assert_flag & BBRE_ASSERT_TEXT_END)
-          real_assert_flag |= BBRE_ASSERT_TEXT_BEGIN;
-        if (assert_flag & BBRE_ASSERT_LINE_BEGIN)
-          real_assert_flag |= BBRE_ASSERT_LINE_END;
-        if (assert_flag & BBRE_ASSERT_LINE_END)
-          real_assert_flag |= BBRE_ASSERT_LINE_BEGIN;
-        real_assert_flag |=
-            (assert_flag & (BBRE_ASSERT_WORD | BBRE_ASSERT_NOT_WORD));
-      } else {
-        real_assert_flag = assert_flag;
+        real_flag = 0;
+        if (flag & BBRE_ASSERT_TEXT_BEGIN)
+          real_flag |= BBRE_ASSERT_TEXT_END;
+        if (flag & BBRE_ASSERT_TEXT_END)
+          real_flag |= BBRE_ASSERT_TEXT_BEGIN;
+        if (flag & BBRE_ASSERT_LINE_BEGIN)
+          real_flag |= BBRE_ASSERT_LINE_END;
+        if (flag & BBRE_ASSERT_LINE_END)
+          real_flag |= BBRE_ASSERT_LINE_BEGIN;
+        real_flag |= (flag & (BBRE_ASSERT_WORD | BBRE_ASSERT_NOT_WORD));
+        flag = real_flag;
       }
+      if (!(frame.flags & BBRE_GROUP_FLAG_MULTILINE) &&
+          flag & BBRE_ASSERT_LINE_BEGIN)
+        flag = (flag & ~BBRE_ASSERT_LINE_BEGIN) | BBRE_ASSERT_TEXT_BEGIN;
+      if (!(frame.flags & BBRE_GROUP_FLAG_MULTILINE) &&
+          flag & BBRE_ASSERT_LINE_END)
+        flag = (flag & ~BBRE_ASSERT_LINE_END) | BBRE_ASSERT_TEXT_END;
       if ((err = bbre_prog_emit(
-               &r->prog,
-               bbre_inst_make(BBRE_OPCODE_ASSERT, 0, real_assert_flag),
+               &r->prog, bbre_inst_make(BBRE_OPCODE_ASSERT, 0, flag),
                frame.set_idx)))
         goto error;
       bbre_patch_add(r, &frame, my_pc, 0);
@@ -3491,12 +3261,11 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
     returned_frame = frame;
   }
   assert(!bbre_buf_size(r->comp_stk));
+  assert(!bbre_buf_size(r->cc_stk));
   assert(!returned_frame.patch_head && !returned_frame.patch_tail);
   if ((err = bbre_compile_dotstar(&r->prog, reverse, 1)))
     goto error;
 error:
-  /* we should have a balanced character class stack when exiting this func */
-  assert(!bbre_buf_size(r->cc_stk));
   return err;
 }
 
@@ -3591,6 +3360,7 @@ bbre_set *bbre_set_init_patterns(const char *const *pats_nt, size_t num_pats)
   }
   if ((err = bbre_set_init(&set, spec, &a))) {
     bbre_set_destroy(set);
+    set = NULL;
     goto done;
   }
 done:
@@ -5087,13 +4857,13 @@ static int bbre_compcc_fold_range(
 /*} Generated by `unicode_data.py gen_casefold` */
 
 typedef struct bbre_builtin_cc {
-  bbre_uint name_len, num_range, start;
+  bbre_uint name_len, num_range, start_bit_offset;
   const char *name;
 } bbre_builtin_cc;
 
 /* builtin_cc_data is a bitstream representing compressed rune ranges.
  * Normalized ranges are flattened into an array of integers so that even
- * indices are range minimums, and odd indices are range maximums. Then the the
+ * indices are range minimums, and odd indices are range maximums. Then the
  * array is derived into an array of deltas between adjacent integers. For
  * compression optimality, 1s and 2s are swapped. Then each integer (of which
  * all are positive, since the ranges always increase) becomes:
@@ -5117,260 +4887,258 @@ typedef struct bbre_builtin_cc {
  * 32-bit integers. */
 
 /*{ Generated by `unicode_data.py gen_ccs impl` */
-/* 3360 ranges, 6720 integers, 4320 bytes */
-static const bbre_uint bbre_builtin_cc_data[1080] = {
-    0x7ACF7CF7, 0x00007AD7, 0xAD77ADFF, 0x00000007, 0x000017F2, 0x00005A9F,
-    0x003ECD7A, 0x00007CF7, 0x006ECDFB, 0x007ADFB3, 0x12B0D0DF, 0x001ECCFB,
-    0xD331CDFB, 0xD3B6D3B1, 0x00000004, 0x0012B2DF, 0x0007ADFF, 0x7ACF7CF7,
-    0x0001EB1B, 0xB6CF7CF7, 0x000006D3, 0xFB3ECD7A, 0x00000000, 0x4ADA9B6B,
-    0x9FEA5ADB, 0x30DFF60B, 0xA2D9F9F3, 0xD3B2DBFF, 0x37D2C2F2, 0xFE8F2BF7,
-    0x208E8CD0, 0x349DCA8F, 0x7EC98CD7, 0x73CEACD3, 0x58AFA8ED, 0x005ECD7A,
-    0xC8FFFF73, 0xA27A5FE9, 0xFFFC9FFB, 0xFFFC926F, 0x0000006F, 0xC8FFFB73,
-    0x5FCC35FD, 0x005FFCC3, 0x3F7ADFB3, 0x5756B0D9, 0x00000000, 0x10C00000,
-    0x00043000, 0x00000000, 0x29213412, 0x4D2926C3, 0x490C4812, 0x7530D20A,
-    0xC0001249, 0x30C00010, 0x000000A1, 0x00000000, 0x90D24C70, 0xB4A33006,
-    0xA2808EC3, 0x272E92B4, 0x00052C34, 0xD2492C00, 0x015DCAF0, 0xC8000000,
-    0x00000000, 0x12000000, 0x00010C00, 0x00000000, 0x00000000, 0x9DF60000,
-    0x0DCE3773, 0x6DEFB353, 0xF33D22A7, 0xCCFF4DCE, 0x16737ED2, 0x00000000,
-    0x00000000, 0x00000000, 0x00000000, 0x013C0000, 0x00000000, 0x00000000,
-    0x3C000000, 0xF5D336DF, 0xD336DF5D, 0x6CDF5DF5, 0xDF5DF5D3, 0x970D2DF5,
-    0x4D37C352, 0x54CD77C3, 0x0CA4A9C3, 0x269A2E8B, 0xB9B4DF0D, 0x5DCB6B61,
-    0x31A04329, 0x00001DB4, 0x00000000, 0x00000000, 0x0F0C0000, 0x65A76C9A,
-    0x002A99F8, 0x00000000, 0x00000AA0, 0x000E2A00, 0x00000014, 0x00000000,
-    0xA0048570, 0x00005121, 0xA0000618, 0xA6E80161, 0xC371B9C8, 0xD7333CF1,
-    0xCC77F9F9, 0xB0D8ACB6, 0x671CEADE, 0xAD2778AD, 0x4734332E, 0x289EC347,
-    0xB1CFDC2F, 0xB7FDADD7, 0xB4EBABD7, 0xF3474EDE, 0x4EDEB4ED, 0xB0CD1C53,
-    0xAD3B7AD3, 0x3B7AD3B7, 0x7AD3B7AD, 0xD3B7AD3B, 0xB7AD3B7A, 0xADBB4ED3,
-    0x3AD3B6D3, 0xD3AD3B6D, 0x6D3AD3B6, 0x96D3AD3B, 0x2B5F6B9E, 0x3BF9DB5D,
-    0x000001FB, 0xB7CCF6B3, 0xF2D734CD, 0xBE1862A0, 0xA6A59E97, 0xB0C7270D,
-    0xA28323E9, 0xAA39A9FA, 0x323FC9AB, 0x24EEE86E, 0xE29CC8B7, 0xD76B6DF3,
-    0x7498731F, 0x720BACCA, 0xFDCB37C8, 0xA0BEC33E, 0xB61AF8FE, 0x309C872C,
-    0x9FBD1ECC, 0x6D27AA5A, 0xA4BC9727, 0x3C3F30DB, 0x723A9F33, 0x6BF0CB43,
-    0xC832A5A8, 0x730C6A6D, 0xAD8334CE, 0xB0C76588, 0x79D6DFBF, 0xC62F2F3D,
-    0x2CCF32B4, 0x88990DFF, 0xC347536C, 0xDBF0B88E, 0xDBCC70CE, 0x000FB2A1,
-    0xFA3C836B, 0x7CED369F, 0xB0ECBE72, 0xD5EC774D, 0x9CD0CA77, 0x4CC37A90,
-    0xDBB1F24D, 0x2CCEB31E, 0xC6B3EDEA, 0xF3AD376A, 0xD5AC70CC, 0xBF39C2B6,
-    0xE4A8B6BC, 0xB1CDF37C, 0xAD30D35D, 0x2D3291D6, 0xD431C9F2, 0xDE4CC35C,
-    0x6AD30DB6, 0x0D0D0D1D, 0xD2A94CFB, 0x5AB54F7C, 0xA2CB4347, 0x3AC33C92,
-    0x30D35CB2, 0xD0D1D6AD, 0xD435E8B2, 0x2DB02A3C, 0x0C432D35, 0xCCB4B0CB,
-    0x576B96B4, 0x2D7346B5, 0xC349353A, 0xAD55DA5E, 0xE8B2D7D1, 0x33CC3433,
-    0xE754F0AC, 0x7D19F24C, 0xF31DB7AD, 0x24F56B2D, 0xD5DD3F1D, 0xCBF6DB30,
-    0xC56B4B10, 0xB48330D7, 0xE7ED33AC, 0xBB49D5CF, 0x0DCAF32C, 0x6DB7C9AB,
-    0x4F0CA2D3, 0xC9B32CDB, 0xD34E370B, 0x9D34C474, 0xD3ED34D3, 0x4D311D34,
-    0xD34EF473, 0x319C2334, 0x7330BCD7, 0xEB4F34D3, 0x75C3331D, 0xB1CDF33D,
-    0xCDF35CC2, 0xF3CD4B35, 0xCA3279D2, 0x2CF2BD09, 0x33197ED3, 0xBC7B4CDA,
-    0xCCB4DBB0, 0xDEB6D372, 0xF0CC6B5B, 0xC777DACA, 0xBB5BD70A, 0x74CC31CD,
-    0xDD274ED3, 0xCDBB4CD0, 0xC35B530B, 0x74D3E2A2, 0xEB5BCEFF, 0xD1C331AD,
-    0xD1D1D1D1, 0x6331D1D1, 0xACDA1B8E, 0x6DEB31F6, 0x6ECD0DC6, 0xDF75EC2B,
-    0x9C9FFF5C, 0x8D9FE5FB, 0x2B5AB5FF, 0x6728CC6F, 0x36D3277D, 0x8CC34CD7,
-    0xB68CC2E4, 0xCA39C836, 0xB1AD4D51, 0xDD734BC7, 0x30B6D7F7, 0x4CD3B2CC,
-    0xCBB0EC6B, 0xCB1DC773, 0x74B4CCF4, 0xAD753ACE, 0xA2DB5736, 0x4C3297DC,
-    0xC37A84CB, 0xD723C332, 0x36D36D36, 0x2AB1D1C3, 0xDA87B09C, 0x1ADB249B,
-    0x262B3DDB, 0xCD36DDDA, 0x5F0A3379, 0xD0C4B4B3, 0xC274DCD0, 0x5FD2B0DD,
-    0xCDE76BD3, 0xAD2DAF34, 0xD7C37318, 0xCB1ED32D, 0x36D36D36, 0xAD4CCA75,
-    0xCD0D0AD7, 0xD276CD31, 0xEC62F0FC, 0xCF73DCB2, 0xD4AC735E, 0xD3369D75,
-    0xDB49D36E, 0x6CCDFF35, 0xDF59D273, 0xB9DBAB4B, 0x336AC331, 0x36DEAB5D,
-    0x22C35371, 0x1AD331AD, 0x2331EC33, 0xD330D0AC, 0x37AD336A, 0x0D75BD63,
-    0x5533C9FF, 0xCBB4DCBB, 0x5729CBB2, 0xDAF2ED3B, 0xB4CDAB4C, 0xCDF31CC2,
-    0xBACE335D, 0x76EDD273, 0x5CCC35DE, 0xADE4CCBB, 0x777CD376, 0x1ACBB2AD,
-    0xC3F2BDB3, 0xCB71C930, 0x74ECEB7E, 0x77921ED2, 0x5DDB22C2, 0x606B4D73,
-    0xB3AD7CCA, 0x11CFF0CA, 0x3DF47353, 0x4D759C77, 0x475AB4C3, 0x92A2CB43,
-    0xF5EACB6C, 0x6AD34ACA, 0x6AD775ED, 0x1DDEEA43, 0xDDA74C37, 0x372F9AB5,
-    0xECE321CC, 0x3EB1C670, 0x5CABB4DC, 0xB4357493, 0x5EC83CD6, 0x7CC674D7,
-    0x59D326E8, 0xDCB21A8F, 0x334A8AB6, 0x74F389CE, 0xEC2E0ACA, 0x0D1DF736,
-    0x0E86B69D, 0xCD7B435B, 0x30ACE365, 0xDFB4B30F, 0xCCF326FC, 0xED67B7AB,
-    0xCDB33748, 0xD8ACF33E, 0xEFF6C2B5, 0x2B18CCC3, 0x3B8CC3EE, 0xCC2B1ECF,
-    0xB6EC2B1C, 0xACAF5DD2, 0x7730AC72, 0xA870CCDF, 0x96FFB23D, 0x4DDABAB7,
-    0x73BECA8E, 0x47A3CC26, 0xF7D35C93, 0x36899D32, 0x2CB31C37, 0xCCADF3CF,
-    0x2DC6FE7D, 0xBB08D827, 0x9FD374AD, 0x1BECC3B6, 0x73435347, 0xF9ACA3B4,
-    0x4343B532, 0x58535F12, 0x1243501A, 0xD4D24300, 0x5F14D4D1, 0x34B51CF3,
-    0x268D8CCF, 0x7E97BBAB, 0xA59EE232, 0xF3B249BB, 0x66F25C9F, 0xB7323C8F,
-    0xA3349B99, 0x3249FADB, 0x23218337, 0x0000017B, 0x99249A3F, 0x5C6AEF25,
-    0xB35DF5DF, 0x000F63C9, 0x6737ADFF, 0x0271D1AC, 0x00000000, 0x01200000,
-    0x00001200, 0x30000000, 0x50C43284, 0xCB50D4D3, 0x490C10D0, 0xE2C3150C,
-    0x00049248, 0x92000048, 0x00000144, 0x00000000, 0xC4C34338, 0xA0266014,
-    0xD0C51678, 0x48A73D3C, 0x8000002D, 0x2F4C3121, 0x000007DC, 0x00032000,
-    0x00000000, 0x80043000, 0x00000004, 0x00000000, 0x00000000, 0xCDDDA748,
-    0xEC865A70, 0xA9DAB34A, 0x9D4C374E, 0x0000007F, 0x00000000, 0x00000000,
-    0x00000000, 0x20000000, 0x00000003, 0x00000000, 0x00000000, 0xB7D70C80,
-    0xD77D74CD, 0x7802CDB7, 0xCD378CD7, 0xCD36CD36, 0x9D32CCB6, 0xD4D29A58,
-    0x30172CA4, 0xC34CD34D, 0x6FCD87E1, 0x1347DD77, 0x05792530, 0x00000000,
-    0x00000000, 0xE0000000, 0x1CD9F9A1, 0x00000000, 0x000AA000, 0x0E2A0000,
-    0x00002800, 0x00000000, 0x0C132000, 0x0A121A01, 0x2D2C0000, 0x96530001,
-    0x67B66E81, 0x63AB7ACB, 0x9DE2B59C, 0xD0CDBAB4, 0xBB0D1D1C, 0x7F70BD37,
-    0xF6B75EC7, 0xAEAF5EDF, 0xAD3B7ADF, 0x3B7AD3B7, 0x30D24C31, 0xAD3B5D4D,
-    0x34D0D3B7, 0x0CBB1D5D, 0xC7292D4D, 0xB4EDEB2E, 0xEDEB4EDE, 0xEB4EDEB4,
-    0x5EDEB4ED, 0xCEB09CEB, 0xB09CEB09, 0x9CEB09CE, 0xEC6E6320, 0x00000007,
-    0x23B92267, 0x2F0D4DF5, 0x0D753F0D, 0x2D9330D3, 0xF923353E, 0xC6F0C7D4,
-    0x30D613F0, 0x59C9330D, 0xCD52C343, 0x4C7F4364, 0xB13F0C7F, 0x0CC3434C,
-    0x0D726EC3, 0x3354753F, 0x2CCC34D9, 0xC34AD75D, 0xA3FC34CD, 0x259B0CB6,
-    0x330C3B0D, 0x0C6B1D35, 0xD4C936D3, 0xA97A7BCE, 0x70D5CE08, 0xDB534D3B,
-    0x0DFBB6D0, 0xC303213F, 0xF60AADB7, 0x7F0D2C19, 0x930DA5E8, 0xC329526F,
-    0xAC37D77D, 0x9CC86A2D, 0xBFEFC35B, 0xDEB24C32, 0x2B5CD2F0, 0x7D8F70D7,
-    0xCD4C36C3, 0xAC34C35D, 0x87720767, 0xC77A1C34, 0xAB90D0D0, 0x63FC82A8,
-    0xAF30DB47, 0x62FC37A8, 0x730C335F, 0x432D1EC8, 0x0CFB536A, 0xD34D0D3F,
-    0x4C833530, 0x37D0AEC3, 0x1753722C, 0x7477A4D3, 0xD0BC934D, 0x30772437,
-    0xB0C3725C, 0xA0CD1899, 0x9B0D6CEF, 0x37D5CA84, 0x1E9AB26D, 0x8EAE5FC3,
-    0x2393725C, 0x36CB1AE9, 0xB30D7B64, 0x437C37D9, 0x1BCF2236, 0x62F0DE73,
-    0x06D70CAF, 0xB30CE2AB, 0x5E8E9AE3, 0xCBA8CD53, 0x00000012, 0x5DCCFFB3,
-    0x3272CAA7, 0x434312DC, 0xF70CDE32, 0x9C9F32AD, 0x34DB4C71, 0xD7A29D34,
-    0x0CCBB30E, 0xA8333D3F, 0xCB54F537, 0xDD76FD2D, 0xBD7B56B4, 0xCA6D7683,
-    0x87B0D331, 0xA9F4DA4F, 0x0D24EC36, 0x36C3683F, 0x0D7A2D4C, 0x0FC32C8B,
-    0xA9B0D2DA, 0xE5B5AC36, 0x39F4C493, 0x5EC32CC3, 0x92E6C87E, 0x351D0EE2,
-    0xC32CC33D, 0x96493E1E, 0xEC36AC31, 0x6C30FC36, 0xB0DAA7D3, 0x94E78C87,
-    0xB31D24EC, 0xF492735D, 0x0CCC72CC, 0xCEE02EC3, 0xC70D2D6C, 0x83349D0C,
-    0x35B5359C, 0xC30EC34C, 0x1CD37CD6, 0x23C970D2, 0x2EF34FEB, 0xD7B0C7B5,
-    0xDFF0D7B0, 0x3349F1D0, 0xC94760CC, 0xF249C31B, 0x8330DB56, 0x4C32EED5,
-    0x7484713E, 0xDF64DF5D, 0xC2F5CD6C, 0x864B1F74, 0xC36CCF79, 0xD434D37E,
-    0xFD0B0C7B, 0xAAC34D74, 0x6C74B357, 0x58EC3296, 0x37CECD7F, 0x74CCA6CB,
-    0x872B57FF, 0x8CD7B7EC, 0x32DCD34D, 0xDA6AFAFC, 0xF330DFB7, 0xA29F270D,
-    0xAA1C30E9, 0x7CD3B0CE, 0xED759873, 0xDD5DC330, 0x70D34D27, 0x4DB28C8E,
-    0xE6CC34C3, 0x4D0AE3D9, 0xD36431C3, 0x925DE9F0, 0xC9F67E66, 0x7CD7309E,
-    0xA1CFCD73, 0xCB1AA927, 0x1C3558AE, 0x6A6D79D3, 0xC7E330C6, 0x330CA2F4,
-    0x0CD6335F, 0x8BF34C2F, 0x20DC735B, 0xC2F5330D, 0x1F8F0D34, 0xFD74B69D,
-    0xDAF0DB25, 0xC934D333, 0x970C4D3E, 0xD7287AA4, 0xC30FC31A, 0x2CB1C662,
-    0x9535CA3B, 0x96DAB23A, 0x5DEC3436, 0xEC3435D3, 0xD71ACC32, 0x213730C4,
-    0x4D19C96D, 0xF289CB53, 0x437FEC34, 0x4D37CA9A, 0x77DFA6C3, 0x9F4D36DE,
-    0x5DD4DB0C, 0x5ABC34B3, 0xD2B25B47, 0xD0D1D36A, 0x0B6D3F30, 0xDE324743,
-    0x0CBB60B0, 0x2DAF0CB3, 0x87FAB207, 0xEAEEC735, 0xAC72FCB4, 0x34CFE7A8,
-    0x7BAB982B, 0x709CCCC3, 0x8CC6B4DB, 0x4D70AD7E, 0xAAD35EC7, 0x6F2FBED6,
-    0x727DF76C, 0xC734B5A9, 0xF3477CDA, 0xCB43474C, 0x1DFAA69C, 0xD31F8EF7,
-    0xEFCD36FF, 0xC71DCC77, 0xB1BBEC8E, 0x00000177, 0x663B7CF7, 0xB7D62B7D,
-    0xDBAF7D63, 0xF37D6F37, 0x7D6F37D6, 0x6F37D6F3, 0x37D6F37D, 0xD6F37D6F,
-    0xB37D6F37, 0x7D6F37DF, 0x6A77D633, 0xB7D6337D, 0xD677D637, 0xF37DB677,
-    0x7D66B7DF, 0x7D6EB7D7, 0x62B7D6B3, 0x6337D77D, 0x6B37D63E, 0xB7D677D6,
-    0x7D6B7D63, 0x6AF7D6B3, 0xD6A7377D, 0x77D62EB7, 0x6737D62A, 0x7DFF37DB,
-    0xDF2B7DBF, 0xB77D6A77, 0x7D6F37D6, 0x6737D6F7, 0xF7D6737D, 0xD6737D66,
-    0xB7D6FB37, 0xD6337D6F, 0x677D66F7, 0x6B37D627, 0xF7D62B7D, 0x77DDAF2E,
-    0x66F7DFE6, 0xB7D6FF7D, 0xB337D6B2, 0x00007D6A, 0x37477BB3, 0x4D309CF7,
-    0xF0E97F3F, 0xDAEFD5CC, 0x7CCDDDF2, 0x9E6CFCAF, 0x88ACB58A, 0x0007734D,
-    0x4870C2EB, 0xDDB1B99D, 0xD7BCDB7B, 0x0EEC718A, 0xBBCF0AC7, 0xB1B8ADF0,
-    0xDF2BCAD2, 0x86ABA7EF, 0x8EDF5DB2, 0xB20DD735, 0x7334FD6B, 0xD6F336AD,
-    0xA8376B6E, 0x4CAD36AA, 0x73575EDF, 0x339DF7EC, 0xB7DDAFC7, 0xB70AE9DD,
-    0x0AD308CC, 0xC3B1ADC3, 0x6B9AD369, 0x39C70ED7, 0xACB2CCCF, 0xC37EADB5,
-    0xDB74D734, 0xC36BCF7F, 0xCB2CCD5E, 0x77AD779C, 0x4CDC70DD, 0xC7B7EDDB,
-    0x34DDF5EA, 0x8AC77DCD, 0xB2FDD2B5, 0xC318DAD2, 0x9DCCF5DB, 0x2ADCC2B3,
-    0x58BD9CAB, 0x6B5E9CC7, 0x2B0D8ABC, 0xDCD2B6CD, 0xCDACCEB6, 0xF09BCCF5,
-    0x6CCD3543, 0xFCC734B7, 0x0000B348, 0xEFFC97B3, 0xF722AC33, 0x5EB0D7BE,
-    0x00000F7B, 0xE6EDA9B7, 0x2A08CF8A, 0xB0C89862, 0xE92088FD, 0xB9BA6C33,
-    0x3DC8AA5F, 0x0DF2EE72, 0x36A4C867, 0x0003EBF8, 0x8FA2B9E7, 0xEDE81FAF,
-    0x3B836E65, 0x84FCC8F2, 0x017E2A5E, 0x1FA7CC80, 0x0006AB80, 0x8261FE00,
-    0x6D80198A, 0xA006DB80, 0xE730D200, 0xA0EE97A6, 0xA8A00007, 0x2B936A00,
-    0x001248FA, 0xEDFC93EB, 0x3EE6E8A1, 0x8F249A1E, 0x00000002, 0xDDFC936B,
-    0x0E930D26, 0x49A1E3EE, 0x000028F2, 0x0C1355FB, 0xB0CB0D33, 0xC8668C8B,
-    0x7EB23C35, 0x76D2BE79, 0x64925B83, 0xD0DAB0DB, 0x4CCD0730, 0xCB659CD3,
-    0x6F437B6C, 0x898FB1CD, 0xB2A4CC31, 0x83F27BC9, 0xDD9B258B, 0x34C93B23,
-    0x247379AC, 0xCB4CC9F7, 0xDB3DCC36, 0xDA7322DA, 0xFC862733, 0xAC338CD6,
-    0x5B19D51E, 0xEC30F9D3, 0x77FCC37A, 0xC76DADB4, 0x31FCC36E, 0x35FCB2FD,
-    0x22CD77FC, 0x5DF0D237, 0x534D33DF, 0xBDF10CCB, 0xCC3534EA, 0xB0CF2A7D,
-    0x434F4935, 0xD2D330D2, 0xCB314D37, 0x0FD6DBD4, 0x88AF87EA, 0xCD1C9C34,
-    0x2BC93229, 0xCD36FDDB, 0xE579C35A, 0x9C8F70C2, 0xC37CCB30, 0x5FCD36FC,
-    0xFEC37CC3, 0x1DA63360, 0x0DAA5A93, 0xF4D4B4D3, 0x1AAC3174, 0x4CC304D5,
-    0x62EC32C3, 0x4EBC349A, 0x9F66EACD, 0x8E7B25EB, 0xC98FA38E, 0xF7259CF7,
-    0x31D2331D, 0xEEF34C3B, 0xEB4DB72D, 0x0C7731C7, 0x74D7F34D, 0x4CF330DF,
-    0xEB341C9B, 0x9B8B736D, 0x2434CCB0, 0x6B4FE9E7, 0x36ED0DCC, 0x22A6CCCB,
-    0x7899BFB5, 0xDBB22EAD, 0x32D4AB35, 0xCEE77C7B, 0x2B30D372, 0xCD3330C6,
-    0xDCA8F6B2, 0x36FDDCB7, 0xC32FCDEC, 0x2C23218A, 0xD34ADC9F, 0xBEAE638D,
-    0xCB39FBC9, 0x00034AEF, 0x8FA4B8E7, 0xEDE85FAF, 0x6297F665, 0xC8F23B96,
-    0x2A5E84FC, 0xCC80017E, 0xAB801FA7, 0xFE000006, 0x198A8261, 0x012A0E80,
-    0x02801B6E, 0x266E7248, 0x007A3AE8, 0xA00A8A00, 0x8FA4B936, 0x00000122,
-    0xD31FC8A7, 0x8BF20DEA, 0x4BFC34BF, 0x986FA3C3, 0x98633238, 0xDA3A62EB,
-    0xEF7A333E, 0x7228FAD8, 0xBBA4EA9B, 0xFF30CB0C, 0x72734D6F, 0x07DB997A,
-    0x8E3207B3, 0x323229A5, 0x76CDB34C, 0xBCCF311C, 0x26B0D721, 0x46B9EC92,
-    0x734734B3, 0xA330C734, 0x73BF0DBA, 0x0C331ACA, 0x3F30CE73, 0x8DC35C9F,
-    0xDCCF358C, 0xF249A82F, 0x002CEA2B, 0x1FD7C937, 0xA199A1D8, 0x325FEC8F,
-    0xBE3734F2, 0x734E61C8, 0xB398B2B4, 0x72DA325C, 0x39249B0C, 0xFA130CFA,
-    0x0DFB4C9C, 0xEB5E93B3, 0x1AFDB79C, 0xCD75B832, 0x32DF363D, 0x5CD331ED,
-    0xB08ADFFB, 0x5EDB1FD6, 0xDF77FED3, 0xE736D32A, 0x7B9C9BBF, 0xD7C9A6B4,
-    0xD628A81F, 0x9ABBB734, 0xA0E8FA0E, 0xE8FA0E8F, 0xB20E8FA0, 0x0000DB67,
-    0x21A4866B, 0x34C982BF, 0xCEC33FCC, 0xC32A9325, 0x8A2323BE, 0x6D22A1BD,
-    0x8F3A68A9, 0xF34E2E0D, 0x06ADB4D0, 0xD6D5C62A, 0xC63B4C70, 0x37DF7B30,
-    0x4AEC8ABB, 0x777EC7AA, 0xB3C337C2, 0xD4D0CA2E, 0xB5C31330, 0xC32C9A05,
-    0x34F90C5C, 0x534CB0CC, 0x7B474343, 0x71EC434C, 0x4ADB5DB2, 0x3CCD31D3,
-    0x59C3B6ED, 0xC3B28CD7, 0xCCC2B30C, 0xD1BAD6B6, 0xDCDF6BD3, 0xDB75BED1,
-    0x5FEDFF4D, 0x6B5DDFFF, 0xD319D70C, 0x7B39CD5E, 0x0C6776C6, 0xACD7AD77,
-    0xB6AEDB33, 0x1C9B5CD3, 0x0C6A6CC3, 0x0DF370D7, 0x49DFB7DB, 0xC7B7C8B3,
-    0xF27DBB2C, 0x19D335EC, 0x735F9CF3, 0xB75FDFEE, 0x731BDF2B, 0x0D334C27,
-    0xCDD1F8C9, 0xFCD7358E, 0x9A7F4763, 0x0C730DA2, 0xC3F3C3E7, 0xB2CD533C,
-    0xCECB73D8, 0x3CCCC34F, 0xAA996F2E, 0x9CF36D71, 0x61D34CDD, 0xACC96B63,
-    0x6FD2F32B, 0x674CDAFB, 0xAD1D3F4C, 0x6DBB3C35, 0xDFF1ACBF, 0x1ACD3EA2,
-    0x5FFC36AB, 0x5D2F4CEF, 0x3BB0D6CD, 0x2A6EDD9E, 0x370AEC82, 0x6CD2736D,
-    0x34734C73, 0xB3ACA747, 0xCBB7BCFA, 0xCF6D371C, 0xADB5CC33, 0x31C3FB4E,
-    0xCF36D6BB, 0x6F32CB32, 0x35C7B36C, 0x4CCF26D3, 0x77DF5BDB, 0x36EDF59D,
-    0xADD7330D, 0xD36CDB34, 0xDCF3CB2C, 0xB6CDF1D6, 0xACF3CF3D, 0x0001BD0A,
-    0x000E622B, 0x001E622B, 0xB23FC8FB, 0x3FD98FBE, 0x8F669C33, 0x00007EBF};
+/* 3360 ranges, 6720 integers, 4244 bytes */
+static const bbre_uint bbre_builtin_cc_data[1061] = {
+    0x7ACF7CF7, 0xADFF7AD7, 0x7F27AD77, 0x6BD16A7D, 0xB7CF71F6, 0xFB36ECDF,
+    0x0D0DF7AD, 0xF667D92B, 0x998E6FD8, 0x9DB69D8E, 0xC9596FA6, 0xF3DDEB7F,
+    0xAC6DEB3D, 0x6CF7CF77, 0xCD7A6D3B, 0x6DACFB3E, 0x6B6D2B6A, 0xD82E7FA9,
+    0xE7CCC37F, 0x6FFE8B67, 0x0BCB4ECB, 0xAFDCDF4B, 0x3343FA3C, 0x2A3C823A,
+    0x335CD277, 0xB34DFB26, 0xA3B5CF3A, 0x35E962BE, 0xFFFDCD7B, 0xE97FA723,
+    0xF27FEE89, 0xF249BFFF, 0xDB99BFFF, 0xAFEE47FF, 0xE61AFE61, 0xADFB32FF,
+    0x6B0D93F7, 0x00000575, 0x00000000, 0x4300010C, 0x00000000, 0x13412000,
+    0x926C3292, 0xC48124D2, 0x0D20A490, 0x01249753, 0x00010C00, 0x000A130C,
+    0x00000000, 0x24C70000, 0x3300690D, 0x08EC3B4A, 0xE92B4A28, 0x52C34272,
+    0x92C00000, 0xDCAF0D24, 0x00000015, 0x00000C80, 0x00000000, 0x10C00120,
+    0x00000000, 0x00000000, 0x60000000, 0xE37739DF, 0xFB3530DC, 0xD22A76DE,
+    0xF4DCEF33, 0x37ED2CCF, 0x00000167, 0x00000000, 0x00000000, 0x00000000,
+    0xC0000000, 0x00000013, 0x00000000, 0x00000000, 0x336DF3C0, 0x6DF5DF5D,
+    0xF5DF5D33, 0xDF5D36CD, 0xD2DF5DF5, 0x7C352970, 0xD77C34D3, 0x4A9C354C,
+    0xA2E8B0CA, 0x4DF0D269, 0xB6B61B9B, 0x043295DC, 0x01DB431A, 0x00000000,
+    0x00000000, 0xC0000000, 0x76C9A0F0, 0xA99F865A, 0x00000002, 0x00AA0000,
+    0xE2A00000, 0x00014000, 0x00000000, 0x48570000, 0x05121A00, 0x00618000,
+    0x80161A00, 0x1B9C8A6E, 0x33CF1C37, 0x7F9F9D73, 0x8ACB6CC7, 0xCEADEB0D,
+    0x778AD671, 0x4332EAD2, 0xEC347473, 0xFDC2F289, 0xDADD7B1C, 0xBABD7B7F,
+    0x74EDEB4E, 0xEB4EDF34, 0xD1C534ED, 0xB7AD3B0C, 0xAD3B7AD3, 0x3B7AD3B7,
+    0x7AD3B7AD, 0xD3B7AD3B, 0xB4ED3B7A, 0x3B6D3ADB, 0xD3B6D3AD, 0xAD3B6D3A,
+    0x3AD3B6D3, 0xF6B9E96D, 0x9DB5D2B5, 0xACDFB3BF, 0x336DF33D, 0xA83CB5CD,
+    0xA5EF8618, 0xC369A967, 0xFA6C31C9, 0x7EA8A0C8, 0x6AEA8E6A, 0x1B8C8FF2,
+    0x2DC93BBA, 0x7CF8A732, 0xC7F5DADB, 0x329D261C, 0xF21C82EB, 0xCFBF72CD,
+    0x3FA82FB0, 0xCB2D86BE, 0xB30C2721, 0x96A7EF47, 0xC9DB49EA, 0x36E92F25,
+    0xCCCF0FCC, 0xD0DC8EA7, 0x6A1AFC32, 0x9B720CA9, 0x339CC31A, 0x622B60CD,
+    0xEFEC31D9, 0xCF5E75B7, 0xAD318BCB, 0x7FCB33CC, 0xDB222643, 0x23B0D1D4,
+    0x33B6FC2E, 0xA876F31C, 0x906D63EC, 0xA6D3FF47, 0x97CE4F9D, 0x8EE9B61D,
+    0x194EFABD, 0x6F52139A, 0x3E49A998, 0xD663DB76, 0x7DBD4599, 0xA6ED58D6,
+    0x8E199E75, 0x3856DAB5, 0x16D797E7, 0xBE6F9C95, 0x1A6BB639, 0x523AD5A6,
+    0x393E45A6, 0x986B9A86, 0x61B6DBC9, 0xA1A3AD5A, 0x299F61A1, 0xA9EF9A55,
+    0x6868EB56, 0x67925459, 0x6B964758, 0x3AD5A61A, 0xBD165A1A, 0x05479A86,
+    0x65A6A5B6, 0x96196188, 0x72D69996, 0x68D6AAED, 0x26A745AE, 0xBB4BD869,
+    0x5AFA35AA, 0x86867D16, 0x9E158679, 0x3E499CEA, 0xB6F5AFA3, 0xAD65BE63,
+    0xA7E3A49E, 0xDB661ABB, 0x6962197E, 0x661AF8AD, 0xA6759690, 0x3AB9FCFD,
+    0x5E659769, 0xF93561B9, 0x945A6DB6, 0x659B69E1, 0xC6E17936, 0x988E9A69,
+    0xA69A73A6, 0x23A69A7D, 0xDE8E69A6, 0x84669A69, 0x179AE633, 0xE69A6E66,
+    0x6663BD69, 0xBE67AEB8, 0x6B985639, 0xA966B9BE, 0x4F3A5E79, 0x57A13946,
+    0x2FDA659E, 0x699B4663, 0x9B76178F, 0xDA6E5996, 0x8D6B7BD6, 0xFB595E19,
+    0x7AE158EE, 0x8639B76B, 0xE9DA6E99, 0x699A1BA4, 0x6A6179B7, 0x7C54586B,
+    0x79DFEE9A, 0x6635BD6B, 0x3A3A3A38, 0x3A3A3A3A, 0x4371CC66, 0x663ED59B,
+    0xA1B8CDBD, 0xBD856DD9, 0xFFEB9BEE, 0xFCBF7393, 0x56BFF1B3, 0x198DE56B,
+    0x64EFACE5, 0x699AE6DA, 0x985C9198, 0x3906D6D1, 0xA9AA3947, 0x6978F635,
+    0xDAFEFBAE, 0x76598616, 0x1D8D699A, 0xB8EE7976, 0x999E9963, 0xA759CE96,
+    0x6AE6D5AE, 0x52FB945B, 0x50996986, 0x7866586F, 0x6DA6DAE4, 0x3A3866DA,
+    0xF6138556, 0x64937B50, 0x67BB635B, 0xDBBB44C5, 0x466F39A6, 0x96966BE1,
+    0x9B9A1A18, 0x561BB84E, 0xED7A6BFA, 0xB5E699BC, 0x6E6315A5, 0xDA65BAF8,
+    0x6DA6D963, 0x994EA6DA, 0xA15AF5A9, 0xD9A639A1, 0x5E1F9A4E, 0x7B965D8C,
+    0x8E6BD9EE, 0xD3AEBA95, 0x3A6DDA66, 0xBFE6BB69, 0x3A4E6D99, 0x75697BEB,
+    0x5866373B, 0xD56BA66D, 0x6A6E26DB, 0x6635A458, 0x3D86635A, 0x1A158466,
+    0xA66D5A66, 0xB7AC66F5, 0x793FE1AE, 0x9B976AA6, 0x39765976, 0x5DA76AE5,
+    0xB5699B5E, 0x63985699, 0xC66BB9BE, 0xBA4E7759, 0x86BBCEDD, 0x99976B99,
+    0x9A6ED5BC, 0x7655AEEF, 0x57B66359, 0x3926187E, 0x9D6FD96E, 0x43DA4E9D,
+    0x64584EF2, 0x69AE6BBB, 0xAF994C0D, 0xFE195675, 0x8E6A6239, 0xB38EE7BE,
+    0x569869AE, 0x596868EB, 0x596D9254, 0x69595EBD, 0xEEBDAD5A, 0xDD486D5A,
+    0xE986E3BB, 0xF356BBB4, 0x643986E5, 0x38CE1D9C, 0x769B87D6, 0xAE926B95,
+    0x079AD686, 0xCE9AEBD9, 0x64DD0F98, 0x4351EB3A, 0x5156DB96, 0x7139C669,
+    0xC1594E9E, 0xBEE6DD85, 0xD6D3A1A3, 0x686B61D0, 0x9C6CB9AF, 0x9661E615,
+    0x64DF9BF6, 0xF6F5799E, 0x66E91DAC, 0x9E67D9B6, 0xD856BB15, 0x19987DFE,
+    0x987DC563, 0x63D9E771, 0x85639985, 0xEBBA56DD, 0x158E5595, 0x199BEEE6,
+    0xF647B50E, 0x5756F2DF, 0xD951C9BB, 0x7984CE77, 0x6B9268F4, 0x33A65EFA,
+    0x6386E6D1, 0xBE79E596, 0xDFCFB995, 0x1B04E5B8, 0x6E95B761, 0x9876D3FA,
+    0x6A68E37D, 0x94768E68, 0x76A65F35, 0x6BE24868, 0x6A034B0A, 0x48600248,
+    0x9A9A3A9A, 0xA39E6BE2, 0xB199E696, 0xF77564D1, 0xDC464FD2, 0x493774B3,
+    0x4B93FE76, 0x4791ECDE, 0x937336E6, 0x3F5B7466, 0x3066E649, 0x3F2F6464,
+    0x2599249A, 0xDF5C6AEF, 0xC9B35DF5, 0xD6FF8F63, 0xE8D6339B, 0x00000138,
+    0x00000000, 0x09000090, 0x00000000, 0x19421800, 0x6A69A862, 0x086865A8,
+    0x8A862486, 0x49247161, 0x00240002, 0x00A24900, 0x00000000, 0xA19C0000,
+    0x300A6261, 0x8B3C5013, 0x9E9E6862, 0x0016A453, 0x1890C000, 0x03EE17A6,
+    0x90000000, 0x00000001, 0x18000000, 0x00024002, 0x00000000, 0x00000000,
+    0xD3A40000, 0x2D3866EE, 0x59A57643, 0x1BA754ED, 0x003FCEA6, 0x00000000,
+    0x00000000, 0x00000000, 0x00000000, 0x00019000, 0x00000000, 0x00000000,
+    0x86400000, 0xBA66DBEB, 0x66DBEBBE, 0xC66BBC01, 0x669B669B, 0x665B669B,
+    0x4D2C4E99, 0x96526A69, 0x69A6980B, 0xC3F0E1A6, 0xEEBBB7E6, 0x929809A3,
+    0x000002BC, 0x00000000, 0x00000000, 0xFCD0F000, 0x00000E6C, 0x50000000,
+    0x00000005, 0x14000715, 0x00000000, 0x90000000, 0x0D008609, 0x00000509,
+    0x80009696, 0x3740CB29, 0xBD65B3DB, 0x5ACE31D5, 0xDD5A4EF1, 0x8E8E6866,
+    0x5E9BDD86, 0xAF63BFB8, 0xAF6FFB5B, 0xBD6FD757, 0x69DBD69D, 0x26189DBD,
+    0xAEA69869, 0x69DBD69D, 0x8EAE9A68, 0x96A6865D, 0xF5976394, 0xA76F5A76,
+    0x6F5A76F5, 0x5A76F5A7, 0x4E75AF6F, 0x7584E758, 0x84E7584E, 0x31904E75,
+    0x133BF637, 0x6FA91DC9, 0xF869786A, 0x86986BA9, 0xA9F16C99, 0x3EA7C919,
+    0x9F863786, 0x986986B0, 0x1A1ACE49, 0x1B266A96, 0x63FA63FA, 0x1A6589F8,
+    0x7618661A, 0xA9F86B93, 0xA6C99AA3, 0xBAE96661, 0xA66E1A56, 0x65B51FE1,
+    0xD8692CD8, 0xE9A99861, 0xB6986358, 0xDE76A649, 0x70454BD3, 0x69DB86AE,
+    0xB686DA9A, 0x09F86FDD, 0x6DBE1819, 0x60CFB055, 0x2F43F869, 0x937C986D,
+    0xBBEE194A, 0x516D61BE, 0x1ADCE643, 0x6195FF7E, 0x9786F592, 0x86B95AE6,
+    0xB61BEC7B, 0x1AEE6A61, 0x3B3D61A6, 0xE1A43B90, 0x86863BD0, 0x15455C86,
+    0xDA3B1FE4, 0xBD457986, 0x9AFB17E1, 0xF6439861, 0x9B521968, 0x69F867DA,
+    0xA9869A68, 0x761A6419, 0x9161BE85, 0x2698BA9B, 0x9A6BA3BD, 0x21BE85E4,
+    0x92E183B9, 0xC4CD861B, 0x677D0668, 0x5424D86B, 0x9369BEAE, 0xFE18F4D5,
+    0x92E47572, 0xD7491C9B, 0xDB21B658, 0xBECD986B, 0x11B21BE1, 0xF398DE79,
+    0x657B1786, 0x7155B6B8, 0x4D71D986, 0x66A9AF47, 0xF66965D4, 0x54EBB99F,
+    0x5B864E59, 0xC6486862, 0x55BEE19B, 0x8E3393E6, 0xA6869B69, 0x61DAF453,
+    0xA7E19976, 0xA6F50667, 0xA5B96A9E, 0xD69BAEDF, 0xD077AF6A, 0x66394DAE,
+    0x49F0F61A, 0x86D53E9B, 0x07E1A49D, 0xA986D86D, 0x9161AF45, 0x5B41F865,
+    0x86D5361A, 0x927CB6B5, 0x98673E98, 0x0FCBD865, 0xDC525CD9, 0x67A6A3A1,
+    0xC3D86598, 0x8632C927, 0x86DD86D5, 0xFA6D861F, 0x90F61B54, 0x9D929CF1,
+    0x6BB663A4, 0x599E924E, 0xD861998E, 0xAD99DC05, 0xA198E1A5, 0xB3906693,
+    0x6986B6A6, 0x9AD861D8, 0x1A439A6F, 0xFD64792E, 0xF6A5DE69, 0xF61AF618,
+    0x3A1BFE1A, 0x1986693E, 0x637928EC, 0x6ADE4938, 0xDAB0661B, 0x27C9865D,
+    0xEBAE908E, 0xAD9BEC9B, 0xEE985EB9, 0xEF30C963, 0x6FD86D99, 0x8F7A869A,
+    0xAE9FA161, 0x6AF55869, 0x52CD8E96, 0xAFEB1D86, 0xD966F9D9, 0xFFEE9994,
+    0xFD90E56A, 0x69B19AF6, 0x5F865B9A, 0xF6FB4D5F, 0xE1BE661B, 0x1D3453E4,
+    0x19D54386, 0x0E6F9A76, 0x661DAEB3, 0xA4FBABB8, 0x91CE1A69, 0x9869B651,
+    0x7B3CD986, 0x3869A15C, 0x3E1A6C86, 0xCCD24BBD, 0x13D93ECF, 0xAE6F9AE6,
+    0x24F439F9, 0x15D96355, 0x3A6386AB, 0x18CD4DAF, 0x5E98FC66, 0x6BE66194,
+    0x85E19AC6, 0x6B717E69, 0x61A41B8E, 0xA6985EA6, 0xD3A3F1E1, 0x64BFAE96,
+    0x667B5E1B, 0xA7D9269A, 0x5492E189, 0x635AE50F, 0xCC5861F8, 0x47659638,
+    0x4752A6B9, 0x86D2DB56, 0xBA6BBD86, 0x865D8686, 0x189AE359, 0x2DA426E6,
+    0x6A69A339, 0x869E5139, 0x53486FFD, 0xD869A6F9, 0xDBCEFBF4, 0x6193E9A6,
+    0x966BBA9B, 0x68EB5786, 0x6D5A564B, 0xE61A1A3A, 0xE8616DA7, 0x161BC648,
+    0x9661976C, 0x40E5B5E1, 0xE6B0FF56, 0x969D5DD8, 0xF5158E5F, 0x056699FC,
+    0x986F7573, 0x9B6E1399, 0xAFD198D6, 0xD8E9AE15, 0xDAD55A6B, 0xED8DE5F7,
+    0xB52E4FBE, 0x9B58E696, 0xE99E68EF, 0xD3996868, 0xDEE3BF54, 0xDFFA63F1,
+    0x8EFDF9A6, 0x91D8E3B9, 0xAEF6377D, 0xB31DBE7B, 0xDBEB15BE, 0xEDD7BEB1,
+    0x79BEB79B, 0xBEB79BEB, 0xB79BEB79, 0x9BEB79BE, 0xEB79BEB7, 0xD9BEB79B,
+    0xBEB79BEF, 0xB53BEB19, 0xDBEB19BE, 0xEB3BEB1B, 0xF9BEDB3B, 0xBEB35BEF,
+    0xBEB75BEB, 0xB15BEB59, 0x319BEBBE, 0x359BEB1F, 0xDBEB3BEB, 0xBEB5BEB1,
+    0xB57BEB59, 0xEB539BBE, 0x3BEB175B, 0xB39BEB15, 0xBEFF9BED, 0xEF95BEDF,
+    0x5BBEB53B, 0xBEB79BEB, 0xB39BEB7B, 0x7BEB39BE, 0xEB39BEB3, 0xDBEB7D9B,
+    0xEB19BEB7, 0xB3BEB37B, 0xB59BEB13, 0x7BEB15BE, 0x3BEED797, 0xB37BEFF3,
+    0x5BEB7FBE, 0x599BEB59, 0xBDD9BEB5, 0x4E7B9BA3, 0xBF9FA698, 0xEAE67874,
+    0xEEF96D77, 0x7E57BE66, 0x5AC54F36, 0xB9A6C456, 0x0E185D63, 0xB63733A9,
+    0xF79B6F7B, 0xDD8E315A, 0x79E158E1, 0x3715BE17, 0xE5795A56, 0xD574FDFB,
+    0xDBEBB650, 0x41BAE6B1, 0x669FAD76, 0xDE66D5AE, 0x06ED6DDA, 0x95A6D555,
+    0x6AEBDBE9, 0x73BEFD8E, 0xFBB5F8E6, 0xE15D3BB6, 0x5A611996, 0x7635B861,
+    0x735A6D38, 0x38E1DAED, 0x965999E7, 0x6FD5B6B5, 0x6E9AE698, 0x6D79EFFB,
+    0x6599ABD8, 0xF5AEF399, 0x9B8E1BAE, 0xF6FDBB69, 0x9BBEBD58, 0x58EFB9A6,
+    0x5FBA56B1, 0x631B5A56, 0xB99EBB78, 0x5B985673, 0x17B39565, 0x6BD398EB,
+    0x61B1578D, 0x9A56D9A5, 0xB599D6DB, 0x13799EB9, 0x99A6A87E, 0x98E696ED,
+    0xD996691F, 0x19F7FE4B, 0xDF7B9156, 0xBDAF586B, 0xBB6A6DC7, 0x8233E2B9,
+    0x3226188A, 0x48223F6C, 0x6E9B0CFA, 0x722A97EE, 0x7CBB9C8F, 0xA93219C3,
+    0x38FAFE0D, 0x7C7D15CF, 0x2F6F40FD, 0x91DC1B73, 0xF427E647, 0x000BF152,
+    0x00FD3E64, 0x0000355C, 0x54130FF0, 0x036C00CC, 0x050036DC, 0x37398690,
+    0x3D0774BD, 0x05450000, 0xD15C9B50, 0x4FAC9247, 0xA287B7F2, 0x6878FB9B,
+    0xB58A3C92, 0x936EFE49, 0xF7074986, 0x7924D0F1, 0x1355FB14, 0xCB0D330C,
+    0x668C8BB0, 0xB23C35C8, 0xD2BE797E, 0x925B8376, 0xDAB0DB64, 0xCD0730D0,
+    0x659CD34C, 0x437B6CCB, 0x8FB1CD6F, 0xA4CC3189, 0xF27BC9B2, 0x9B258B83,
+    0xC93B23DD, 0x7379AC34, 0x4CC9F724, 0x3DCC36CB, 0x7322DADB, 0x862733DA,
+    0x338CD6FC, 0x19D51EAC, 0x30F9D35B, 0xFCC37AEC, 0x6DADB477, 0xFCC36EC7,
+    0xFCB2FD31, 0xCD77FC35, 0xF0D23722, 0x4D33DF5D, 0xF10CCB53, 0x3534EABD,
+    0xCF2A7DCC, 0x4F4935B0, 0xD330D243, 0x314D37D2, 0xD6DBD4CB, 0xAF87EA0F,
+    0x1C9C3488, 0xC93229CD, 0x36FDDB2B, 0x79C35ACD, 0x8F70C2E5, 0x7CCB309C,
+    0xCD36FCC3, 0xC37CC35F, 0xA63360FE, 0xAA5A931D, 0xD4B4D30D, 0xAC3174F4,
+    0xC304D51A, 0xEC32C34C, 0xBC349A62, 0x66EACD4E, 0x7B25EB9F, 0x8FA38E8E,
+    0x259CF7C9, 0xD2331DF7, 0xF34C3B31, 0x4DB72DEE, 0x7731C7EB, 0xD7F34D0C,
+    0xF330DF74, 0x341C9B4C, 0x8B736DEB, 0x34CCB09B, 0x4FE9E724, 0xED0DCC6B,
+    0xA6CCCB36, 0x99BFB522, 0xB22EAD78, 0xD4AB35DB, 0xE77C7B32, 0x30D372CE,
+    0x3330C62B, 0xA8F6B2CD, 0xFDDCB7DC, 0x2FCDEC36, 0x23218AC3, 0x4ADC9F2C,
+    0xAE638DD3, 0x39FBC9BE, 0xC34AEFCB, 0xE3E92E39, 0x7B7A17EB, 0x98A5FD99,
+    0x323C8EE5, 0x8A97A13F, 0xF320005F, 0xAAE007E9, 0x7F800001, 0x0662A098,
+    0x804A83A0, 0x00A006DB, 0x099B9C92, 0x001E8EBA, 0xA802A280, 0xA3E92E4D,
+    0x3F914E48, 0xE41BD5A6, 0xF8697F17, 0xDF478697, 0xC6647130, 0x74C5D730,
+    0xF4667DB4, 0x51F5B1DE, 0x49D536E4, 0x61961977, 0xE69ADFFE, 0xB732F4E4,
+    0x8C81ECCF, 0x8C8A6963, 0xB36CD30C, 0x33CC471D, 0xAC35C86F, 0xAE7B2489,
+    0xD1CD2CD1, 0xCC31CD1C, 0xEFC36EA8, 0x0CC6B29C, 0xCC339CC3, 0x70D727CF,
+    0x33CD6323, 0x926A0BF7, 0xCB3A8AFC, 0x07F5F24D, 0xE8666876, 0x8C97FB23,
+    0x2F8DCD3C, 0x1CD39872, 0x2CE62CAD, 0x1CB68C97, 0x8E4926C3, 0x3E84C33E,
+    0xC37ED327, 0x3AD7A4EC, 0x86BF6DE7, 0x735D6E0C, 0x4CB7CD8F, 0xD734CC7B,
+    0xAC22B7FE, 0xD7B6C7F5, 0xB7DDFFB4, 0xF9CDB4CA, 0x1EE726EF, 0xF5F269AD,
+    0x358A2A07, 0xA6AEEDCD, 0xE83A3E83, 0x3A3E83A3, 0xEC83A3E8, 0x19AC36D9,
+    0x0AFC8692, 0xFF30D326, 0x4C973B0C, 0x8EFB0CAA, 0x86F6288C, 0xA2A5B48A,
+    0xB8363CE9, 0xD343CD38, 0x18A81AB6, 0x31C35B57, 0xECC318ED, 0x2AECDF7D,
+    0x1EA92BB2, 0xDF09DDFB, 0x28BACF0C, 0x4CC35343, 0x6816D70C, 0x31730CB2,
+    0xC330D3E4, 0x0D0D4D32, 0x0D31ED1D, 0x76C9C7B1, 0xC74D2B6D, 0xDBB4F334,
+    0x335D670E, 0xCC330ECA, 0x5ADB330A, 0xAF4F46EB, 0xFB47737D, 0xFD376DD6,
+    0x7FFD7FB7, 0x5C31AD77, 0x357B4C67, 0xDB19ECE7, 0xB5DC319D, 0x6CCEB35E,
+    0x734EDABB, 0xB30C726D, 0xC35C31A9, 0xDF6C37CD, 0x22CD277E, 0xECB31EDF,
+    0xD7B3C9F6, 0x73CC674C, 0x7FB9CD7E, 0x7CAEDD7F, 0x309DCC6F, 0xE32434CD,
+    0xD63B3747, 0x1D8FF35C, 0x368A69FD, 0x0F9C31CC, 0x4CF30FCF, 0xCF62CB35,
+    0x0D3F3B2D, 0xBCB8F333, 0xB5C6AA65, 0x337673CD, 0xAD8D874D, 0xCCAEB325,
+    0x6BEDBF4B, 0xFD319D33, 0xF0D6B474, 0xB2FDB6EC, 0xFA8B7FC6, 0xDAAC6B34,
+    0x33BD7FF0, 0x5B3574BD, 0x7678EEC3, 0xB208A9BB, 0xCDB4DC2B, 0x31CDB349,
+    0x9D1CD1CD, 0xF3EACEB2, 0xDC732EDE, 0x30CF3DB4, 0xED3AB6D7, 0x5AECC70F,
+    0x2CCB3CDB, 0xCDB1BCCB, 0x9B4CD71E, 0x6F6D333C, 0xD675DF7D, 0xCC34DBB7,
+    0x6CD2B75C, 0x2CB34DB3, 0xC75B73CF, 0x3CF6DB37, 0xF42AB3CF, 0x63988AC6,
+    0x8FB3CC45, 0xFBEB23FC, 0xC333FD98, 0xEBF8F669, 0x00000007};
 static const bbre_builtin_cc bbre_builtin_ccs_ascii[16] = {
-    {5,  3, 0,  "alnum"     },
-    {5,  2, 2,  "alpha"     },
-    {5,  1, 4,  "ascii"     },
-    {5,  2, 5,  "blank"     },
-    {5,  2, 6,  "cntrl"     },
-    {5,  1, 7,  "digit"     },
-    {5,  1, 8,  "graph"     },
-    {5,  1, 9,  "lower"     },
-    {10, 3, 10, "perl_space"},
-    {5,  1, 11, "print"     },
-    {5,  4, 12, "punct"     },
-    {5,  2, 15, "space"     },
-    {5,  1, 16, "upper"     },
-    {4,  4, 17, "word"      },
-    {6,  3, 19, "xdigit"    },
-    {0,  0, 0,  ""          }
+    {5,  3, 0,   "alnum"     },
+    {5,  2, 48,  "alpha"     },
+    {5,  1, 84,  "ascii"     },
+    {5,  2, 98,  "blank"     },
+    {5,  2, 115, "cntrl"     },
+    {5,  1, 140, "digit"     },
+    {5,  1, 156, "graph"     },
+    {5,  1, 180, "lower"     },
+    {10, 3, 204, "perl_space"},
+    {5,  1, 235, "print"     },
+    {5,  4, 259, "punct"     },
+    {5,  2, 327, "space"     },
+    {5,  1, 350, "upper"     },
+    {4,  4, 370, "word"      },
+    {6,  3, 420, "xdigit"    },
+    {0,  0, 0,   ""          }
 };
 static const bbre_builtin_cc bbre_builtin_ccs_unicode_property[37] = {
-    {2, 2,   21,   "Cc"                   },
-    {2, 21,  23,   "Cf"                   },
-    {2, 6,   36,   "Co"                   },
-    {2, 4,   41,   "Cs"                   },
-    {2, 658, 44,   "Ll"                   },
-    {2, 71,  139,  "Lm"                   },
-    {2, 524, 174,  "Lo"                   },
-    {2, 10,  400,  "Lt"                   },
-    {2, 646, 404,  "Lu"                   },
-    {2, 182, 492,  "Mc"                   },
-    {2, 5,   559,  "Me"                   },
-    {2, 346, 563,  "Mn"                   },
-    {2, 64,  700,  "Nd"                   },
-    {2, 12,  742,  "Nl"                   },
-    {2, 72,  750,  "No"                   },
-    {2, 6,   795,  "Pc"                   },
-    {2, 19,  799,  "Pd"                   },
-    {2, 76,  808,  "Pe"                   },
-    {2, 10,  823,  "Pf"                   },
-    {2, 11,  827,  "Pi"                   },
-    {2, 187, 831,  "Po"                   },
-    {2, 79,  914,  "Ps"                   },
-    {2, 21,  930,  "Sc"                   },
-    {2, 31,  942,  "Sk"                   },
-    {2, 64,  957,  "Sm"                   },
-    {2, 185, 984,  "So"                   },
-    {2, 1,   1074, "Zl"                   },
-    {2, 1,   1075, "Zp"                   },
-    {2, 7,   1076, "Zs"                   },
-    {1, 0,   0,    "CCc,Cf,Cs,Co"         },
-    {1, 0,   0,    "LLu,Ll,Lo,Lt,Lm"      },
-    {1, 0,   0,    "MMn,Me,Mc"            },
-    {1, 0,   0,    "NNd,No,Nl"            },
-    {1, 0,   0,    "PPo,Ps,Pe,Pd,Pc,Pi,Pf"},
-    {1, 0,   0,    "SSc,Sm,Sk,So"         },
-    {1, 0,   0,    "ZZs,Zl,Zp"            },
-    {0, 0,   0,    ""                     }
+    {2, 2,   464,   "Cc"                   },
+    {2, 21,  498,   "Cf"                   },
+    {2, 6,   906,   "Co"                   },
+    {2, 4,   1043,  "Cs"                   },
+    {2, 658, 1132,  "Ll"                   },
+    {2, 71,  4150,  "Lm"                   },
+    {2, 524, 5261,  "Lo"                   },
+    {2, 10,  12472, "Lt"                   },
+    {2, 646, 12591, "Lu"                   },
+    {2, 182, 15379, "Mc"                   },
+    {2, 5,   17519, "Me"                   },
+    {2, 346, 17621, "Mn"                   },
+    {2, 64,  21983, "Nd"                   },
+    {2, 12,  23311, "Nl"                   },
+    {2, 72,  23557, "No"                   },
+    {2, 6,   24983, "Pc"                   },
+    {2, 19,  25094, "Pd"                   },
+    {2, 76,  25371, "Pe"                   },
+    {2, 10,  25842, "Pf"                   },
+    {2, 11,  25943, "Pi"                   },
+    {2, 187, 26056, "Po"                   },
+    {2, 79,  28702, "Ps"                   },
+    {2, 21,  29193, "Sc"                   },
+    {2, 31,  29574, "Sk"                   },
+    {2, 64,  30046, "Sm"                   },
+    {2, 185, 30898, "So"                   },
+    {2, 1,   33766, "Zl"                   },
+    {2, 1,   33789, "Zp"                   },
+    {2, 7,   33812, "Zs"                   },
+    {1, 0,   0,     "CCc,Cf,Cs,Co"         },
+    {1, 0,   0,     "LLu,Ll,Lo,Lt,Lm"      },
+    {1, 0,   0,     "MMn,Me,Mc"            },
+    {1, 0,   0,     "NNd,No,Nl"            },
+    {1, 0,   0,     "PPo,Ps,Pe,Pd,Pc,Pi,Pf"},
+    {1, 0,   0,     "SSc,Sm,Sk,So"         },
+    {1, 0,   0,     "ZZs,Zl,Zp"            },
+    {0, 0,   0,     ""                     }
 };
 static const bbre_builtin_cc bbre_builtin_ccs_perl[4] = {
-    {1, 1, 7,  "d"},
-    {1, 3, 10, "s"},
-    {1, 4, 17, "w"},
-    {0, 0, 0,  "" }
+    {1, 1, 140, "d"},
+    {1, 3, 204, "s"},
+    {1, 4, 370, "w"},
+    {0, 0, 0,   "" }
 };
-
 /*} Generated by `unicode_data.py gen_ccs impl` */
+
+#define BBRE_COMPRESSED_CC_BITS_PER_WORD 32
 
 /* Read a single bit from the compressed bit stream. Update the pointer and the
  * bit index variables appropriately. */
 static int bbre_builtin_cc_next_bit(const bbre_uint **p, bbre_uint *idx)
 {
   bbre_uint out = ((**p) & ((bbre_uint)1 << (*idx)++));
-  if (*idx == 32)
+  if (*idx == BBRE_COMPRESSED_CC_BITS_PER_WORD)
     *idx = 0, (*p)++;
   return (int)!!out;
 }
@@ -5394,7 +5162,7 @@ static int bbre_builtin_cc_make(
   }
   if (found->num_range) {
     if ((err = bbre_ast_make(
-             r, out_ref, BBRE_AST_TYPE_CC_BUILTIN, found->start,
+             r, out_ref, BBRE_AST_TYPE_CC_BUILTIN, found->start_bit_offset,
              found->num_range)))
       goto error;
   } else {
@@ -5427,12 +5195,12 @@ static int bbre_builtin_cc_decode2(
     bbre *r, bbre_uint start, bbre_uint num_range,
     bbre_buf(bbre_rune_range) * out)
 {
-
   const bbre_uint *read; /* pointer to compressed data */
   bbre_uint i, bit_idx, prev = BBRE_UTF_MAX + 1, accum = 0, range[2];
   int err;
   /* Start reading from the p->start offset in the compressed bit stream. */
-  read = bbre_builtin_cc_data + start, bit_idx = 0;
+  read = bbre_builtin_cc_data + start / BBRE_COMPRESSED_CC_BITS_PER_WORD,
+  bit_idx = start % BBRE_COMPRESSED_CC_BITS_PER_WORD;
   assert(num_range); /* there are always ranges in builtin charclasses */
   for (i = 0; i < num_range; i++) {
     bbre_uint *number, k;
