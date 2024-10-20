@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* unfinished: parse string ends early
@@ -793,6 +794,12 @@ TEST(anychar_unicode_malformed)
   PASS();
 }
 
+TEST(anychar_aftersome)
+{
+  ASSERT_MATCH("a.", "aa");
+  PASS();
+}
+
 SUITE(anychar)
 {
   RUN_TEST(anychar_unicode_1);
@@ -800,6 +807,7 @@ SUITE(anychar)
   RUN_TEST(anychar_unicode_3);
   RUN_TEST(anychar_unicode_4);
   RUN_TEST(anychar_unicode_malformed);
+  RUN_TEST(anychar_aftersome);
 }
 
 TEST(any_byte_ascii)
@@ -3147,6 +3155,68 @@ oom:
   OOM();
 }
 
+TEST(limit_ast_size)
+{
+  char *regex = NULL;
+  size_t size = 10000000;
+  bbre *r = NULL;
+  bbre_builder *build = NULL;
+  int err = 0;
+  regex = MPTEST_MALLOC(size);
+  if (!regex)
+    goto oom;
+  memset(regex, 'a', size);
+  if ((err = bbre_builder_init(&build, regex, size, NULL)) == BBRE_ERR_MEM)
+    goto oom;
+  ASSERT_EQ(err, 0);
+  if ((err = bbre_init(&r, build, NULL)) == BBRE_ERR_MEM)
+    goto oom;
+  ASSERT_EQ(err, BBRE_ERR_LIMIT);
+  ASSERT_EQ(
+      strcmp(bbre_get_err_msg(r), "regular expression is too complex"), 0);
+  bbre_destroy(r);
+  bbre_builder_destroy(build);
+  MPTEST_FREE(regex);
+  PASS();
+oom:
+  bbre_destroy(r);
+  bbre_builder_destroy(build);
+  MPTEST_FREE(regex);
+  OOM();
+}
+
+TEST(limit_group_name_size)
+{
+  char *regex = NULL;
+  size_t size = 10000000;
+  bbre *r = NULL;
+  bbre_builder *build = NULL;
+  int err = 0;
+  regex = MPTEST_MALLOC(size);
+  if (!regex)
+    goto oom;
+  memset(regex, 'a', size);
+  regex[0] = '(', regex[1] = '?', regex[2] = '<';
+  regex[size - 2] = '>', regex[size - 1] = ')';
+  if ((err = bbre_builder_init(&build, regex, size, NULL)) == BBRE_ERR_MEM)
+    goto oom;
+  ASSERT_EQ(err, 0);
+  if ((err = bbre_init(&r, build, NULL)) == BBRE_ERR_MEM)
+    goto oom;
+  ASSERT_EQ(err, BBRE_ERR_LIMIT);
+  ASSERT_EQ(
+      strcmp(bbre_get_err_msg(r), "group name exceeds maximum length"), 0);
+  bbre_destroy(r);
+  bbre_builder_destroy(build);
+  MPTEST_FREE(regex);
+  PASS();
+oom:
+  bbre_destroy(r);
+  bbre_builder_destroy(build);
+  MPTEST_FREE(regex);
+  OOM();
+}
+
 TEST(limit_dfa_thrash)
 {
   /* Cause a DFA cache flush. */
@@ -3162,6 +3232,8 @@ TEST(limit_dfa_thrash)
 SUITE(limits)
 {
   RUN_TEST(limit_program_size);
+  RUN_TEST(limit_ast_size);
+  RUN_TEST(limit_group_name_size);
   RUN_TEST(limit_dfa_thrash);
 }
 

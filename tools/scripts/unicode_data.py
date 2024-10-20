@@ -178,12 +178,14 @@ def _cmd_gen_casefold(args) -> int:
     out(";}")
 
     out(
-        "static int bbre_compcc_fold_range(bbre *r, bbre_uint begin, bbre_uint end, bbre_buf(bbre_rune_range) *cc_out) {"
+        "static int bbre_compcc_fold_range(bbre *r, bbre_rune_range range, bbre_compframe *frame, bbre_uint prev) {"
     )
 
     types = {
         "int": ["err = 0"],
-        "bbre_uint": ["current"] + [f"x{i}" for i in range(len(arrays))],
+        "bbre_uint": ["current"]
+        + [f"x{i}" for i in range(len(arrays))]
+        + ["begin = range.l", "end = range.h"],
     }
 
     for i, data_type in enumerate(data_types):
@@ -215,7 +217,7 @@ def _cmd_gen_casefold(args) -> int:
     out("current = begin + a0;")
     out("while (current != begin) {")
     out(
-        "  if ((err = bbre_buf_push(&r->alloc, cc_out, bbre_rune_range_make(current, current))))"
+        "  if ((err = bbre_compile_cc_append(r, frame, prev, bbre_rune_range_make(current, current))))"
     )
     out("    return err;")
     out("  current = (bbre_uint)((int)current + bbre_compcc_fold_next(current));")

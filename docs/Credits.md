@@ -18,4 +18,6 @@ Most of the techniques used in this library are not original. I would have been 
 
 [Alexander Pankratov](https://swapped.cc/): Did an [informative writeup](https://github.com/apankrat/notes/blob/master/fast-case-conversion/README.md) on Wine's Unicode casefold array compression algorithm, a derivation of which is used in this library. The [original idea](https://github.com/wine-mirror/wine/commit/a02ce81082ef2f27fdfcf577efbe491582becd28a) seems to have come from [jgriffiths](https://github.com/jgriffiths).
 
+[Simon Tatham](https://www.chiark.greenend.org.uk/~sgtatham/): Invented an [excellent implementation of mergesort](https://www.chiark.greenend.org.uk/~sgtatham/algorithms/listsort.html) for linked lists. This implementation is stable, has guaranteed worst-case performance, and does not require any extra space. In bbre, this algorithm is used to normalize character classes. Tatham is also known for [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/). ([MinTTY](https://github.com/mintty/mintty), a fork of PuTTY, was one of the first terminal emulators I ever used.)
+
 We all stand on the shoulders of giants. I have immense respect for these individuals and their contributions to the field.

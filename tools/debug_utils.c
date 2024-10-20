@@ -126,12 +126,12 @@ void d_ast_i(bbre *r, bbre_uint root, bbre_uint ilvl, int format)
   else if (first == BBRE_AST_TYPE_GROUP)
     printf(
         "%s/%s/%u", d_group_flag(buf, *bbre_ast_param_ref(r, root, 1), "+"),
-        d_group_flag(buf, *bbre_ast_param_ref(r, root, 2), "-"),
+        d_group_flag(buf2, *bbre_ast_param_ref(r, root, 2), "-"),
         *bbre_ast_param_ref(r, root, 3));
   else if (first == BBRE_AST_TYPE_IGROUP)
     printf(
         "%s/%s", d_group_flag(buf, *bbre_ast_param_ref(r, root, 1), "+"),
-        d_group_flag(buf, *bbre_ast_param_ref(r, root, 2), "-"));
+        d_group_flag(buf2, *bbre_ast_param_ref(r, root, 2), "-"));
   else if (first == BBRE_AST_TYPE_QUANT || first == BBRE_AST_TYPE_UQUANT)
     printf(
         "%s-%s", d_quant(buf, *bbre_ast_param_ref(r, root, 1)),
@@ -301,4 +301,19 @@ void d_cctree(const bbre_buf(bbre_compcc_tree) cc_tree, bbre_uint ref)
 {
   d_cctree_i(cc_tree, ref, 0);
 }
+
+void d_cclist(bbre *r, bbre_compframe *frame)
+{
+  bbre_uint head = frame->head;
+  printf("list:\n");
+  while (head) {
+    char lo[32], hi[32];
+    bbre_rune_range range = r->cc_store[head].range;
+    d_chr(lo, range.l, 0);
+    d_chr(hi, range.h, 0);
+    printf("  %04X %s-%s\n", head, lo, hi);
+    head = r->cc_store[head].next;
+  }
+}
+
 #endif

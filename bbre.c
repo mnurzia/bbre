@@ -1,9 +1,8 @@
-#include <assert.h>
-#include <limits.h>
-#include <stdarg.h>
-#include <stddef.h>
-#include <stdlib.h>
-#include <string.h>
+#include <assert.h> /* assert() */
+#include <limits.h> /* CHAR_BIT */
+#include <stdarg.h> /* va_list, va_start(), va_arg(), va_end() */
+#include <stdlib.h> /* size_t, realloc(), free() */
+#include <string.h> /* memcmp(), memset(), memcpy(), strlen() */
 
 #include "bbre.h"
 
@@ -13,6 +12,15 @@
 
 #define BBRE_NIL     0
 #define BBRE_UTF_MAX 0x10FFFF
+
+/* Maximum repetition count for quantifiers. */
+#define BBRE_LIMIT_REPETITION_COUNT 100000
+/* Maximum size of the AST. This is the sum of node count and argument count. */
+#define BBRE_LIMIT_AST_SIZE 1000000
+/* Maximum length (in bytes) of a group name. */
+#define BBRE_LIMIT_GROUP_NAME_SIZE 1000000
+/* Maximum size of a normalized charclass (max number of ranges) */
+#define BBRE_LIMIT_CHARCLASS_NORMALIZED_SIZE ((BBRE_UTF_MAX + 1) / 2)
 
 typedef unsigned int bbre_uint;
 typedef unsigned char bbre_byte;
@@ -125,7 +133,8 @@ typedef enum bbre_group_flag {
   BBRE_GROUP_FLAG_DOTNEWLINE = 4,    /* . matches \n */
   BBRE_GROUP_FLAG_UNGREEDY = 8,      /* ungreedy quantifiers */
   BBRE_GROUP_FLAG_NONCAPTURING = 16, /* non-capturing group (?:...) */
-  BBRE_GROUP_FLAG_EXPRESSION = 32    /* the entire regexp */
+  BBRE_GROUP_FLAG_EXPRESSION = 32,   /* the entire regexp */
+  BBRE_GROUP_FLAG_CC_DENORM = 64     /* set when compiling charclasses */
 } bbre_group_flag;
 
 /* Stack frame for the compiler, used to track a single AST node being
@@ -164,14 +173,14 @@ typedef enum bbre_group_flag {
  * single exit point at PC 2.
  * We keep track of the exit points from the program using a trick I first saw
  * in Russ Cox's series on regexps. A linked list, backed by the actual words
- * inside of the instructions, stores the exit points. This list is tracked
+ * inside of the instructions, stores the exit points. This list is tracked by
  * `patch_head` and `patch_tail`. */
 typedef struct bbre_compframe {
   bbre_uint root_ref, /* reference to the AST node being compiled */
       child_ref,      /* reference to the child AST node to be compiled next */
       idx,            /* used keep track of repetition index */
-      patch_head,     /* head of the outgoing patch linked list */
-      patch_tail,     /* tail of the outgoing patch linked list */
+      head,           /* head of the outgoing patch linked list */
+      tail,           /* tail of the outgoing patch linked list */
       pc,             /* location of first instruction compiled for this node */
       flags,          /* group flags in effect (INSENSITIVE, etc.) */
       set_idx;        /* index of the current pattern being compiled */
@@ -238,8 +247,6 @@ typedef struct bbre_compcc_tree {
 /* Internal storage used for the character class compiler. It uses enough state
  * that it definitely warrants its own struct. */
 typedef struct bbre_compcc_data {
-  bbre_buf(bbre_rune_range) ranges;
-  bbre_buf(bbre_rune_range) ranges_2;
   bbre_buf(bbre_compcc_tree) tree;
   bbre_buf(bbre_compcc_tree) tree_2;
   bbre_buf(bbre_uint) hash;
@@ -268,17 +275,13 @@ typedef struct bbre_error {
   size_t pos;      /* position the error was encountered in expr */
 } bbre_error;
 
-void bbre_error_init(bbre_error *err)
-{
-  err->msg = NULL;
-  err->pos = 0;
-}
-
 void bbre_error_set(bbre_error *err, const char *msg)
 {
   err->msg = msg;
   err->pos = 0;
 }
+
+void bbre_error_init(bbre_error *err) { bbre_error_set(err, NULL); }
 
 /* The compiled form of a regular expression. */
 typedef struct bbre_prog {
@@ -295,15 +298,22 @@ typedef struct bbre_group_name {
   size_t name_size;
 } bbre_group_name;
 
+typedef struct bbre_cc_elem {
+  bbre_rune_range range;
+  size_t next;
+} bbre_cc_elem;
+
 /* A compiled regular expression. */
 struct bbre {
-  bbre_alloc alloc;                           /* allocator function */
-  bbre_buf(bbre_uint) ast;                    /* AST arena */
-  bbre_uint ast_root;                         /* AST root node reference */
-  bbre_buf(bbre_group_name) group_names;      /* Named group names */
-  bbre_buf(bbre_uint) op_stk;                 /* parser operator stack */
-  bbre_buf(bbre_compframe) comp_stk;          /* compiler frame stack */
-  bbre_buf(bbre_buf(bbre_rune_range)) cc_stk; /* compiler charclass stack */
+  bbre_alloc alloc;                      /* allocator function */
+  bbre_buf(bbre_uint) ast;               /* AST arena */
+  bbre_uint ast_root;                    /* AST root node reference */
+  bbre_buf(bbre_group_name) group_names; /* Named group names */
+  bbre_buf(bbre_uint) op_stk;            /* parser operator stack */
+  bbre_buf(bbre_compframe) comp_stk;     /* compiler frame stack */
+  bbre_buf(bbre_cc_elem) cc_store;
+  bbre_uint cc_store_empty;
+  size_t cc_store_ops;
   bbre_compcc_data compcc; /* data used for the charclass compiler */
   bbre_prog prog;          /* NFA program */
   const bbre_byte *expr;   /* input parser expression */
@@ -327,6 +337,7 @@ struct bbre_set {
   bbre_error error; /* error info */
 };
 
+/* sparse-set data structure used for quickly storing nfa state sets */
 typedef struct bbre_save_slots {
   size_t *slots, slots_size, slots_alloc, last_empty, per_thrd;
 } bbre_save_slots;
@@ -742,9 +753,9 @@ static int bbre_init_internal(bbre **pr, const bbre_alloc *palloc)
   bbre_buf_init(&r->ast);
   r->ast_root = 0;
   bbre_buf_init(&r->group_names), bbre_buf_init(&r->op_stk),
-      bbre_buf_init(&r->comp_stk), bbre_buf_init(&r->cc_stk);
-  bbre_buf_init(&r->compcc.ranges), bbre_buf_init(&r->compcc.tree),
-      bbre_buf_init(&r->compcc.ranges_2), bbre_buf_init(&r->compcc.tree_2),
+      bbre_buf_init(&r->comp_stk), bbre_buf_init(&r->cc_store);
+  r->cc_store_empty = BBRE_NIL;
+  bbre_buf_init(&r->compcc.tree), bbre_buf_init(&r->compcc.tree_2),
       bbre_buf_init(&r->compcc.hash);
   bbre_prog_init(&r->prog, r->alloc, &r->error);
   r->expr = NULL, r->expr_pos = 0, r->expr_size = 0;
@@ -782,13 +793,9 @@ void bbre_destroy(bbre *r)
   }
   bbre_buf_destroy(&r->alloc, &r->group_names);
   bbre_buf_destroy(&r->alloc, &r->op_stk),
-      bbre_buf_destroy(&r->alloc, &r->comp_stk);
-  for (i = 0; i < bbre_buf_size(r->cc_stk); i++)
-    bbre_buf_destroy(&r->alloc, &r->cc_stk[i]);
-  bbre_buf_destroy(&r->alloc, &r->cc_stk);
-  bbre_buf_destroy(&r->alloc, &r->compcc.ranges),
-      bbre_buf_destroy(&r->alloc, &r->compcc.ranges_2),
-      bbre_buf_destroy(&r->alloc, &r->compcc.tree),
+      bbre_buf_destroy(&r->alloc, &r->comp_stk),
+      bbre_buf_destroy(&r->alloc, &r->cc_store);
+  bbre_buf_destroy(&r->alloc, &r->compcc.tree),
       bbre_buf_destroy(&r->alloc, &r->compcc.tree_2),
       bbre_buf_destroy(&r->alloc, &r->compcc.hash);
   bbre_prog_destroy(&r->prog);
@@ -851,9 +858,15 @@ static int bbre_ast_make(bbre *r, bbre_uint *out_node, bbre_ast_type type, ...)
   while (i < bbre_ast_type_infos[type].len)
     args[arg_idx++] = va_arg(in_args, bbre_uint), i++;
   assert(i == bbre_ast_type_infos[type].len);
-  for (i = 0; i < arg_idx; i++)
+  for (i = 0; i < arg_idx; i++) {
+    if (bbre_buf_size(r->ast) == BBRE_LIMIT_AST_SIZE) {
+      bbre_error_set(&r->error, "regular expression is too complex");
+      err = BBRE_ERR_LIMIT;
+      goto error;
+    }
     if ((err = bbre_buf_push(&r->alloc, &r->ast, args[i])))
       goto error;
+  }
 error:
   va_end(in_args);
   return err;
@@ -1020,9 +1033,6 @@ static bbre_uint bbre_peek_next(bbre *r)
   return out;
 }
 
-/* Maximum repetition count for quantifiers. */
-#define BBRE_LIMIT_REPETITION_COUNT 100000
-
 /* Sentinel value to represent an infinite repetition. */
 #define BBRE_INFTY (BBRE_LIMIT_REPETITION_COUNT + 1)
 
@@ -1035,7 +1045,7 @@ static bbre_uint bbre_ast_pop_prec(bbre *r, bbre_ast_type pop_type)
   popped = bbre_buf_pop(&r->op_stk);
   while (bbre_buf_size(r->op_stk)) {
     bbre_uint top_ref = *bbre_buf_peek(&r->op_stk, 0);
-    bbre_ast_type top_type = top_ref ? *bbre_ast_type_ref(r, top_ref) : 0;
+    bbre_ast_type top_type = *bbre_ast_type_ref(r, top_ref);
     bbre_uint top_prec = bbre_ast_type_infos[top_type].prec,
               pop_prec = bbre_ast_type_infos[pop_type].prec;
     if (top_prec < pop_prec)
@@ -1392,12 +1402,6 @@ static int
 bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_flags start_flags)
 {
   int err;
-  /* convert ABI flags to internal flags */
-  bbre_uint begin_flags =
-      (start_flags & BBRE_FLAG_INSENSITIVE ? BBRE_GROUP_FLAG_INSENSITIVE : 0) |
-      (start_flags & BBRE_FLAG_MULTILINE ? BBRE_GROUP_FLAG_MULTILINE : 0) |
-      (start_flags & BBRE_FLAG_DOTNEWLINE ? BBRE_GROUP_FLAG_DOTNEWLINE : 0) |
-      (start_flags & BBRE_FLAG_UNGREEDY ? BBRE_GROUP_FLAG_UNGREEDY : 0);
   r->expr = ts;
   r->expr_size = tsz, r->expr_pos = 0;
   if ((err = bbre_parse_checkutf8(r)))
@@ -1406,13 +1410,6 @@ bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_flags start_flags)
   /* push the initial epsilon node */
   if ((err = bbre_ast_push(r, BBRE_NIL)))
     goto error;
-  if (begin_flags) {
-    bbre_uint igrp = 0;
-    if ((err = bbre_ast_make(
-             r, &igrp, BBRE_AST_TYPE_IGROUP, BBRE_NIL, begin_flags, 0)) ||
-        (err = bbre_ast_cat(r, igrp)) || (err = bbre_ast_push(r, BBRE_NIL)))
-      goto error;
-  }
   while (bbre_parse_has_more(r)) {
     bbre_uint ch = bbre_parse_next(r), res = BBRE_NIL;
     assert(bbre_buf_size(r->op_stk));
@@ -1476,8 +1473,12 @@ bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_flags start_flags)
       bbre_uint child = bbre_ast_pop_prec(r, BBRE_AST_TYPE_ALT);
       if ((err = bbre_ast_make(
                r, &res, BBRE_AST_TYPE_ALT, child /* left */,
-               BBRE_NIL /* right */)) ||
-          (err = bbre_ast_push(r, res)) || (err = bbre_ast_push(r, BBRE_NIL)))
+               BBRE_NIL /* right */)))
+        goto error;
+      /* we just made space for this node in pop_prec() */
+      err = bbre_ast_push(r, res);
+      assert(!err);
+      if ((err = bbre_ast_push(r, BBRE_NIL)))
         goto error;
     } else if (ch == '(') {
       /* capture group */
@@ -1561,6 +1562,11 @@ bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_flags start_flags)
       }
       assert(BBRE_IMPLIES(inline_group, !named_group));
       assert(BBRE_IMPLIES(named_group, !inline_group));
+      if (named_group && (name_end - name_start) > BBRE_LIMIT_GROUP_NAME_SIZE) {
+        bbre_error_set(&r->error, "group name exceeds maximum length");
+        err = BBRE_ERR_LIMIT;
+        goto error;
+      }
       if (!inline_group) {
         if ((err = bbre_ast_make(
                  r, &res, BBRE_AST_TYPE_GROUP, BBRE_NIL, hi_flags, lo_flags,
@@ -1761,7 +1767,16 @@ bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_flags start_flags)
    * subpattern */
   if ((err = bbre_ast_make(
            r, &r->ast_root, BBRE_AST_TYPE_GROUP, r->ast_root,
-           BBRE_GROUP_FLAG_EXPRESSION, 0, 0)))
+           BBRE_GROUP_FLAG_EXPRESSION |
+               /* convert ABI flags to internal flags */
+               BBRE_GROUP_FLAG_INSENSITIVE *
+                   !!(start_flags & BBRE_FLAG_INSENSITIVE) |
+               BBRE_GROUP_FLAG_MULTILINE *
+                   !!(start_flags & BBRE_FLAG_MULTILINE) |
+               BBRE_GROUP_FLAG_DOTNEWLINE *
+                   !!(start_flags & BBRE_FLAG_DOTNEWLINE) |
+               BBRE_GROUP_FLAG_UNGREEDY * !!(start_flags & BBRE_FLAG_UNGREEDY),
+           0, 0)))
     goto error;
 error:
   return err;
@@ -1878,29 +1893,29 @@ bbre_patch_add(bbre *r, bbre_compframe *f, bbre_uint dest_pc, int secondary)
 {
   bbre_uint out_val = dest_pc << 1 | !!secondary;
   assert(dest_pc);
-  if (!f->patch_head)
+  if (!f->head)
     /* the initial patch is just as the head and tail */
-    f->patch_head = f->patch_tail = out_val;
+    f->head = f->tail = out_val;
   else {
     /* subsequent patch additions append to the tail of the list */
-    bbre_patch_set(r, f->patch_tail, out_val);
-    f->patch_tail = out_val;
+    bbre_patch_set(r, f->tail, out_val);
+    f->tail = out_val;
   }
 }
 
 /* Concatenate the patches in `p` with the patches in `q`. */
 static void bbre_patch_merge(bbre *r, bbre_compframe *p, bbre_compframe *q)
 {
-  if (!p->patch_head) {
-    p->patch_head = q->patch_head;
-    p->patch_tail = q->patch_tail;
+  if (!p->head) {
+    p->head = q->head;
+    p->tail = q->tail;
     goto done;
   }
-  if (!q->patch_head)
+  if (!q->head)
     goto done;
-  bbre_patch_set(r, p->patch_tail, q->patch_head);
-  p->patch_tail = q->patch_tail;
-  q->patch_head = q->patch_tail = BBRE_NIL;
+  bbre_patch_set(r, p->tail, q->head);
+  p->tail = q->tail;
+  q->head = q->tail = BBRE_NIL;
 done:
   return;
 }
@@ -1908,59 +1923,198 @@ done:
 /* Transfer ownership of a patch list from `src` to `dst`. */
 static void bbre_patch_xfer(bbre_compframe *dst, bbre_compframe *src)
 {
-  dst->patch_head = src->patch_head;
-  dst->patch_tail = src->patch_tail;
-  src->patch_head = src->patch_tail = BBRE_NIL;
+  dst->head = src->head;
+  dst->tail = src->tail;
+  src->head = src->tail = BBRE_NIL;
 }
 
 /* Rip through the patch list in `f`, setting each branch target in the
  * instruction list to `dest_pc`. */
 static void bbre_patch_apply(bbre *r, bbre_compframe *f, bbre_uint dest_pc)
 {
-  bbre_uint i = f->patch_head;
+  bbre_uint i = f->head;
   while (i) {
     bbre_inst prev = bbre_patch_set(r, i, dest_pc);
     i = i & 1 ? bbre_inst_param(prev) : bbre_inst_next(prev);
   }
-  f->patch_head = f->patch_tail = BBRE_NIL;
+  f->head = f->tail = BBRE_NIL;
 }
 
-/* We sort arrays of rune_range by their lower bound. */
-static bbre_uint bbre_compcc_array_key(bbre_buf(bbre_rune_range) cc, size_t idx)
-{
-  return cc[idx].l;
-}
+/* This function is automatically generated and is defined later on. */
+static int bbre_compcc_fold_range(
+    bbre *r, bbre_rune_range range, bbre_compframe *frame, bbre_uint prev);
 
-/* Swap two values in an array of rune_range by their indices. */
-static void
-bbre_compcc_array_swap(bbre_buf(bbre_rune_range) cc, size_t a, size_t b)
+static int bbre_compile_cc_append(
+    bbre *r, bbre_compframe *frame, bbre_uint prev, bbre_rune_range range)
 {
-  bbre_rune_range tmp = cc[a];
-  cc[a] = cc[b];
-  cc[b] = tmp;
-}
-
-/* Sort the array of rune_range by the lower bound of each range. */
-static void bbre_compcc_hsort(bbre_buf(bbre_rune_range) cc)
-{
-  size_t end = bbre_buf_size(cc), start = end >> 1, root, child;
-  while (end > 1) {
-    if (start)
-      start--;
-    else
-      bbre_compcc_array_swap(cc, --end, 0);
-    root = start;
-    while ((child = 2 * root + 1) < end) {
-      if (child + 1 < end && bbre_compcc_array_key(cc, child) <
-                                 bbre_compcc_array_key(cc, child + 1))
-        child++;
-      if (bbre_compcc_array_key(cc, root) < bbre_compcc_array_key(cc, child)) {
-        bbre_compcc_array_swap(cc, root, child);
-        root = child;
-      } else
-        break;
-    }
+  int err = 0;
+  bbre_cc_elem elem = {0};
+  bbre_uint next = BBRE_NIL;
+  assert(!!frame->head == !!frame->tail && !!frame->tail == !!prev);
+  assert(BBRE_IMPLIES(frame->tail, !r->cc_store[frame->tail].next));
+  /* Get a new elem in cc_store. */
+  if (!bbre_buf_size(r->cc_store)) {
+    /* Add the nil element. */
+    if ((err = bbre_buf_push(&r->alloc, &r->cc_store, elem)))
+      goto error;
   }
+  if (!r->cc_store_empty) {
+    /* Need to allocate a new element. */
+    next = (bbre_uint)bbre_buf_size(r->cc_store);
+    if ((err = bbre_buf_push(&r->alloc, &r->cc_store, elem)))
+      goto error;
+  } else {
+    /* Can reuse a previous element. */
+    next = r->cc_store_empty;
+    r->cc_store_empty = r->cc_store[r->cc_store_empty].next;
+  }
+  elem.range = range;
+  elem.next = BBRE_NIL;
+  r->cc_store[next] = elem;
+  if (!frame->tail) {
+    frame->head = frame->tail = next;
+  } else {
+    r->cc_store[next].next = prev ? r->cc_store[prev].next : BBRE_NIL;
+    if (!prev)
+      frame->head = prev;
+    else
+      r->cc_store[prev].next = next;
+    if (prev == frame->tail)
+      frame->tail = next;
+  }
+error:
+  return err;
+}
+
+static void bbre_compile_cc_append_unwrapped(
+    bbre *r, bbre_compframe *frame, bbre_uint prev, bbre_rune_range range)
+{
+  int err = bbre_compile_cc_append(r, frame, prev, range);
+  assert(!err);
+  (void)(err); /* for when assert() is not defined */
+}
+
+static bbre_rune_range
+bbre_compile_cc_pop(bbre *r, bbre_compframe *frame, bbre_uint prev)
+{
+  bbre_uint ref;
+  assert(frame->head && frame->tail); /* list must contain elements */
+  assert(prev != frame->tail);
+  assert(BBRE_IMPLIES(prev, r->cc_store[prev].next));
+  if (prev == BBRE_NIL)
+    ref = frame->head, frame->head = r->cc_store[frame->head].next;
+  else
+    ref = r->cc_store[prev].next,
+    r->cc_store[prev].next = r->cc_store[r->cc_store[prev].next].next;
+  if (frame->head == BBRE_NIL)
+    frame->tail = frame->head;
+  r->cc_store[ref].next = r->cc_store_empty;
+  r->cc_store_empty = ref;
+  return r->cc_store[ref].range;
+}
+
+static void bbre_compile_cc_link(bbre *r, bbre_compframe *a, bbre_compframe *b)
+{
+  if (!a->head)
+    a->head = b->head;
+  else
+    r->cc_store[a->tail].next = b->head;
+  if (b->tail)
+    a->tail = b->tail;
+}
+
+/* An excellent algorithm by Simon Tatham, of PuTTY fame:
+ * https://www.chiark.greenend.org.uk/~sgtatham/algorithms/listsort.c */
+static void bbre_compile_cc_normalize(bbre *r, bbre_compframe *frame)
+{
+  bbre_uint num_merges = 0, p, q, k = 1, p_size, q_size;
+  if (!frame->head || !(frame->flags & BBRE_GROUP_FLAG_CC_DENORM))
+    goto done;
+  while (1) {
+    num_merges = 0;
+    p = frame->head;
+    frame->head = BBRE_NIL;
+    frame->tail = BBRE_NIL;
+    while (p) {
+      num_merges++;
+      q = p;
+      for (p_size = 0; p_size < k && q; p_size++)
+        q = r->cc_store[q].next;
+      q_size = k;
+      while (1) {
+        bbre_uint elem, p_more = p_size > 0, q_more = q_size > 0 && q;
+        if (!p_more && !q_more)
+          break;
+        if (!q_more ||
+            (p_more && r->cc_store[p].range.l <= r->cc_store[q].range.l))
+          elem = p, p = r->cc_store[p].next, p_size--;
+        else
+          elem = q, q = r->cc_store[q].next, q_size--;
+        if (!frame->tail)
+          frame->head = elem;
+        else
+          r->cc_store[frame->tail].next = elem;
+        frame->tail = elem;
+      }
+      p = q;
+    }
+    r->cc_store[frame->tail].next = BBRE_NIL;
+    if (num_merges <= 1)
+      break;
+    k *= 2;
+  }
+  {
+    /* normalize ranges */
+    bbre_compframe new_frame = *frame;
+    bbre_rune_range next /* currently processed range */,
+        prev; /* previously processed range, yet to be added */
+    new_frame.head = new_frame.tail = BBRE_NIL;
+    p = 0;
+    while (frame->head) {
+      next = bbre_compile_cc_pop(r, frame, BBRE_NIL);
+      if (!p)
+        /* this is the first range */
+        prev = bbre_rune_range_make(next.l, next.h);
+      else if (next.l <= prev.h + 1) {
+        /* next intersects or is adjacent to prev, merge the two ranges by
+         * expanding prev so that it envelops both prev and next */
+        prev.h = next.h > prev.h ? next.h : prev.h;
+      } else {
+        /* next and prev are disjoint */
+        /* since ranges strictly increase, we know that prev does not
+         * intersect with any other range in the input array, so we can push
+         * it and move on. */
+        bbre_compile_cc_append_unwrapped(r, &new_frame, new_frame.tail, prev);
+        prev = next;
+      }
+      p++;
+    }
+    if (p)
+      bbre_compile_cc_append_unwrapped(r, &new_frame, new_frame.tail, prev);
+    *frame = new_frame;
+  }
+done:
+  frame->flags = frame->flags & ~BBRE_GROUP_FLAG_CC_DENORM;
+  return;
+}
+
+/* Helper function to casefold a character class being built in frame. */
+static int bbre_compile_cc_casefold(bbre *r, bbre_compframe *frame)
+{
+  int err = 0;
+  bbre_compframe new_frame = *frame;
+  new_frame.head = new_frame.tail = BBRE_NIL;
+  while (frame->head) {
+    bbre_rune_range next = bbre_compile_cc_pop(r, frame, BBRE_NIL);
+    bbre_compile_cc_append_unwrapped(r, &new_frame, new_frame.tail, next);
+    if ((err = bbre_compcc_fold_range(r, next, &new_frame, new_frame.tail)))
+      goto error;
+  }
+  bbre_compile_cc_normalize(r, &new_frame);
+  *frame = new_frame;
+  frame->flags |= BBRE_GROUP_FLAG_CC_DENORM;
+error:
+  return err;
 }
 
 /* Create a new tree node.
@@ -2134,13 +2288,12 @@ error:
  * rune range amount UTF-8 length boundaries, then calls
  * `bbre_compcc_tree_build_one` on each split range. */
 static int bbre_compcc_tree_build(
-    bbre *r, const bbre_buf(bbre_rune_range) cc_in,
-    bbre_buf(bbre_compcc_tree) * cc_out)
+    bbre *r, bbre_compframe *frame_in, bbre_buf(bbre_compcc_tree) * cc_out)
 {
-  size_t cc_idx = 0 /* current rune range index in `cc_in` */,
-         len_idx = 0 /* current UTF-8 length */,
+  size_t len_idx = 0 /* current UTF-8 length */,
          min_bound = 0 /* current UTF-8 length minimum bound */;
-  bbre_uint root_ref;         /* tree root */
+  bbre_uint root_ref; /* tree root */
+  bbre_uint in_ref;
   bbre_compcc_tree root_node; /* the actual stored root node */
   int err = 0;
   root_node.child_ref = root_node.sibling_ref = root_node.aux.hash =
@@ -2149,14 +2302,14 @@ static int bbre_compcc_tree_build(
   bbre_buf_clear(cc_out);
   if ((err = bbre_compcc_tree_new(r, cc_out, root_node, &root_ref)))
     goto error;
-  for (cc_idx = 0, len_idx = 0; cc_idx < bbre_buf_size(cc_in) && len_idx < 4;) {
+  for (in_ref = frame_in->head, len_idx = 0; in_ref && len_idx < 4;) {
     /* Loop until we're out of ranges and out of byte lengths */
     static const bbre_uint first_bits[4] = {7, 5, 4, 3};
     static const bbre_uint rest_bits[4] = {0, 6, 12, 18};
     /* What is the maximum codepoint that a UTF-8 sequence of length `len_idx`
      * can encode? */
     bbre_uint max_bound = (1 << (rest_bits[len_idx] + first_bits[len_idx])) - 1;
-    bbre_rune_range rr = cc_in[cc_idx];
+    bbre_rune_range rr = r->cc_store[in_ref].range;
     if (min_bound <= rr.h && rr.l <= max_bound) {
       /* [rr.l,rr.h] intersects [min_bound,max_bound] */
       /* clip it so that it lies within [min_bound,max_bound] */
@@ -2170,11 +2323,12 @@ static int bbre_compcc_tree_build(
     }
     if (rr.h < max_bound)
       /* range is less than [min_bound,max_bound] */
-      cc_idx++;
+      in_ref = r->cc_store[in_ref].next;
     else
       /* range is greater than [min_bound,max_bound] */
       len_idx++, min_bound = max_bound + 1;
   }
+  frame_in->head = frame_in->tail = BBRE_NIL;
 error:
   return err;
 }
@@ -2496,18 +2650,11 @@ static void bbre_compcc_tree_xpose(
   }
 }
 
-/* This function is automatically generated and is defined later on. */
-static int bbre_compcc_fold_range(
-    bbre *r, bbre_uint begin, bbre_uint end,
-    bbre_buf(bbre_rune_range) * cc_out);
-
 /* Main function for the character class compiler. `frame` is the compiler frame
  * allocated for the resulting instructions, `ranges` is the normalized set of
  * rune ranges that comprise this character class, and `reversed` tells us
  * whether to compile the charclass in reverse. */
-static int bbre_compcc2(
-    bbre *r, bbre_compframe *frame, bbre_buf(bbre_rune_range) ranges,
-    int reversed)
+static int bbre_compcc(bbre *r, bbre_compframe *frame, int reversed)
 {
   int err = 0;
   bbre_uint start_pc = 0; /* start PC of the compiled charclass, this is filled
@@ -2515,7 +2662,8 @@ static int bbre_compcc2(
   /* clear temporary buffers (their space is reserved) */
   bbre_buf_clear(&r->compcc.tree), bbre_buf_clear(&r->compcc.tree_2),
       bbre_buf_clear(&r->compcc.hash);
-  if (!bbre_buf_size(ranges)) {
+  bbre_compile_cc_normalize(r, frame);
+  if (!frame->head) {
     /* here, it's actually possible to have a charclass that matches no chars,
      * consider the inversion of [\x00-\x{10FFFF}]. Since this case is so rare,
      * we just stub it out by creating an assert that never matches. */
@@ -2532,7 +2680,7 @@ static int bbre_compcc2(
     goto error;
   }
   /* build the concat/alt tree */
-  if ((err = bbre_compcc_tree_build(r, ranges, &r->compcc.tree)))
+  if ((err = bbre_compcc_tree_build(r, frame, &r->compcc.tree)))
     goto error;
   /* hash the tree */
   if ((err = bbre_compcc_hash_init(r, r->compcc.tree, &r->compcc.hash)))
@@ -2605,7 +2753,7 @@ static int bbre_compile_dup(
   *dst = *src;
   bbre_patch_apply(r, src, dest_pc);
   dst->pc = bbre_prog_size(&r->prog);
-  dst->patch_head = dst->patch_tail = BBRE_NIL;
+  dst->head = dst->tail = BBRE_NIL;
   for (i = src->pc; i < src_end; i++) {
     bbre_inst inst = bbre_prog_get(&r->prog, i),
               next_inst = bbre_inst_relocate(inst, src->pc, dst->pc);
@@ -2668,87 +2816,9 @@ error:
   return err;
 }
 
-/* Helper function to allocate and append an array of rune ranges to the cc_stk
- * member of a bbre. */
-static int bbre_compile_alloc_cc(bbre *r)
-{
-  int err = 0;
-  bbre_buf(bbre_rune_range) target;
-  bbre_buf_init(&target);
-  if ((err = bbre_buf_push(&r->alloc, &r->cc_stk, target))) {
-    bbre_buf_destroy(&r->alloc, &target);
-    goto error;
-  }
-error:
-  return err;
-}
-
-/* Helper function to pop and destroy an array of rune ranges from the cc_stk
- * member of a bbre. */
-static void bbre_compile_free_cc(bbre *r)
-{
-  bbre_buf(bbre_rune_range) memb = bbre_buf_pop(&r->cc_stk);
-  bbre_buf_destroy(&r->alloc, &memb);
-}
-
-/* Helper function to casefold the character class on the top of the cc_stk. */
-static int bbre_compile_casefold_cc(bbre *r)
-{
-  int err = 0;
-  bbre_buf(bbre_rune_range) in;
-  bbre_buf(bbre_rune_range) out_denorm;
-  bbre_buf(bbre_rune_range) * out;
-  size_t i;
-  bbre_buf_init(&out_denorm);
-  /* move the top of the cc_stk, and then reset it */
-  out = &r->cc_stk[bbre_buf_size(r->cc_stk) - 1];
-  in = *out;
-  bbre_buf_init(out);
-  for (i = 0; i < bbre_buf_size(in); i++) {
-    bbre_rune_range rr = in[i];
-    if ((err = bbre_buf_push(&r->alloc, &out_denorm, rr)))
-      goto error;
-    if ((err = bbre_compcc_fold_range(r, rr.l, rr.h, &out_denorm)))
-      goto error;
-  }
-  bbre_compcc_hsort(out_denorm);
-  {
-    /* normalize ranges */
-    bbre_rune_range next /* currently processed range */,
-        prev /* previously processed range, yet to be added to the array */;
-    for (i = 0; i < bbre_buf_size(out_denorm); i++) {
-      next = out_denorm[i];
-      assert(next.l <= next.h); /* ensure ranges are not swapped */
-      if (!i)
-        /* this is the first range */
-        prev = bbre_rune_range_make(next.l, next.h);
-      else if (next.l <= prev.h + 1) {
-        /* next intersects or is adjacent to prev, merge the two ranges by
-         * expanding prev so that it envelops both prev and next */
-        prev.h = next.h > prev.h ? next.h : prev.h;
-      } else {
-        /* next and prev are disjoint */
-        /* since ranges strictly increase, we know that prev does not
-         * intersect with any other range in the input array, so we can push
-         * it and move on. */
-        if ((err = bbre_buf_push(&r->alloc, out, prev)))
-          goto error;
-        prev = next;
-      }
-    }
-    if ((err = bbre_buf_push(&r->alloc, out, prev)))
-      goto error;
-  }
-error:
-  bbre_buf_destroy(&r->alloc, &in);
-  bbre_buf_destroy(&r->alloc, &out_denorm);
-  return err;
-}
-
 /* This function reads from the builtin CC ROM and is defined later. */
-static int bbre_builtin_cc_decode2(
-    bbre *r, bbre_uint start, bbre_uint num_range,
-    bbre_buf(bbre_rune_range) * out);
+static int bbre_builtin_cc_decode(
+    bbre *r, bbre_uint start, bbre_uint num_range, bbre_compframe *frame);
 
 /* Main compiler function. Given an AST node through `ast_root`, convert it to
  * compiled instructions. Optionally generate the reversed program if `reverse`
@@ -2773,8 +2843,7 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
   assert(bbre_prog_size(&r->prog) > 0);
   /* create the frame for the root node */
   initial_frame.root_ref = ast_root;
-  initial_frame.child_ref = initial_frame.patch_head =
-      initial_frame.patch_tail = BBRE_NIL;
+  initial_frame.child_ref = initial_frame.head = initial_frame.tail = BBRE_NIL;
   initial_frame.idx = 0;
   initial_frame.pc = bbre_prog_size(&r->prog);
   /* set the entry point for the forward or reverse program */
@@ -2793,8 +2862,8 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
      * `frame.root_ref` to disable visiting a child. */
     frame.child_ref = frame.root_ref;
 
-    child_frame.child_ref = child_frame.root_ref = child_frame.patch_head =
-        child_frame.patch_tail = BBRE_NIL;
+    child_frame.child_ref = child_frame.root_ref = child_frame.head =
+        child_frame.tail = BBRE_NIL;
     child_frame.idx = child_frame.pc = 0;
     type = frame.root_ref ? *bbre_ast_type_ref(r, frame.root_ref)
                           : 0 /* 0 for epsilon */;
@@ -2819,44 +2888,38 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
           goto error;
         bbre_patch_add(r, &frame, my_pc, 0);
       } else { /* unicode */
-        if ((err = bbre_compile_alloc_cc(r)) ||
-            (err = bbre_buf_push(
-                 &r->alloc, &r->cc_stk[0],
+        bbre_patch_apply(r, &frame, my_pc);
+        if ((err = bbre_compile_cc_append(
+                 r, &frame, frame.tail,
                  bbre_rune_range_make(args[0], args[0]))))
           goto error;
         if ((frame.flags & BBRE_GROUP_FLAG_INSENSITIVE) &&
-            (err = bbre_compile_casefold_cc(r)))
+            (err = bbre_compile_cc_casefold(r, &frame)))
           goto error;
         /* call the character class compiler on the single CC node */
-        if ((err = bbre_compcc2(r, &frame, r->cc_stk[0], reverse)))
+        if ((err = bbre_compcc(r, &frame, reverse)))
           goto error;
-        bbre_compile_free_cc(r);
       }
     } else if (type == BBRE_AST_TYPE_ANYCHAR) {
       /* . */
       /*  in            out
        * ---> [varies] ----> */
-      assert(!bbre_buf_size(r->cc_stk));
       bbre_patch_apply(r, &frame, my_pc);
-      if ((err = bbre_compile_alloc_cc(r)))
-        goto error;
       if (frame.flags & BBRE_GROUP_FLAG_DOTNEWLINE) {
-        if ((err = bbre_buf_push(
-                 &r->alloc, &r->cc_stk[0],
-                 bbre_rune_range_make(0, BBRE_UTF_MAX))))
+        if ((err = bbre_compile_cc_append(
+                 r, &frame, frame.tail, bbre_rune_range_make(0, BBRE_UTF_MAX))))
           goto error;
       } else {
-        if ((err = bbre_buf_push(
-                 &r->alloc, &r->cc_stk[0],
-                 bbre_rune_range_make(0, '\n' - 1))) ||
-            (err = bbre_buf_push(
-                 &r->alloc, &r->cc_stk[0],
+        if ((err = bbre_compile_cc_append(
+                 r, &frame, frame.tail, bbre_rune_range_make(0, '\n' - 1))))
+          goto error;
+        if ((err = bbre_compile_cc_append(
+                 r, &frame, frame.tail,
                  bbre_rune_range_make('\n' + 1, BBRE_UTF_MAX))))
           goto error;
       }
-      if ((err = bbre_compcc2(r, &frame, r->cc_stk[0], reverse)))
+      if ((err = bbre_compcc(r, &frame, reverse)))
         goto error;
-      bbre_compile_free_cc(r);
     } else if (type == BBRE_AST_TYPE_ANYBYTE) {
       /* \C */
       /*  in     out
@@ -3082,138 +3145,134 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
       }
     } else if (bbre_ast_type_is_cc(type)) {
       /* Character class subtree. */
+      bbre_uint cc_root =
+          bbre_buf_size(r->comp_stk) > 1
+              ? !bbre_ast_type_is_cc(*bbre_ast_type_ref(
+                    r, bbre_buf_peek(&r->comp_stk, 1)->root_ref))
+              : 1;
+      if (cc_root && !frame.idx) {
+        assert(!(frame.flags & BBRE_GROUP_FLAG_CC_DENORM));
+        /* Free up head/tail members in frame for our use. */
+        bbre_patch_apply(r, &frame, my_pc);
+      }
       if (type == BBRE_AST_TYPE_CC_LEAF) {
         /* Leaf: create an array of length 1 containing the character class. */
-        if ((err = bbre_compile_alloc_cc(r)))
-          goto error;
-        if ((err = bbre_buf_push(
-                 &r->alloc, &r->cc_stk[bbre_buf_size(r->cc_stk) - 1],
-                 bbre_rune_range_make(args[0], args[1]))))
-          goto error;
-        if ((frame.flags & BBRE_GROUP_FLAG_INSENSITIVE) &&
-            (err = bbre_compile_casefold_cc(r)))
+        if ((err = bbre_compile_cc_append(
+                 r, &frame, frame.tail,
+                 bbre_rune_range_make(args[0], args[1]))) ||
+            ((frame.flags & BBRE_GROUP_FLAG_INSENSITIVE) &&
+             (err = bbre_compile_cc_casefold(r, &frame))))
           goto error;
       } else if (type == BBRE_AST_TYPE_CC_BUILTIN) {
         /* Builtins: read the character class from ROM. */
-        if ((err = bbre_compile_alloc_cc(r)))
-          goto error;
-        if ((err = bbre_builtin_cc_decode2(
-                 r, args[0], args[1],
-                 &r->cc_stk[bbre_buf_size(r->cc_stk) - 1])))
-          goto error;
-        if ((frame.flags & BBRE_GROUP_FLAG_INSENSITIVE) &&
-            (err = bbre_compile_casefold_cc(r)))
+        if ((err = bbre_builtin_cc_decode(r, args[0], args[1], &frame)) ||
+            ((frame.flags & BBRE_GROUP_FLAG_INSENSITIVE) &&
+             (err = bbre_compile_cc_casefold(r, &frame))))
           goto error;
       } else if (type == BBRE_AST_TYPE_CC_NOT) {
         /* Negation: evaluate child, then negate it. */
         if (frame.idx == 0) {
-          if ((err = bbre_compile_alloc_cc(r))) /* push our output array */
-            goto error;
           frame.child_ref = args[0]; /* push child */
           frame.idx++;
         } else {
-          bbre_buf(bbre_rune_range) *a =
-              &r->cc_stk[bbre_buf_size(r->cc_stk) - 1];
-          bbre_buf(bbre_rune_range) *o =
-              &r->cc_stk[bbre_buf_size(r->cc_stk) - 2];
-          size_t a_idx = 0;
           bbre_uint current = 0;
           assert(frame.idx == 1);
-          for (a_idx = 0; a_idx < bbre_buf_size(*a); a_idx++) {
-            bbre_rune_range next = (*a)[a_idx];
-            if (next.l > current &&
-                (err = bbre_buf_push(
-                     &r->alloc, o, bbre_rune_range_make(current, next.l - 1))))
-              goto error;
+          /* in order to invert the charclass, it must be normalized */
+          bbre_compile_cc_normalize(r, &returned_frame);
+          while (returned_frame.head) {
+            bbre_rune_range next =
+                bbre_compile_cc_pop(r, &returned_frame, BBRE_NIL);
+            if (next.l > current) {
+              bbre_compile_cc_append_unwrapped(
+                  r, &frame, frame.tail,
+                  bbre_rune_range_make(current, next.l - 1));
+            }
             current = next.h + 1;
           }
           if (current < BBRE_UTF_MAX &&
-              (err = bbre_buf_push(
-                   &r->alloc, o, bbre_rune_range_make(current, BBRE_UTF_MAX))))
+              (err = bbre_compile_cc_append(
+                   r, &frame, frame.tail,
+                   bbre_rune_range_make(current, BBRE_UTF_MAX))))
             goto error;
-          bbre_compile_free_cc(r); /* free child */
+          assert(!returned_frame.head && !returned_frame.tail);
         }
       } else if (type == BBRE_AST_TYPE_CC_OR || type == BBRE_AST_TYPE_CC_AND) {
         /* Conjunction/disjunction: evaluate left and right children, then
          * compose them into a single character class. */
         if (frame.idx == 0) {
-          if ((err = bbre_compile_alloc_cc(r))) /* push our output array */
-            goto error;
           frame.child_ref = args[0]; /* push left child */
           frame.idx++;
         } else if (frame.idx == 1) {
+          frame.head = returned_frame.head, frame.tail = returned_frame.tail;
           frame.child_ref = args[1]; /* push right child */
           frame.idx++;
         } else {
           /* evaluate both children */
-          bbre_buf(bbre_rune_range) *a =
-              &r->cc_stk[bbre_buf_size(r->cc_stk) - 1];
-          bbre_buf(bbre_rune_range) *b =
-              &r->cc_stk[bbre_buf_size(r->cc_stk) - 2];
-          bbre_buf(bbre_rune_range) *o =
-              &r->cc_stk[bbre_buf_size(r->cc_stk) - 3];
-          size_t a_idx = 0, b_idx = 0;
-          bbre_rune_range current = {BBRE_UTF_MAX + 1, BBRE_UTF_MAX + 1},
-                          next = {0};
           assert(frame.idx == 2);
-          while (1) {
-            int a_done = a_idx == bbre_buf_size(*a),
-                b_done = b_idx == bbre_buf_size(*b);
-            if (a_done && b_done)
-              break;
-            assert(
-                BBRE_IMPLIES(a_done, !b_done) && BBRE_IMPLIES(b_done, !a_done));
-            if (b_done || (!a_done && (*a)[a_idx].l < (*b)[b_idx].l))
-              next = (*a)[a_idx++];
-            else
-              next = (*b)[b_idx++];
-            if (type == BBRE_AST_TYPE_CC_OR) {
-              if (current.l == BBRE_UTF_MAX + 1)
-                current = next;
-              else if (next.l <= current.h)
-                current = bbre_rune_range_make(
-                    current.l, next.h > current.h ? next.h : current.h);
-              else if (next.l == current.h + 1)
-                current = bbre_rune_range_make(current.l, next.h);
-              else if (next.l > current.h + 1) {
-                if ((err = bbre_buf_push(&r->alloc, o, current)))
-                  goto error;
-                current = next;
+          if (type == BBRE_AST_TYPE_CC_OR) {
+            bbre_compile_cc_link(r, &frame, &returned_frame);
+            frame.flags |= BBRE_GROUP_FLAG_CC_DENORM;
+          } else {
+            bbre_compframe a = frame, b = returned_frame;
+            bbre_rune_range current = {BBRE_UTF_MAX + 1, BBRE_UTF_MAX + 1},
+                            next = {0};
+            while (1) {
+              if (!a.head && !b.head)
+                break;
+              assert(
+                  BBRE_IMPLIES(!a.head, b.head) &&
+                  BBRE_IMPLIES(!b.head, a.head));
+              if (!b.head || (a.head && r->cc_store[a.head].range.l <
+                                            r->cc_store[b.head].range.l))
+                next = bbre_compile_cc_pop(r, &a, BBRE_NIL);
+              else
+                next = bbre_compile_cc_pop(r, &b, BBRE_NIL);
+              if (type == BBRE_AST_TYPE_CC_OR) {
+                if (current.l == BBRE_UTF_MAX + 1)
+                  current = next;
+                else if (next.l <= current.h)
+                  current = bbre_rune_range_make(
+                      current.l, next.h > current.h ? next.h : current.h);
+                else if (next.l == current.h + 1)
+                  current = bbre_rune_range_make(current.l, next.h);
+                else if (next.l > current.h + 1) {
+                  if ((err = bbre_compile_cc_append(
+                           r, &frame, frame.tail, current)))
+                    goto error;
+                  current = next;
+                }
+              } else {
+                assert(type == BBRE_AST_TYPE_CC_AND);
+                if (current.l == BBRE_UTF_MAX + 1)
+                  current = next;
+                else if (next.l <= current.h) {
+                  bbre_uint lo = current.h < next.h ? current.h : next.h,
+                            hi = current.h > next.h ? current.h : next.h;
+                  if ((err = bbre_compile_cc_append(
+                           r, &frame, frame.tail,
+                           bbre_rune_range_make(next.l, lo))))
+                    goto error;
+                  if (lo != hi)
+                    current = bbre_rune_range_make(lo + 1, hi);
+                } else if (next.l == current.h + 1 || next.l > current.h + 1)
+                  current = next;
               }
-            } else {
-              assert(type == BBRE_AST_TYPE_CC_AND);
-              if (current.l == BBRE_UTF_MAX + 1)
-                current = next;
-              else if (next.l <= current.h) {
-                bbre_uint lo = current.h < next.h ? current.h : next.h,
-                          hi = current.h > next.h ? current.h : next.h;
-                if ((err = bbre_buf_push(
-                         &r->alloc, o, bbre_rune_range_make(next.l, lo))))
-                  goto error;
-                if (lo != hi)
-                  current = bbre_rune_range_make(lo + 1, hi);
-              } else if (next.l == current.h + 1 || next.l > current.h + 1)
-                current = next;
             }
+            if (current.l != BBRE_UTF_MAX + 1 && type == BBRE_AST_TYPE_CC_OR &&
+                (err = bbre_compile_cc_append(r, &frame, frame.tail, current)))
+              goto error;
+            assert(!a.head && !a.tail && !b.head && !b.tail);
           }
-          if (current.l != BBRE_UTF_MAX + 1 && type == BBRE_AST_TYPE_CC_OR &&
-              (err = bbre_buf_push(&r->alloc, o, current)))
-            goto error;
-          bbre_compile_free_cc(r); /* free right child */
-          bbre_compile_free_cc(r); /* free left child */
         }
       }
-      assert(BBRE_IMPLIES(
-          frame.child_ref == frame.root_ref, bbre_buf_size(r->cc_stk)));
-      if (frame.child_ref == frame.root_ref &&
-          (bbre_buf_size(r->cc_stk) == 1)) {
-        /* If we're done compiling this AST node, and this is the root of a CC
-         * subtree, then we can hand off the normalized range array to the
-         * character class compiler. */
-        bbre_patch_apply(r, &frame, my_pc);
-        if ((err = bbre_compcc2(r, &frame, r->cc_stk[0], reverse)))
-          goto error;
-        bbre_compile_free_cc(r);
+      if (frame.child_ref == frame.root_ref) {
+        if (cc_root) {
+          /* If we're done compiling this AST node, and this is the root of a CC
+           * subtree, then we can hand off the normalized range array to the
+           * character class compiler. */
+          if ((err = bbre_compcc(r, &frame, reverse)))
+            goto error;
+        }
       }
     } else if (type == BBRE_AST_TYPE_ASSERT) {
       /* assertions: add a single ASSERT instruction */
@@ -3268,8 +3327,7 @@ static int bbre_compile_internal(bbre *r, bbre_uint ast_root, bbre_uint reverse)
     returned_frame = frame;
   }
   assert(!bbre_buf_size(r->comp_stk));
-  assert(!bbre_buf_size(r->cc_stk));
-  assert(!returned_frame.patch_head && !returned_frame.patch_tail);
+  assert(!returned_frame.head && !returned_frame.tail);
   if ((err = bbre_compile_dotstar(&r->prog, reverse, 1)))
     goto error;
 error:
@@ -4814,9 +4872,9 @@ static int bbre_compcc_fold_next(bbre_uint rune)
 }
 
 static int bbre_compcc_fold_range(
-    bbre *r, bbre_uint begin, bbre_uint end, bbre_buf(bbre_rune_range) * cc_out)
+    bbre *r, bbre_rune_range range, bbre_compframe *frame, bbre_uint prev)
 {
-  bbre_uint current, x0, x1, x2, x3, x4, x5;
+  bbre_uint current, x0, x1, x2, x3, x4, x5, begin = range.l, end = range.h;
   int err = 0;
   signed int a0;
   unsigned char a3, a5;
@@ -4854,8 +4912,8 @@ static int bbre_compcc_fold_range(
               }
               current = begin + a0;
               while (current != begin) {
-                if ((err = bbre_buf_push(
-                         &r->alloc, cc_out,
+                if ((err = bbre_compile_cc_append(
+                         r, frame, prev,
                          bbre_rune_range_make(current, current))))
                   return err;
                 current =
@@ -5208,9 +5266,8 @@ error:
   return err;
 }
 
-static int bbre_builtin_cc_decode2(
-    bbre *r, bbre_uint start, bbre_uint num_range,
-    bbre_buf(bbre_rune_range) * out)
+static int bbre_builtin_cc_decode(
+    bbre *r, bbre_uint start, bbre_uint num_range, bbre_compframe *frame)
 {
   const bbre_uint *read; /* pointer to compressed data */
   bbre_uint i, bit_idx, prev = BBRE_UTF_MAX + 1, accum = 0, range[2];
@@ -5250,8 +5307,8 @@ static int bbre_builtin_cc_decode2(
       *number = accum + *number, accum = *number;
     }
     /* We now have decoded the low and high ordinals of the range. */
-    if ((err = bbre_buf_push(
-             &r->alloc, out, bbre_rune_range_make(range[0], range[1]))))
+    if ((err = bbre_compile_cc_append(
+             r, frame, frame->tail, bbre_rune_range_make(range[0], range[1]))))
       goto error;
   }
   assert(

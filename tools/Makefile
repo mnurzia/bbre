@@ -11,7 +11,7 @@ CFLAGS_noopt=-O0 -g -DNDEBUG
 CFLAGS_bench=-O3 -g -DNDEBUG
 CFLAGS_opt=-O3 -DNDEBUG
 CFLAGS_optopt=-Ofast -DNDEBUG
-CFLAGS_cov=-O0 --coverage -DRE_COV -DNDEBUG
+CFLAGS_cov=-O0 --coverage -DBBRE_COV -DNDEBUG
 
 # tell em to bring out the whole... set of compiler flags!
 CFLAGS=\
