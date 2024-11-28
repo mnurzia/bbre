@@ -54,7 +54,8 @@ size_t utf_encode(char *out_buf, unsigned int codep)
 
 int check_match_results(
     bbre *r, const char *s, size_t n, unsigned int max_span,
-    bbre_span *check_span, unsigned int *did_match, int expected)
+    unsigned int extra_span, bbre_span *check_span, unsigned int *did_match,
+    int expected)
 {
   int err = 0;
   /* memory for found spans and found sets */
@@ -65,11 +66,12 @@ int check_match_results(
   memset(found_did_match, 0xCC, sizeof(found_did_match));
   /* perform the match */
   if ((err = bbre_which_captures_at(
-           r, s, n, 0, found_span, found_did_match, max_span)) == BBRE_ERR_MEM)
+           r, s, n, 0, found_span, found_did_match, max_span + extra_span)) ==
+      BBRE_ERR_MEM)
     OOM();
   ASSERT_GTEm(err, 0, "bbre_match() returned an error");
   ASSERT_EQm(err, expected, "bbre_match() didn't return the correct value");
-  if (expected)
+  if (expected) {
     for (i = 0; i < max_span; i++) {
       ASSERT_EQm(
           check_span[i].begin, found_span[i].begin,
@@ -80,6 +82,10 @@ int check_match_results(
           did_match[i], found_did_match[i],
           "capture group's match status was wrong");
     }
+    for (; i < extra_span; i++)
+      ASSERT_EQm(
+          0, found_did_match[i], "extra inserted span matched incorrectly");
+  }
   PASS();
 }
 
@@ -100,20 +106,24 @@ int check_matches_nf(
     goto oom;
   ASSERT_EQm(err, 0, "bbre_init() returned a nonzero value");
   if ((err = check_match_results(
-           r, s, n, max_span, check_span, did_match, !!max_span)))
+           r, s, n, max_span, 0, check_span, did_match, !!max_span)))
     goto error;
   ASSERT(!err);
-  if ((err = check_match_results(r, s, n, 0, NULL, NULL, !!max_span)))
+  if ((err = check_match_results(
+           r, s, n, max_span, 1, check_span, did_match, !!max_span)))
+    goto error;
+  ASSERT(!err);
+  if ((err = check_match_results(r, s, n, 0, 0, NULL, NULL, !!max_span)))
     goto error;
   ASSERT(!err);
   if ((err = bbre_clone(&r2, r, NULL)) == BBRE_ERR_MEM)
     goto oom;
   ASSERT(!err);
   if ((err = check_match_results(
-           r2, s, n, max_span, check_span, did_match, !!max_span)))
+           r2, s, n, max_span, 0, check_span, did_match, !!max_span)))
     goto error;
   ASSERT(!err);
-  if ((err = check_match_results(r2, s, n, 0, NULL, NULL, !!max_span)))
+  if ((err = check_match_results(r2, s, n, 0, 0, NULL, NULL, !!max_span)))
     goto error;
   ASSERT(!err);
 error:
@@ -659,6 +669,24 @@ TEST(quant_nested_epsilon_group)
   PASS();
 }
 
+TEST(quant_duplicated_nested)
+{
+  ASSERT_MATCH("(?:a*){3,}", "aaaaaa");
+  PASS();
+}
+
+TEST(quant_duplicated_nested_nested)
+{
+  ASSERT_MATCH("(?:a**){3,}", "aaaaaa");
+  PASS();
+}
+
+TEST(quant_zero_nested)
+{
+  ASSERT_MATCH_G2("(a{0}){0,2}", "", 0, 0, 0, 0);
+  PASS();
+}
+
 SUITE(quant)
 {
   RUN_SUITE(star);
@@ -667,6 +695,9 @@ SUITE(quant)
   RUN_TEST(quant_of_nothing);
   RUN_TEST(quant_ungreedy_malformed);
   RUN_TEST(quant_nested_epsilon_group);
+  RUN_TEST(quant_duplicated_nested);
+  RUN_TEST(quant_duplicated_nested_nested);
+  RUN_TEST(quant_zero_nested);
 }
 
 TEST(alt_empty_empty)
@@ -735,6 +766,12 @@ TEST(alt_many_empty_second)
   PASS();
 }
 
+TEST(alt_nevermatch)
+{
+  ASSERT_MATCH("|[^\\x00-\\x{10FFFF}]", "");
+  PASS();
+}
+
 TEST(alt_captures_only_half_in_epsilon)
 {
   const char *regex = ".*|(.*)";
@@ -761,6 +798,7 @@ SUITE(alt)
   RUN_TEST(alt_some_some_second);
   RUN_TEST(alt_many);
   RUN_TEST(alt_many_empty_second);
+  RUN_TEST(alt_nevermatch);
   RUN_TEST(alt_captures_only_half_in_epsilon);
 }
 
@@ -998,6 +1036,16 @@ TEST(cls_ending_dash)
   PASS();
 }
 
+TEST(cls_ending_dash_unfinished)
+{
+  ASSERT_NOPARSE(
+      "[a-",
+      "expected ']' or ending character after '-' for character class range "
+      "expression",
+      3);
+  PASS();
+}
+
 TEST(cls_named_unfinished)
 {
   ASSERT_NOPARSE("[[:", "expected character class name", 3);
@@ -1096,9 +1144,15 @@ TEST(cls_nevermatch)
   PASS();
 }
 
+TEST(cls_nevermatch_first)
+{
+  ASSERT_NMATCH("[^\\x00-\\x{10FFFF}]", "a");
+  PASS();
+}
+
 TEST(cls_reversed)
 {
-  ASSERT_MATCH("[Z-A]", "Z");
+  ASSERT_CC_MATCH("[Z-A]", "A Z");
   PASS();
 }
 
@@ -1286,6 +1340,7 @@ SUITE(cls)
   RUN_TEST(cls_range_one_unfinished);
   RUN_TEST(cls_range_one_malformed);
   RUN_TEST(cls_ending_dash);
+  RUN_TEST(cls_ending_dash_unfinished);
   RUN_TEST(cls_named_unfinished);
   RUN_TEST(cls_named_malformed);
   RUN_TEST(cls_named_unfinished_aftername);

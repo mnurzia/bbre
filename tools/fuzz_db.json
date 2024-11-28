@@ -254,7 +254,7 @@
       false
     ],
     "error_msgs": [
-      "expected ending character after '-' for character class range expression"
+      "expected ']' or ending character after '-' for character class range expression"
     ],
     "error_posns": [
       6
@@ -464,5 +464,30 @@
       true,
       true
     ]
-  } 
+  },
+  {
+    "identifier": "0024",
+    "commit_hash": "7f77a6b53e70d038b7a2623525b8b346cbf9a306",
+    "created": "2024-11-27T18:03:28.984295",
+    "type": "match",
+    "extra": {
+      "fuzzington_seed": 9184993262412288605
+    },
+    "regex": "(C{0,9}){0,5}",
+    "text": "",
+    "spans": [
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "did_match": [
+      true,
+      true
+    ]
+  }
 ]

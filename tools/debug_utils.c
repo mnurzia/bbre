@@ -185,10 +185,11 @@ void d_sset(bbre_sset *s)
     printf("%04X pc: %04X slot: %04X\n", i, s->dense[i].pc, s->dense[i].slot);
 }
 
-void d_prog_range(
-    const bbre_prog *prog, bbre_uint start, bbre_uint end, int format)
+void d_prog_range_nfa(
+    const bbre_prog *prog, bbre_uint start, bbre_uint end, int format,
+    bbre_nfa *nfa)
 {
-  bbre_uint j, k;
+  bbre_uint j, k, l, m;
   assert(end <= bbre_prog_size(prog));
   if (format == GRAPHVIZ)
     printf("node [colorscheme=pastel16]\n");
@@ -219,8 +220,37 @@ void d_prog_range(
           bbre_inst_param(ins), labels[k]);
       if (bbre_inst_opcode(ins) == BBRE_OPCODE_MATCH)
         printf(
-            " %u %s", bbre_inst_match_param_idx(bbre_inst_param(ins)),
+            " %u %5s ", bbre_inst_match_param_idx(bbre_inst_param(ins)),
             bbre_inst_match_param_end(bbre_inst_param(ins)) ? "end" : "begin");
+      else
+        printf("         ");
+      if (nfa) {
+        bbre_uint set_colors[3] = {91, 92, 94};
+        const char *set_names[3] = {"A", "B", "C"};
+        for (l = 0; l < 3; l++) {
+          bbre_sset *set = l == 0 ? &nfa->a : l == 1 ? &nfa->b : &nfa->c;
+          if (bbre_sset_is_memb(set, start)) {
+            bbre_nfa_thrd thrd = set->dense[set->sparse[start]];
+            printf(
+                "\x1b[%um%1s\x1b[0m[%u;", set_colors[l], set_names[l],
+                thrd.slot);
+            for (m = 0; m < nfa->slots.per_thrd; m++) {
+              size_t pos =
+                  nfa->slots.slots[thrd.slot * nfa->slots.per_thrd + m];
+              if (m)
+                printf(",");
+              if (pos == BBRE_UNSET_POSN)
+                printf("\x1b[90m-\x1b[0m");
+              else if (pos == 0 && m == nfa->slots.per_thrd - 1)
+                printf("\x1b[91m%u\x1b[0m", (unsigned int)pos);
+              else
+                printf("%u", (unsigned int)pos);
+            }
+            printf("] ");
+          } else
+            printf("    %*s  ", 2 * (unsigned int)nfa->slots.per_thrd - 1, "");
+        }
+      }
       printf("\n");
     } else {
       static const char *shapes[] = {"box", "oval", "pentagon", "diamond"};
@@ -257,6 +287,12 @@ void d_prog_range(
   }
 }
 
+void d_prog_range(
+    const bbre_prog *prog, bbre_uint start, bbre_uint end, int format)
+{
+  d_prog_range_nfa(prog, start, end, format, NULL);
+}
+
 void d_prog(const bbre_prog *prog)
 {
   d_prog_range(prog, 1, prog->entry[BBRE_PROG_ENTRY_REVERSE], TERM);
@@ -279,6 +315,11 @@ void d_prog_gv(const bbre_prog *prog)
 }
 
 void d_prog_gv_re(bbre *reg) { d_prog_gv(&reg->prog); }
+
+void d_nfa(bbre_exec *exec)
+{
+  d_prog_range_nfa(exec->prog, 0, bbre_prog_size(exec->prog), TERM, &exec->nfa);
+}
 
 void d_cctree_i(
     const bbre_buf(bbre_compcc_tree) cc_tree, bbre_uint ref, bbre_uint lvl)
@@ -308,11 +349,11 @@ void d_cclist(bbre *r, bbre_compframe *frame)
   printf("list:\n");
   while (head) {
     char lo[32], hi[32];
-    bbre_rune_range range = r->cc_store[head].range;
+    bbre_rune_range range = r->compcc.store[head].range;
     d_chr(lo, range.l, 0);
     d_chr(hi, range.h, 0);
     printf("  %04X %s-%s\n", head, lo, hi);
-    head = r->cc_store[head].next;
+    head = r->compcc.store[head].next;
   }
 }
 
