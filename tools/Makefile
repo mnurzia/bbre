@@ -60,8 +60,9 @@ build:
 	mkdir -p build/{cov,fuzz/{artifact,new},fuzzington}
 
 test_gen.c: build fuzz_db.json scripts/fuzz_tool.py scripts/unicode_data.py
-	$(UDATA) gen_ccs test test_gen.c
-	$(PYTHON) scripts/fuzz_tool.py fuzz_db.json gen_tests test_gen.c
+	$(UDATA) gen_ccs test $@
+	$(UDATA) gen_casefold test $@
+	$(PYTHON) scripts/fuzz_tool.py fuzz_db.json gen_tests $@
 	$(FORMAT) $@
 
 $(OUT_DIR): build
@@ -142,7 +143,7 @@ build/cov/lcov.info: build/$(PROFILE)/bbre_test
 
 build/cov/index.html: build/cov/lcov.info
 	genhtml build/cov/lcov.info --branch-coverage\
-		--output-directory build/cov
+		--output-directory build/cov --dark-mode
 
 ## run coverage tests (alias for build/cov/lcov.info)
 cov: build/cov/lcov.info
@@ -230,7 +231,7 @@ fuzzington_run: build fuzzington
 
 ## generate data tables for bbre.c
 tables:
-	$(UDATA) gen_casefold $(BBRE_C)
+	$(UDATA) gen_casefold impl $(BBRE_C)
 	$(PYTHON) scripts/charclass_tree.py dfa $(BBRE_C)
 	$(UDATA) gen_ccs impl $(BBRE_C)
 	$(FORMAT) $(BBRE_C)

@@ -52,6 +52,42 @@ size_t utf_encode(char *out_buf, unsigned int codep)
 #define TEST_MAX_SPAN 10
 #define TEST_MAX_SET  10
 
+int check_match_api(
+    bbre *reg, const char *text, size_t text_size, size_t pos,
+    bbre_span *out_captures, unsigned int *out_captures_did_match,
+    unsigned int out_captures_size)
+{
+  if (pos == 0 && !out_captures && !out_captures_did_match &&
+      out_captures_size == 0) {
+    return bbre_is_match(reg, text, text_size);
+  } else if (
+      pos == 0 && out_captures && !out_captures_did_match &&
+      out_captures_size == 1) {
+    return bbre_find(reg, text, text_size, out_captures);
+  } else if (
+      pos != 0 && out_captures && !out_captures_did_match &&
+      out_captures_size == 1) {
+    return bbre_find_at(reg, text, text_size, pos, out_captures);
+  } else if (
+      pos == 0 && out_captures && !out_captures_did_match &&
+      out_captures_size > 1) {
+    return bbre_captures(reg, text, text_size, out_captures, out_captures_size);
+  } else if (
+      pos != 0 && out_captures && !out_captures_did_match &&
+      out_captures_size > 1) {
+    return bbre_captures_at(
+        reg, text, text_size, pos, out_captures, out_captures_size);
+  } else if (pos == 0 && out_captures && out_captures_did_match) {
+    return bbre_which_captures(
+        reg, text, text_size, out_captures, out_captures_did_match,
+        out_captures_size);
+  } else {
+    return bbre_which_captures_at(
+        reg, text, text_size, pos, out_captures, out_captures_did_match,
+        out_captures_size);
+  }
+}
+
 int check_match_results(
     bbre *r, const char *s, size_t n, unsigned int max_span,
     unsigned int extra_span, bbre_span *check_span, unsigned int *did_match,
@@ -61,30 +97,45 @@ int check_match_results(
   /* memory for found spans and found sets */
   bbre_span found_span[TEST_MAX_SPAN * TEST_MAX_SET];
   unsigned int found_did_match[TEST_MAX_SPAN];
-  unsigned int i;
-  memset(found_span, 0xCC, sizeof(found_span));
-  memset(found_did_match, 0xCC, sizeof(found_did_match));
-  /* perform the match */
-  if ((err = bbre_which_captures_at(
-           r, s, n, 0, found_span, found_did_match, max_span + extra_span)) ==
-      BBRE_ERR_MEM)
-    OOM();
-  ASSERT_GTEm(err, 0, "bbre_match() returned an error");
-  ASSERT_EQm(err, expected, "bbre_match() didn't return the correct value");
-  if (expected) {
-    for (i = 0; i < max_span; i++) {
-      ASSERT_EQm(
-          check_span[i].begin, found_span[i].begin,
-          "found unexpected span beginning");
-      ASSERT_EQm(
-          check_span[i].end, found_span[i].end, "found unexpected span end");
-      ASSERT_EQm(
-          did_match[i], found_did_match[i],
-          "capture group's match status was wrong");
+  unsigned int i, j, k;
+  /* run the match twice to ensure that which_captures() and captures() agree */
+  for (i = 0; i < 2; i++) {
+    for (j = 0; j < (1 + (max_span && check_span ? !!check_span[0].begin : 0));
+         j++) {
+      memset(found_span, 0xCC, sizeof(found_span));
+      memset(found_did_match, 0xCC, sizeof(found_did_match));
+      /* perform the match */
+      if (!i && (err = check_match_api(
+                     r, s, n, j ? check_span[0].begin : 0, found_span,
+                     found_did_match, max_span + extra_span)) == BBRE_ERR_MEM)
+        OOM();
+      else if (
+          i && (err = check_match_api(
+                    r, s, n, j ? check_span[0].begin : 0, found_span, NULL,
+                    max_span + extra_span)) == BBRE_ERR_MEM)
+        OOM();
+      ASSERT_GTEm(err, 0, "bbre_match() returned an error");
+      ASSERT_EQm(err, expected, "bbre_match() didn't return the correct value");
+      if (expected) {
+        for (k = 0; k < max_span; k++) {
+          ASSERT_EQm(
+              check_span[k].begin, found_span[k].begin,
+              "found unexpected span beginning");
+          ASSERT_EQm(
+              check_span[k].end, found_span[k].end,
+              "found unexpected span end");
+          if (!i && did_match)
+            ASSERT_EQm(
+                did_match[k], found_did_match[k],
+                "capture group's match status was wrong");
+        }
+        for (; k < extra_span; k++)
+          if (!i)
+            ASSERT_EQm(
+                0, found_did_match[k],
+                "extra inserted span matched incorrectly");
+      }
     }
-    for (; i < extra_span; i++)
-      ASSERT_EQm(
-          0, found_did_match[i], "extra inserted span matched incorrectly");
   }
   PASS();
 }
@@ -110,10 +161,18 @@ int check_matches_nf(
     goto error;
   ASSERT(!err);
   if ((err = check_match_results(
+           r, s, n, max_span, 1, check_span, NULL, !!max_span)))
+    goto error;
+  assert(!err);
+  if ((err = check_match_results(
            r, s, n, max_span, 1, check_span, did_match, !!max_span)))
     goto error;
-  ASSERT(!err);
+  assert(!err);
   if ((err = check_match_results(r, s, n, 0, 0, NULL, NULL, !!max_span)))
+    goto error;
+  ASSERT(!err);
+  if ((err = check_match_results(
+           r, s, n, 1, 0, check_span, did_match, !!max_span)))
     goto error;
   ASSERT(!err);
   if ((err = bbre_clone(&r2, r, NULL)) == BBRE_ERR_MEM)
@@ -588,6 +647,12 @@ TEST(star_ungreedy_with_assert_unanchored)
   PASS();
 }
 
+TEST(star_greedy_end_anchored)
+{
+  ASSERT_MATCH_G1("A*$", "aAAA", 1, 4);
+  PASS();
+}
+
 SUITE(star)
 {
   RUN_TEST(star_empty);
@@ -599,6 +664,7 @@ SUITE(star)
   RUN_TEST(star_ungreedy_then_greedy);
   RUN_TEST(star_ungreedy_with_assert);
   RUN_TEST(star_ungreedy_with_assert_unanchored);
+  RUN_TEST(star_greedy_end_anchored);
 }
 
 TEST(quest_empty)
@@ -1319,7 +1385,8 @@ SUITE(cls_utf8)
   RUN_TEST(cls_utf8_ranges_common_first_bytes);
 }
 
-SUITE(cls_builtin); /* provided by test-gen.c */
+SUITE(cls_builtin);                   /* provided by test-gen.c */
+SUITE(cls_insensitive_foldrange_arr); /* provided by test-gen.c */
 
 SUITE(cls)
 {
@@ -1362,6 +1429,7 @@ SUITE(cls)
   RUN_TEST(cls_assert);
   RUN_SUITE(cls_utf8);
   RUN_SUITE(cls_builtin);
+  RUN_SUITE(cls_insensitive_foldrange_arr);
 }
 
 TEST(escape_null)
@@ -2651,6 +2719,18 @@ TEST(grp_nested_in_nonmatching)
   PASS();
 }
 
+TEST(grp_not_enough_captures)
+{
+  ASSERT_MATCH_G2("(A)(B)(C)", "ABC", 0, 3, 0, 1);
+  PASS();
+}
+
+TEST(grp_empty_before_some)
+{
+  ASSERT_MATCH_G2("()A", "A", 0, 1, 0, 0);
+  PASS();
+}
+
 TEST(grp_too_many_captures)
 {
   const char *regex = "(.*)";
@@ -2695,6 +2775,8 @@ SUITE(grp)
   RUN_TEST(grp_invalid_unmatched_lparen);
   RUN_TEST(grp_nested_in_nonmatching);
   RUN_TEST(grp_too_many_captures);
+  RUN_TEST(grp_not_enough_captures);
+  RUN_TEST(grp_empty_before_some);
 }
 
 TEST(set_init_patterns)
@@ -2753,6 +2835,14 @@ TEST(set_many)
     ASSERT_EQ(err, 1);
     ASSERT_EQ(pat_ids[0], i);
     ASSERT_EQ(pat_ids[1], 0);
+    if ((err = bbre_set_matches_at(
+             set, text, 1, 0, pat_ids, sizeof(pat_ids) / sizeof(pat_ids[0]),
+             &nmatch)) == BBRE_ERR_MEM)
+      goto oom;
+    ASSERT_EQ(nmatch, 1);
+    ASSERT_EQ(err, 1);
+    ASSERT_EQ(pat_ids[0], i);
+    ASSERT_EQ(pat_ids[1], 0);
   }
   for (i = 0; i < sizeof(patterns) / sizeof(patterns[0]); i++)
     bbre_destroy(patterns[i]);
@@ -2767,10 +2857,93 @@ oom:
   OOM();
 }
 
+TEST(set_aliasing)
+{
+  const char *pats[] = {"a*b", "a*a", "a*ab", "a*aa", "a*aab", "a*aaa"};
+  char text[256];
+  bbre_set *set = bbre_set_init_patterns(pats, 6);
+  int err = 0;
+  memset(text, 'a', 256);
+  if (!set)
+    OOM();
+  if ((err = bbre_set_is_match(set, text, sizeof(text)) == BBRE_ERR_MEM))
+    goto oom;
+  text[sizeof(text) - 1] = 'b';
+  if ((err = bbre_set_is_match(set, text, sizeof(text)) == BBRE_ERR_MEM))
+    goto oom;
+  bbre_set_destroy(set);
+  PASS();
+oom:
+  bbre_set_destroy(set);
+  OOM();
+}
+
+TEST(set_clone)
+{
+  const char *pats[] = {"a", "b"};
+  int err;
+  bbre_set *set = bbre_set_init_patterns(pats, 2), *set2 = NULL;
+  if (!set)
+    OOM();
+  if ((err = bbre_set_clone(&set2, set, NULL)) == BBRE_ERR_MEM)
+    goto oom;
+  bbre_set_destroy(set2);
+  bbre_set_destroy(set);
+  PASS();
+oom:
+  bbre_set_destroy(set2);
+  bbre_set_destroy(set);
+  OOM();
+}
+
+TEST(set_nmatch)
+{
+  const char *pats[] = {"a$", "b", ".*c"};
+  int err;
+  bbre_set *set = bbre_set_init_patterns(pats, 3);
+  if (!set)
+    OOM();
+  if ((err = bbre_set_is_match(set, "aaqqq", 5)) < 0)
+    goto oom;
+  ASSERT_EQ(err, 0);
+  bbre_set_destroy(set);
+  PASS();
+oom:
+  bbre_set_destroy(set);
+  OOM();
+}
+
+TEST(set_is_match_at)
+{
+  const char *pats[] = {"^q", "r", "s$"};
+  int err;
+  bbre_set *set = bbre_set_init_patterns(pats, 3);
+  if (!set)
+    OOM();
+  if ((err = bbre_set_is_match_at(set, "qrs", 3, 0)) < 0)
+    goto oom;
+  ASSERT_EQ(err, 1);
+  if ((err = bbre_set_is_match_at(set, "qrs", 3, 1)) < 0)
+    goto oom;
+  ASSERT_EQ(err, 1);
+  if ((err = bbre_set_is_match_at(set, "qrs", 3, 2)) < 0)
+    goto oom;
+  ASSERT_EQ(err, 1);
+  bbre_set_destroy(set);
+  PASS();
+oom:
+  bbre_set_destroy(set);
+  OOM();
+}
+
 SUITE(set)
 {
   RUN_TEST(set_init_patterns);
   RUN_TEST(set_many);
+  RUN_TEST(set_aliasing);
+  RUN_TEST(set_clone);
+  RUN_TEST(set_nmatch);
+  RUN_TEST(set_is_match_at);
 }
 
 TEST(assert_line_begin_empty)
@@ -3292,6 +3465,24 @@ SUITE(limits)
   RUN_TEST(limit_dfa_thrash);
 }
 
+TEST(api_is_match_at)
+{
+  bbre *r = bbre_init_pattern("abc");
+  int err;
+  if (!r)
+    OOM();
+  if ((err = bbre_is_match_at(r, "Xabc", 4, 1)) == BBRE_ERR_MEM)
+    goto oom;
+  ASSERT_EQ(err, 1);
+  bbre_destroy(r);
+  PASS();
+oom:
+  bbre_destroy(r);
+  OOM();
+}
+
+SUITE(api) { RUN_TEST(api_is_match_at); }
+
 int main(int argc, const char *const *argv)
 {
   MPTEST_MAIN_BEGIN_ARGS(argc, argv);
@@ -3309,6 +3500,7 @@ int main(int argc, const char *const *argv)
   RUN_SUITE(set);
   RUN_SUITE(assert);
   RUN_SUITE(limits);
+  RUN_SUITE(api);
 #ifndef BBRE_COV
   /* regression tests should not account for coverage. we should explicitly
    * write tests that fully cover our code, as they are more documentable than

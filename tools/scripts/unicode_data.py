@@ -1,11 +1,13 @@
 """Unicode data manager for generating tables"""
 
 import argparse
+from functools import reduce
+from operator import or_
 import io
 from logging import DEBUG, basicConfig, getLogger
 from pathlib import Path
 import sys
-from typing import IO, Callable, Iterator, Iterable, NamedTuple
+from typing import IO, Callable, Iterator, Iterable, NamedTuple, Optional
 import shutil
 from urllib.request import urlopen
 import zipfile
@@ -18,15 +20,15 @@ from squish_casefold import (
     check_arrays,
     find_best_arrays,
     build_arrays,
+    SquishedArray,
 )
 from util import (
     UTF_MAX,
     DataType,
-    RuneRanges,
     SyntacticRanges,
     RuneRange,
+    RuneRanges,
     insert_c_file,
-    nranges_invert,
     nranges_normalize,
     ranges_expand,
     make_appender_func,
@@ -143,14 +145,48 @@ def _cmd_casefold_search(args):
     return 0
 
 
-def _cmd_gen_casefold(args) -> int:
-    # Generate C code for casefolding.
+def _make_cc_test(test_name: str, cc: RuneRanges, regex: str, invert: int) -> str:
+    regex = '"' + regex.replace("\\", "\\\\") + '"'
+    return f"""
+    TEST({test_name}) {{
+        static const unsigned int ranges[] = {{{",".join(f"0x{r:X}" for c in cc for r in c)}}};
+        PROPAGATE(assert_cc_match_raw(
+            {regex},
+            ranges, {len(cc)}, {int(invert)}));
+        PASS();
+    }}
+    """
+
+
+def _make_cc_suite(suite_name: str, tests: dict[str, str]) -> str:
+    return f"""
+        SUITE({suite_name}) {{
+            {chr(0x0A).join([f"RUN_TEST({test_name});" for test_name in tests])}
+        }}
+        """
+
+
+class _CasefoldData(NamedTuple):
+    deltas: list[int]
+    arrays: list[SquishedArray]
+    shifts: list[int]
+    masks: list[int]
+    limits: tuple[int, ...]
+
+
+def _cmd_gen_casefold_common(args) -> _CasefoldData:
     deltas = _casefold_load(args)
     array_sizes = tuple(map(int, args.sizes.split(",")))
     logger.debug("building casefold arrays...")
     arrays = build_arrays(deltas, array_sizes)
     shifts = calculate_shifts(array_sizes)
     masks = calculate_masks(array_sizes, UTF_MAX)
+    limits = array_sizes + (len(arrays[-1]),)
+    return _CasefoldData(deltas, arrays, shifts, masks, limits)
+
+
+def _cmd_gen_casefold_impl(args) -> int:
+    _, arrays, shifts, masks, limits = _cmd_gen_casefold_common(args)
     data_types = list(map(DataType.from_list, arrays))
     output, out = make_appender_func()
 
@@ -199,10 +235,9 @@ def _cmd_gen_casefold(args) -> int:
     out("assert(begin <= BBRE_UTF_MAX && end <= BBRE_UTF_MAX && begin <= end);")
 
     for i, array in reversed(list(enumerate(arrays))):
-        limit = len(arrays[-1]) if i == len(array_sizes) else array_sizes[i]
         out("for (")
         out(f"  x{i} = {shift_mask_expr('begin', i)};")
-        out(f"  x{i} <= 0x{limit - 1:X} && begin <= end;")
+        out(f"  x{i} <= 0x{limits[i] - 1:X} && begin <= end;")
         out(f"  x{i}++")
         out(") {")
         out("if (")
@@ -233,6 +268,89 @@ def _cmd_gen_casefold(args) -> int:
     file: IO = args.file
     insert_c_file(file, output, "gen_casefold")
     file.close()
+
+    return 0
+
+
+def _cmd_gen_casefold_test(args) -> int:
+    deltas, arrays, shifts, _, limits = _cmd_gen_casefold_common(args)
+    output, out = make_appender_func()
+
+    # Generate tests that cause the continue branches to fire
+    def find_array_pattern_zeroes(
+        start: int, length: int, offset: int = 0
+    ) -> Optional[tuple[int, ...]]:
+        if length == 0:
+            return (0,) * (start + 1)
+        my_arr = arrays[start]
+        for i in range(offset, offset + limits[start]):
+            elem = my_arr[i]
+            if (length == 1 and elem == my_arr.zero_location) or (
+                length != 1 and elem != my_arr.zero_location
+            ):
+                sub = find_array_pattern_zeroes(start - 1, length - 1, elem)
+                if sub is None:
+                    continue
+                return sub + (i - offset,)
+        return None
+
+    # Generate tests that cause us to overrun the end of each array
+    def find_array_pattern_overrun(
+        start: int, length: int, offset: int = 0
+    ) -> Optional[tuple[int, ...]]:
+        if length == 0:
+            return (0,) * (start + 1)
+        my_arr = arrays[start]
+        for i in range(offset, offset + limits[start]):
+            elem = my_arr[i]
+            if (length == 1 and (i == limits[start] - 1)) or (
+                length != 1 and elem != my_arr.zero_location
+            ):
+                sub = find_array_pattern_overrun(start - 1, length - 1, elem)
+                if sub is None:
+                    continue
+                return sub + (i - offset,)
+        return None
+
+    def _fold_range_dumb(ranges: RuneRanges) -> RuneRanges:
+        out_ords: list[int] = []
+        for r in ranges:
+            for codep in range(r[0], r[1] + 1):
+                start = codep + deltas[codep]
+                out_ords.append(start)
+                while start != codep:
+                    start += deltas[start]
+                    out_ords.append(start)
+        return list(nranges_normalize(list(ranges_expand(tuple(out_ords)))))
+
+    tests: dict[str, str] = {}
+    for i in range(len(arrays)):
+        zeroes = find_array_pattern_zeroes(len(arrays) - 1, i + 1)
+        overruns = find_array_pattern_overrun(len(arrays) - 1, i + 1)
+        assert zeroes is not None and overruns is not None
+        for locations, test_type in zip((zeroes, overruns), ("zero", "overrun")):
+            start: int = reduce(or_, [l << shifts[i] for i, l in enumerate(locations)])
+            regexp = f"(?i)[\\x{{{start:06X}}}-\\x{{{start+2:06X}}}]"
+            test_name = f"cls_insensitive_foldrange_arr_{i}_{test_type}"
+            test = _make_cc_test(
+                test_name,
+                _fold_range_dumb(
+                    [
+                        (start, start + 2),
+                    ]
+                ),
+                regexp,
+                0,
+            )
+            tests[test_name] = test
+
+    out("\n".join(tests.values()))
+    out(_make_cc_suite("cls_insensitive_foldrange_arr", tests))
+
+    file: IO = args.file
+    insert_c_file(file, output, "gen_casefold test")
+    file.close()
+
     return 0
 
 
@@ -450,28 +568,6 @@ def _cmd_gen_ccs_test(args) -> int:
     tests = {}
     lines, out = make_appender_func()
 
-    def make_test(
-        test_name: str, cc: tuple[RuneRange, ...], regex: str, invert: int
-    ) -> str:
-        regex = '"' + regex.replace("\\", "\\\\") + '"'
-        encoded_ranges = {",".join(f"0x{lo:X} 0x{hi:X}" for lo, hi in cc)}
-        return f"""
-        TEST({test_name}) {{
-            static const unsigned int ranges[] = {{{",".join(f"0x{r:X}" for c in cc for r in c)}}};
-            PROPAGATE(assert_cc_match_raw(
-                {regex},
-                ranges, {len(cc)}, {int(invert)}));
-            PASS();
-        }}
-        """
-
-    def make_suite(suite_name: str, tests: dict[str, str]) -> str:
-        return f"""
-            SUITE({suite_name}) {{
-                {chr(0x0A).join([f"RUN_TEST({test_name});" for test_name in tests])}
-            }}
-            """
-
     ccs_lut: dict[tuple[_BuiltinCCType, str], _BuiltinCC] = {
         (cc.cctype, cc.name): cc for cc in builtin_ccs if isinstance(cc, _BuiltinCC)
     }
@@ -497,6 +593,8 @@ def _cmd_gen_ccs_test(args) -> int:
                                 regexp = f"\\{invert_char}{{{cc.name}}}"
                             elif variant == "_single":
                                 regexp = f"\\{invert_char}{cc.name}"
+                            else:
+                                raise ValueError("unknown variant type")
                         case _BuiltinCCType.PERL:
                             regexp = f"\\{cc.name.upper() if inverted else cc.name}"
                         case _:
@@ -513,9 +611,11 @@ def _cmd_gen_ccs_test(args) -> int:
                         )
                     else:
                         ranges = cc.ranges
-                    tests[test_name] = make_test(test_name, ranges, regexp, inverted)
+                    tests[test_name] = _make_cc_test(
+                        test_name, list(ranges), regexp, inverted
+                    )
         out("\n".join(tests.values()))
-        out(make_suite(f"cls_builtin_{cctype}", tests))
+        out(_make_cc_suite(f"cls_builtin_{cctype}", tests))
     out(
         f"""SUITE(cls_builtin) {{
                 {chr(0x0A).join([f"RUN_SUITE(cls_builtin_{cctype});" for cctype in _BuiltinCCType])}
@@ -559,11 +659,16 @@ def main() -> int:
     subcmd_gen_casefold = subcmds.add_parser(
         "gen_casefold", help="generate C code for casefold arrays"
     )
-    subcmd_gen_casefold.set_defaults(func=_cmd_gen_casefold)
-    subcmd_gen_casefold.add_argument("file", type=argparse.FileType("r+"))
     subcmd_gen_casefold.add_argument(
-        "sizes", type=str, nargs="?", default="2,4,2,32,16"
+        "--sizes", type=str, nargs="?", default="2,4,2,32,16"
     )
+    subcmd_gen_casefold_subcmds = subcmd_gen_casefold.add_subparsers()
+    subcmd_gen_casefold_impl = subcmd_gen_casefold_subcmds.add_parser("impl")
+    subcmd_gen_casefold_impl.set_defaults(func=_cmd_gen_casefold_impl)
+    subcmd_gen_casefold_impl.add_argument("file", type=argparse.FileType("r+"))
+    subcmd_gen_casefold_test = subcmd_gen_casefold_subcmds.add_parser("test")
+    subcmd_gen_casefold_test.set_defaults(func=_cmd_gen_casefold_test)
+    subcmd_gen_casefold_test.add_argument("file", type=argparse.FileType("r+"))
 
     subcmd_gen_ccs = subcmds.add_parser(
         "gen_ccs", help="generate code for builtin character classes"

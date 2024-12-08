@@ -28,6 +28,8 @@ static char *d_chr(char *buf, bbre_uint ch, int ascii)
     buf[0] = '\\', buf[1] = '"';
   else if (ch >= ' ' && ch < 0x7F)
     buf[0] = ch, buf[1] = 0;
+  else if (ch == BBRE_SENTINEL_CH && ascii)
+    buf[0] = '<', buf[1] = 'E', buf[2] = 'O', buf[3] = 'T', buf[4] = '>';
   else if (ascii || (ch < 0x80))
     buf[0] = '\\', buf[1] = '\\', buf[2] = 'x', buf[3] = d_hex(ch >> 4),
     buf[4] = d_hex(ch), buf[5] = 0;
@@ -108,7 +110,7 @@ void d_ast_i(bbre *r, bbre_uint root, bbre_uint ilvl, int format)
       : (first == BBRE_AST_TYPE_CC_BUILTIN) ? "CC_BUILTIN"
       : (first == BBRE_AST_TYPE_CC_NOT)     ? (sub[0] = 0, "CC_NOT")
       : (first == BBRE_AST_TYPE_CC_OR)      ? (sub[0] = 0, sub[1] = 1, "CC_OR")
-      : (first == BBRE_AST_TYPE_ANYCHAR)    ? ("ANYCHAR")
+      : (first == BBRE_AST_TYPE_ANYCHAR)    ? "ANYCHAR"
       : (first == BBRE_AST_TYPE_ANYBYTE)
           ? "ANYBYTE"
           : /* (first == BBRE_AST_TYPE_ASSERT) */ "ASSERT";
@@ -181,13 +183,13 @@ void d_op_stk(bbre *r)
 void d_sset(bbre_sset *s)
 {
   bbre_uint i;
-  for (i = 0; i < s->dense_size; i++)
-    printf("%04X pc: %04X slot: %04X\n", i, s->dense[i].pc, s->dense[i].slot);
+  for (i = 0; i < s->dense_pc_size; i++)
+    printf("%04X pc: %04X slot: %04X\n", i, s->dense_pc[i], s->dense_slot[i]);
 }
 
 void d_prog_range_nfa(
     const bbre_prog *prog, bbre_uint start, bbre_uint end, int format,
-    bbre_nfa *nfa)
+    bbre_exec *exec)
 {
   bbre_uint j, k, l, m;
   assert(end <= bbre_prog_size(prog));
@@ -224,31 +226,35 @@ void d_prog_range_nfa(
             bbre_inst_match_param_end(bbre_inst_param(ins)) ? "end" : "begin");
       else
         printf("         ");
-      if (nfa) {
+      if (exec) {
         bbre_uint set_colors[3] = {91, 92, 94};
-        const char *set_names[3] = {"A", "B", "C"};
+        const char *set_names[3] = {"S", "D", "F"};
         for (l = 0; l < 3; l++) {
-          bbre_sset *set = l == 0 ? &nfa->a : l == 1 ? &nfa->b : &nfa->c;
+          bbre_sset *set = l == 0   ? &exec->src
+                           : l == 1 ? &exec->dst
+                                    : &exec->found;
           if (bbre_sset_is_memb(set, start)) {
-            bbre_nfa_thrd thrd = set->dense[set->sparse[start]];
+            bbre_nfa_thrd thrd = bbre_sset_get_pair(set, set->sparse[start]);
             printf(
                 "\x1b[%um%1s\x1b[0m[%u;", set_colors[l], set_names[l],
                 thrd.slot);
-            for (m = 0; m < nfa->slots.per_thrd; m++) {
-              size_t pos =
-                  nfa->slots.slots[thrd.slot * nfa->slots.per_thrd + m];
+            for (m = 0; m < exec->nfa.slots.per_thrd; m++) {
+              size_t pos = exec->nfa.slots
+                               .slots[thrd.slot * exec->nfa.slots.per_thrd + m];
               if (m)
                 printf(",");
               if (pos == BBRE_UNSET_POSN)
                 printf("\x1b[90m-\x1b[0m");
-              else if (pos == 0 && m == nfa->slots.per_thrd - 1)
+              else if (pos == 0 && m == exec->nfa.slots.per_thrd - 1)
                 printf("\x1b[91m%u\x1b[0m", (unsigned int)pos);
               else
                 printf("%u", (unsigned int)pos);
             }
             printf("] ");
           } else
-            printf("    %*s  ", 2 * (unsigned int)nfa->slots.per_thrd - 1, "");
+            printf(
+                "    %*s  ", 2 * (unsigned int)exec->nfa.slots.per_thrd - 1,
+                "");
         }
       }
       printf("\n");
@@ -318,7 +324,7 @@ void d_prog_gv_re(bbre *reg) { d_prog_gv(&reg->prog); }
 
 void d_nfa(bbre_exec *exec)
 {
-  d_prog_range_nfa(exec->prog, 0, bbre_prog_size(exec->prog), TERM, &exec->nfa);
+  d_prog_range_nfa(exec->prog, 0, bbre_prog_size(exec->prog), TERM, exec);
 }
 
 void d_cctree_i(
@@ -355,6 +361,51 @@ void d_cclist(bbre *r, bbre_compframe *frame)
     printf("  %04X %s-%s\n", head, lo, hi);
     head = r->compcc.store[head].next;
   }
+}
+
+bbre_uint d_dfa_findstate(bbre_exec *e, bbre_dfa_state *state)
+{
+  bbre_uint i;
+  for (i = 0; i < e->dfa.states_size; i++) {
+    if (state == e->dfa.states[i])
+      return i;
+  }
+  return -1;
+}
+
+void d_dfa(bbre_exec *e, bbre_dfa_state *state)
+{
+  bbre_uint i, me = d_dfa_findstate(e, state), found = 0;
+  bbre_uint *data = bbre_dfa_state_data(state);
+  printf(
+      "dfa/%03u(%p) (flags: %s%s%s%s):\n", me, (void *)state,
+      state->flags & BBRE_DFA_STATE_FLAG_FROM_TEXT_BEGIN ? "\\A" : "",
+      state->flags & BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN ? "^" : "",
+      state->flags & BBRE_DFA_STATE_FLAG_FROM_WORD ? "\\w" : "",
+      state->flags & BBRE_DFA_STATE_FLAG_DIRTY ? "~" : "");
+  printf("  state: %s", state->nstate ? "" : "(none)\n");
+  for (i = 0; i < state->nstate; i++) {
+    printf("%04X ", data[i]);
+    if (i % 8 == 7 || i == state->nstate - 1)
+      printf("\n%s", i != state->nstate - 1 ? "         " : "");
+  }
+  printf("    set: %s", state->nset ? "" : "(none)\n");
+  for (i = 0; i < state->nset; i++) {
+    printf("%04X ", data[state->nstate + i]);
+    if (i % 8 == 7 || i == state->nset - 1)
+      printf("\n%s", i != state->nset - 1 ? "         " : "");
+  }
+  printf("    ptr: ");
+  for (i = 0; i < BBRE_SENTINEL_CH + 1; i++) {
+    char ch[32];
+    if (!state->ptrs[i])
+      continue;
+    if (++found % 4 == 0)
+      printf("\n        ");
+    d_chr(ch, i, 1);
+    printf("%3s:%03u  ", ch, d_dfa_findstate(e, state->ptrs[i]));
+  }
+  printf("%s\n", found ? "" : "(none)");
 }
 
 #endif
