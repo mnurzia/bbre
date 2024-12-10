@@ -1,10 +1,10 @@
 # Credits
 
-Most of the techniques used in this library are not original. I would have been unable to write this library if not for the following people, all of whom have contributed ideas:
+Most of the techniques used in this library are not original. I would have been unable to write this library if not for the following people, all of whom have contributed ideas, either personally or through broader contributions to the field:
 
 [Ken Thompson](https://en.wikipedia.org/wiki/Ken_Thompson): Pioneered the [compilation of regular expressions](https://dl.acm.org/doi/10.1145/363347.363387), paving the way for efficient, non-backtracking regular expression algorithms.
 
-[Rob Pike](http://herpolhode.com/rob/): Refined Thompson's algorithm by developing a technique for matching regular expressions using a virtual machine; this technique is used for this library.
+[Rob Pike](http://herpolhode.com/rob/): Refined Thompson's algorithm by developing a technique for matching regular expressions using a virtual machine; that technique is used in this library.
 
 [Russ Cox](https://swtch.com/~rsc/): Wrote a hugely influential [series of articles](https://swtch.com/~rsc/regexp/), which served as the theoretical basis for most of this library. Also wrote [re2](https://github.com/google/re2/wiki/Syntax), one of the most widely-used non-backtracking regular expression libraries.
 
@@ -20,4 +20,10 @@ Most of the techniques used in this library are not original. I would have been 
 
 [Simon Tatham](https://www.chiark.greenend.org.uk/~sgtatham/): Invented an [excellent implementation of mergesort](https://www.chiark.greenend.org.uk/~sgtatham/algorithms/listsort.html) for linked lists. This implementation is stable, has guaranteed worst-case performance, and does not require any extra space. In bbre, this algorithm is used to normalize character classes. Tatham is also known for [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/). ([MinTTY](https://github.com/mintty/mintty), a fork of PuTTY, was one of the first terminal emulators I ever used.)
 
-We all stand on the shoulders of giants. I have immense respect for these individuals and their contributions to the field.
+[Sid Mane](https://github.com/squidscode): Reviewed the code in this library and offered invaluable feedback on the design of the API. Sid is a personal friend and a fellow student at Northeastern. I owe Sid a streaming match API, and haven't forgotten about it.
+
+[Joe Allen](https://github.com/jhallen): Reviewed and tested this library, as well as giving great advice and conversation about the design of regular expression engines. Joe is the original author of [Joe's Own Editor](https://github.com/jhallen/joe-editor), and also a former colleague that I had the fortune of working with at one of my internships.
+
+Every software developer stands on the shoulders of giants. I have immense respect for these individuals and their contributions.
+
+I (Max Nurzia) originally wrote this program throughout 2024, during my fourth year at Northeastern University in Boston, MA. During my first year of college, I wrote [another regular expression library](https://github.com/mnurzia/re). This library had numerous inherent issues and was never fully finished, but many of the ideas contained in it were carried over to bbre.

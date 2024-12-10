@@ -11,6 +11,9 @@ Features:
 - Extensively tested
 - Pluggable allocator support
 
+| [API](docs/API.md) | [Syntax](docs/Syntax.md) | [Testing](docs/Testing.md) | [Goals](docs/Goals.md) | [Credits](docs/Credits.md) | [TODO](docs/TODO.md) |
+| ------------------ | ------------------------ | -------------------------- | ---------------------- | -------------------------- | -------------------- |
+
 ## Usage
 
 ```c
