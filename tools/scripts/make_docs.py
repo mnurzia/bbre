@@ -119,6 +119,7 @@ def _doc_ast(args, lines: list[str]) -> int:
             print(f"#### Example: `{example}`")
             ast_path = svgs_path / f"{name.lower()}_ast.svg"
             prog_path = svgs_path / f"{name.lower()}_prog.svg"
+            logger.debug("generating ast for: " + example)
             _generate_visualization(args, example, "ast", ast_path)
             print(f"![{name} AST example]({ast_path.relative_to(my_path.parent)})")
             print()

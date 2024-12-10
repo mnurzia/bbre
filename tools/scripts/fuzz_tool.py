@@ -437,6 +437,7 @@ def _cmd_gen_tests(args) -> int:
 
     test_names = []
 
+    out("#ifndef BBRE_COV")
     for test in tests:
         stamp = test.get_stamp()
         assert stamp is not None
@@ -450,6 +451,10 @@ def _cmd_gen_tests(args) -> int:
     for test_name in test_names:
         out(f"RUN_TEST({test_name});")
     out("}")
+    out("#else")
+    out("SUITE(fuzz_regression) {")
+    out("}")
+    out("#endif")
 
     insert_c_file(args.file, output, "gen_fuzz_regression_tests")
 

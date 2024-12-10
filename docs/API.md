@@ -6,6 +6,8 @@
 <li><a href="#bbre_flags">bbre_flags</a></li>
 <li><a href="#bbre_builder">bbre_builder</a></li>
 <li><a href="#bbre_builder_init">bbre_builder_init</a></li>
+<li><a href="#bbre_builder_destroy">bbre_builder_destroy</a></li>
+<li><a href="#bbre_builder_flags">bbre_builder_flags</a></li>
 <li><a href="#bbre">bbre</a></li>
 <li><a href="#bbre_init_pattern">bbre_init_pattern</a></li>
 <li><a href="#bbre_init">bbre_init</a></li>
@@ -19,7 +21,7 @@
 <li><a href="#bbre_set_builder">bbre_set_builder</a></li>
 <li><a href="#bbre_set_builder_init">bbre_set_builder_init</a></li>
 <li><a href="#bbre_set_builder_destroy">bbre_set_builder_destroy</a></li>
-<li><a href="#bbre_set_builder_add">bbre_set_builder_add, bbre_set_builder_config</a></li>
+<li><a href="#bbre_set_builder_add">bbre_set_builder_add</a></li>
 <li><a href="#bbre_set">bbre_set</a></li>
 <li><a href="#bbre_set_init_patterns">bbre_set_init_patterns</a></li>
 <li><a href="#bbre_set_init">bbre_set_init</a></li>
@@ -76,13 +78,13 @@ don't need to worry about this part of the API.</p>
 ```c
 typedef enum bbre_flags {
   BBRE_FLAG_INSENSITIVE = 1, /* (?i) Case insensitive matching */
-  BBRE_FLAG_MULTILINE = 2,   /* (?m) Multiline matching */
-  BBRE_FLAG_DOTNEWLINE = 4,  /* (?s) '.' matches '\\n' */
+  BBRE_FLAG_MULTILINE = 2,   /* (?m) Multiline ('^'/'$' match line start/end) */
+  BBRE_FLAG_DOTNEWLINE = 4,  /* (?s) '.' matches '\n' */
   BBRE_FLAG_UNGREEDY = 8     /* (?U) Quantifiers become ungreedy */
 } bbre_flags;
 ```
 <p>These mirror the flags used in the regular expression syntax, but can be
-given to bbre_builder_flags() in order to enable them out-of-band.</p>
+given to <a href="#bbre_builder_flags">bbre_builder_flags</a>() in order to enable them out-of-band.</p>
 
 <h2 id="bbre_builder"><code>bbre_builder</code></h2>
 <p>Builder class for regular expressions.</p>
@@ -111,8 +113,27 @@ int bbre_builder_init(
 <p>Returns BBRE_ERR_NOMEM if there is not enough memory to represent the
 object, 0 otherwise. If there was not enough memory,  <code>*pbuild</code> is NULL.</p>
 
+<h2 id="bbre_builder_destroy"><code>bbre_builder_destroy</code></h2>
+<p>Destroy a <a href="#bbre_builder">bbre_builder</a>.</p>
+
+```c
+void bbre_builder_destroy(bbre_builder *build);
+```
+
+<h2 id="bbre_builder_flags"><code>bbre_builder_flags</code></h2>
+<p>Set flags for a <a href="#bbre_builder">bbre_builder</a>.</p>
+
+```c
+void bbre_builder_flags(bbre_builder *build, bbre_flags flags);
+```
+<ul>
+<li><code>pbuild</code> is a pointer to a <a href="#bbre_builder">bbre_builder</a> object.</li>
+<li><code>flags</code> is a bitset of <a href="#bbre_flags">bbre_flags</a> that will become the new flags of the
+<code>*pbuild</code>.</li>
+</ul>
+
 <h2 id="bbre"><code>bbre</code></h2>
-<p>An object that matches a single regular expression.</p>
+<p>An object that is able to match a single regular expression.</p>
 
 ```c
 typedef struct bbre bbre;
@@ -166,10 +187,10 @@ const char *bbre_get_err_msg(const bbre *reg);
 size_t bbre_get_err_pos(const bbre *reg);
 ```
 <p>Some error codes, <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a> and <a href="#BBRE_ERR_MEM">BBRE_ERR_LIMIT</a>, may have an additional
-string describing the specific error in detail. bbre_get_errmsg() can be
+string describing the specific error in detail. <a href="#bbre_get_err_msg">bbre_get_err_msg</a>() can be
 used to retrieve this null-terminated string. This function may return NULL,
 meaning there is no extra error message data.</p>
-<p>The bbre_get_errpos() function is relevant for <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a>. It returns
+<p>The <a href="#bbre_get_err_msg">bbre_get_err_pos</a>() function is relevant for <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a>. It returns
 the index into the input string at which the error occurred.</p>
 
 <h2 id="bbre_span"><code>bbre_span</code></h2>
@@ -311,12 +332,11 @@ default.</li>
 void bbre_set_builder_destroy(bbre_set_builder *build);
 ```
 
-<h2 id="bbre_set_builder_add"><code>bbre_set_builder_add</code>, <code>bbre_set_builder_config</code></h2>
+<h2 id="bbre_set_builder_add"><code>bbre_set_builder_add</code></h2>
 <p>Add a pattern to a <a href="#bbre_set_builder">bbre_set_builder</a>.</p>
 
 ```c
 int bbre_set_builder_add(bbre_set_builder *build, const bbre *reg);
-int bbre_set_builder_config(bbre_set_builder *build, int option, ...);
 ```
 <ul>
 <li><code>build</code> is the set to add the pattern to</li>
@@ -427,10 +447,15 @@ int bbre_clone(bbre **pout, const bbre *reg, const bbre_alloc *alloc);
 int bbre_set_clone(
     bbre_set **pout, const bbre_set *set, const bbre_alloc *alloc);
 ```
+<ul>
+<li><code>pout</code> is a pointer to a pointer that will contain the newly-cloned <a href="#bbre">bbre</a>
+or <a href="#bbre_set">bbre_set</a> object</li>
+<li><code>reg</code> and  <code>set</code> are the input <a href="#bbre">bbre</a> and <a href="#bbre_set">bbre_set</a> objects, respectively</li>
+<li><code>alloc</code> is the memory allocator to use. Pass NULL to use the default.</li>
+</ul>
 <p>If you want to match a pattern using multiple threads, you will need to call
 this function once per thread to obtain exclusive <a href="#bbre">bbre</a>/<a href="#bbre_set">bbre_set</a> objects to
 use, as <a href="#bbre">bbre</a> and <a href="#bbre_set">bbre_set</a> objects cannot be used concurrently.</p>
-<p>In a future update, these functions may become no-ops.</p>
 <p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to clone the object, 0
 otherwise.</p>
 

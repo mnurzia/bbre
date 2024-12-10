@@ -94,7 +94,7 @@ static char *d_quant(char *buf, bbre_uint quantval)
 void d_ast_i(bbre *r, bbre_uint root, bbre_uint ilvl, int format)
 {
   const char *colors[] = {"1", "2", "3", "4"};
-  bbre_uint i, first = root ? *bbre_ast_type_ref(r, root) : 0;
+  bbre_uint i, first = root ? *bbre_ast_type_ptr(r, root) : 0;
   bbre_uint sub[2] = {0xFF, 0xFF};
   char buf[32] = {0}, buf2[32] = {0};
   const char *node_name =
@@ -124,30 +124,30 @@ void d_ast_i(bbre *r, bbre_uint root, bbre_uint ilvl, int format)
     printf("A%04X [label=\"%s\\n", root, node_name);
   }
   if (first == BBRE_AST_TYPE_CHR)
-    printf("%s", d_chr_unicode(buf, *bbre_ast_param_ref(r, root, 0)));
+    printf("%s", d_chr_unicode(buf, *bbre_ast_param_ptr(r, root, 0)));
   else if (first == BBRE_AST_TYPE_GROUP)
     printf(
-        "%s/%s/%u", d_group_flag(buf, *bbre_ast_param_ref(r, root, 1), "+"),
-        d_group_flag(buf2, *bbre_ast_param_ref(r, root, 2), "-"),
-        *bbre_ast_param_ref(r, root, 3));
+        "%s/%s/%u", d_group_flag(buf, *bbre_ast_param_ptr(r, root, 1), "+"),
+        d_group_flag(buf2, *bbre_ast_param_ptr(r, root, 2), "-"),
+        *bbre_ast_param_ptr(r, root, 3));
   else if (first == BBRE_AST_TYPE_IGROUP)
     printf(
-        "%s/%s", d_group_flag(buf, *bbre_ast_param_ref(r, root, 1), "+"),
-        d_group_flag(buf2, *bbre_ast_param_ref(r, root, 2), "-"));
+        "%s/%s", d_group_flag(buf, *bbre_ast_param_ptr(r, root, 1), "+"),
+        d_group_flag(buf2, *bbre_ast_param_ptr(r, root, 2), "-"));
   else if (first == BBRE_AST_TYPE_QUANT || first == BBRE_AST_TYPE_UQUANT)
     printf(
-        "%s-%s", d_quant(buf, *bbre_ast_param_ref(r, root, 1)),
-        d_quant(buf2, *bbre_ast_param_ref(r, root, 2)));
+        "%s-%s", d_quant(buf, *bbre_ast_param_ptr(r, root, 1)),
+        d_quant(buf2, *bbre_ast_param_ptr(r, root, 2)));
   else if (first == BBRE_AST_TYPE_CC_LEAF)
     printf(
-        "%s-%s", d_chr_unicode(buf, *bbre_ast_param_ref(r, root, 0)),
-        d_chr_unicode(buf2, *bbre_ast_param_ref(r, root, 1)));
+        "%s-%s", d_chr_unicode(buf, *bbre_ast_param_ptr(r, root, 0)),
+        d_chr_unicode(buf2, *bbre_ast_param_ptr(r, root, 1)));
   else if (first == BBRE_AST_TYPE_CC_BUILTIN)
     printf(
-        "%i/%i", *bbre_ast_param_ref(r, root, 0),
-        *bbre_ast_param_ref(r, root, 1));
+        "%i/%i", *bbre_ast_param_ptr(r, root, 0),
+        *bbre_ast_param_ptr(r, root, 1));
   else if (first == BBRE_AST_TYPE_ASSERT)
-    printf("%s", d_assert(buf, *bbre_ast_param_ref(r, root, 0)));
+    printf("%s", d_assert(buf, *bbre_ast_param_ptr(r, root, 0)));
   if (format == GRAPHVIZ)
     printf(
         "\"]\nsubgraph cluster_%04X { "
@@ -157,7 +157,7 @@ void d_ast_i(bbre *r, bbre_uint root, bbre_uint ilvl, int format)
     printf("\n");
   for (i = 0; i < sizeof(sub) / sizeof(*sub); i++)
     if (sub[i] != 0xFF) {
-      bbre_uint child = *bbre_ast_param_ref(r, root, sub[i]);
+      bbre_uint child = *bbre_ast_param_ptr(r, root, sub[i]);
       d_ast_i(r, child, ilvl + 1, format);
       if (format == GRAPHVIZ)
         printf(
@@ -167,9 +167,9 @@ void d_ast_i(bbre *r, bbre_uint root, bbre_uint ilvl, int format)
     printf("}\n");
 }
 
-void d_ast(bbre *r) { d_ast_i(r, r->ast_root, 0, TERM); }
+void d_ast(bbre *r) { d_ast_i(r, r->ast_root_hdl, 0, TERM); }
 
-void d_ast_gv(bbre *r) { d_ast_i(r, r->ast_root, 0, GRAPHVIZ); }
+void d_ast_gv(bbre *r) { d_ast_i(r, r->ast_root_hdl, 0, GRAPHVIZ); }
 
 void d_op_stk(bbre *r)
 {
@@ -227,20 +227,19 @@ void d_prog_range_nfa(
       else
         printf("         ");
       if (exec) {
-        bbre_uint set_colors[3] = {91, 92, 94};
-        const char *set_names[3] = {"S", "D", "F"};
-        for (l = 0; l < 3; l++) {
-          bbre_sset *set = l == 0   ? &exec->src
-                           : l == 1 ? &exec->dst
-                                    : &exec->found;
+        bbre_uint set_colors[2] = {91, 92};
+        const char *set_names[2] = {"S", "D"};
+        for (l = 0; l < 2; l++) {
+          bbre_sset *set = l == 0 ? &exec->src : &exec->dst;
           if (bbre_sset_is_memb(set, start)) {
             bbre_nfa_thrd thrd = bbre_sset_get_pair(set, set->sparse[start]);
             printf(
                 "\x1b[%um%1s\x1b[0m[%u;", set_colors[l], set_names[l],
-                thrd.slot);
+                thrd.slot_hdl);
             for (m = 0; m < exec->nfa.slots.per_thrd; m++) {
-              size_t pos = exec->nfa.slots
-                               .slots[thrd.slot * exec->nfa.slots.per_thrd + m];
+              size_t pos =
+                  exec->nfa.slots
+                      .slots[thrd.slot_hdl * exec->nfa.slots.per_thrd + m];
               if (m)
                 printf(",");
               if (pos == BBRE_UNSET_POSN)
@@ -338,10 +337,10 @@ void d_cctree_i(
   printf(
       "%02X-%02X\n", bbre_uint_to_byte_range(node->range).l,
       bbre_uint_to_byte_range(node->range).h);
-  if (node->child_ref)
-    d_cctree_i(cc_tree, node->child_ref, lvl + 1);
-  if (node->sibling_ref)
-    d_cctree_i(cc_tree, node->sibling_ref, lvl);
+  if (node->child_hdl)
+    d_cctree_i(cc_tree, node->child_hdl, lvl + 1);
+  if (node->sibling_hdl)
+    d_cctree_i(cc_tree, node->sibling_hdl, lvl);
 }
 
 void d_cctree(const bbre_buf(bbre_compcc_tree) cc_tree, bbre_uint ref)
@@ -359,7 +358,7 @@ void d_cclist(bbre *r, bbre_compframe *frame)
     d_chr(lo, range.l, 0);
     d_chr(hi, range.h, 0);
     printf("  %04X %s-%s\n", head, lo, hi);
-    head = r->compcc.store[head].next;
+    head = r->compcc.store[head].next_hdl;
   }
 }
 
@@ -383,17 +382,17 @@ void d_dfa(bbre_exec *e, bbre_dfa_state *state)
       state->flags & BBRE_DFA_STATE_FLAG_FROM_LINE_BEGIN ? "^" : "",
       state->flags & BBRE_DFA_STATE_FLAG_FROM_WORD ? "\\w" : "",
       state->flags & BBRE_DFA_STATE_FLAG_DIRTY ? "~" : "");
-  printf("  state: %s", state->nstate ? "" : "(none)\n");
-  for (i = 0; i < state->nstate; i++) {
+  printf("  state: %s", state->num_state ? "" : "(none)\n");
+  for (i = 0; i < state->num_state; i++) {
     printf("%04X ", data[i]);
-    if (i % 8 == 7 || i == state->nstate - 1)
-      printf("\n%s", i != state->nstate - 1 ? "         " : "");
+    if (i % 8 == 7 || i == state->num_state - 1)
+      printf("\n%s", i != state->num_state - 1 ? "         " : "");
   }
-  printf("    set: %s", state->nset ? "" : "(none)\n");
-  for (i = 0; i < state->nset; i++) {
-    printf("%04X ", data[state->nstate + i]);
-    if (i % 8 == 7 || i == state->nset - 1)
-      printf("\n%s", i != state->nset - 1 ? "         " : "");
+  printf("    set: %s", state->num_set ? "" : "(none)\n");
+  for (i = 0; i < state->num_set; i++) {
+    printf("%04X ", data[state->num_state + i]);
+    if (i % 8 == 7 || i == state->num_set - 1)
+      printf("\n%s", i != state->num_set - 1 ? "         " : "");
   }
   printf("    ptr: ");
   for (i = 0; i < BBRE_SENTINEL_CH + 1; i++) {

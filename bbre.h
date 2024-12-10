@@ -67,12 +67,17 @@ typedef struct bbre_builder bbre_builder;
 int bbre_builder_init(
     bbre_builder **pbuild, const char *pat, size_t pat_size,
     const bbre_alloc *alloc);
-/* Set flags for a bbre_builder. */
-void bbre_builder_flags(bbre_builder *build, bbre_flags flags);
-/* Destroy a bbre_builder. */
+
+/** Destroy a bbre_builder. */
 void bbre_builder_destroy(bbre_builder *build);
 
-/** An object that matches a single regular expression. */
+/** Set flags for a bbre_builder.
+ ** - `pbuild` is a pointer to a bbre_builder object.
+ ** - `flags` is a bitset of bbre_flags that will become the new flags of the
+ **   `*pbuild`. */
+void bbre_builder_flags(bbre_builder *build, bbre_flags flags);
+
+/** An object that is able to match a single regular expression. */
 typedef struct bbre bbre;
 
 /** Initialize a bbre.
@@ -105,11 +110,11 @@ void bbre_destroy(bbre *reg);
 
 /** Retrieve an error message from a \ref bbre after it generates an error.
  ** Some error codes, BBRE_ERR_PARSE and BBRE_ERR_LIMIT, may have an additional
- ** string describing the specific error in detail. bbre_get_errmsg() can be
+ ** string describing the specific error in detail. bbre_get_err_msg() can be
  ** used to retrieve this null-terminated string. This function may return NULL,
  ** meaning there is no extra error message data.
  **
- ** The bbre_get_errpos() function is relevant for BBRE_ERR_PARSE. It returns
+ ** The bbre_get_err_pos() function is relevant for BBRE_ERR_PARSE. It returns
  ** the index into the input string at which the error occurred. */
 const char *bbre_get_err_msg(const bbre *reg);
 size_t bbre_get_err_pos(const bbre *reg);
@@ -235,8 +240,6 @@ void bbre_set_builder_destroy(bbre_set_builder *build);
  ** 0 otherwise. */
 int bbre_set_builder_add(bbre_set_builder *build, const bbre *reg);
 
-int bbre_set_builder_config(bbre_set_builder *build, int option, ...);
-
 /** An object that concurrently matches sets of regular expressions.
  ** A bbre_set is not able to extract bounds or capture information about its
  ** individual patterns, but it can match many patterns at once very efficiently
@@ -305,11 +308,14 @@ int bbre_set_matches_at(
     unsigned int *out_num_idxs);
 
 /** Duplicate a bbre or bbre_set without recompiling it.
+ ** - `pout` is a pointer to a pointer that will contain the newly-cloned bbre
+ **   or bbre_set object
+ ** - `reg` and `set` are the input bbre and bbre_set objects, respectively
+ ** - `alloc` is the memory allocator to use. Pass NULL to use the default.
+ **
  ** If you want to match a pattern using multiple threads, you will need to call
  ** this function once per thread to obtain exclusive bbre/bbre_set objects to
  ** use, as bbre and bbre_set objects cannot be used concurrently.
- **
- ** In a future update, these functions may become no-ops.
  **
  ** Returns BBRE_ERR_MEM if there was not enough memory to clone the object, 0
  ** otherwise. */

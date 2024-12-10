@@ -7,6 +7,14 @@ The engine builds an AST from the input regexp. The AST is analyzed and then com
 Each node in the AST has a type. Nodes have children and associated data depending on their type.
 
 ## AST Reference
+### BBRE_AST_TYPE_EPS
+An epsilon node.
+
+#### Example: `|`
+![BBRE_AST_TYPE_EPS AST example](generated/ast/bbre_ast_type_eps_ast.svg)
+
+![BBRE_AST_TYPE_EPS program example](generated/ast/bbre_ast_type_eps_prog.svg)
+
 ### BBRE_AST_TYPE_CHR
 A single character.
 
@@ -65,11 +73,11 @@ Like `QUANT`, but not greedy.
 A matching group.
 #### Arguments:
   -   Argument 0: child tree (AST)
-  -   Argument 1: group flags, bitset of `enum group_flag` (number)
-  -   Argument 2: scratch used by the parser to store old flags (number)
+  -   Argument 1: group flags pulled up, bitset of `enum group_flag` (number)
+  -   Argument 2: group flags pulled down (number)
   -   Argument 3: capture index (number)
 
-#### Example: `(a)`
+#### Example: `(?i-s:a)`
 ![BBRE_AST_TYPE_GROUP AST example](generated/ast/bbre_ast_type_group_ast.svg)
 
 ![BBRE_AST_TYPE_GROUP program example](generated/ast/bbre_ast_type_group_prog.svg)
@@ -78,37 +86,64 @@ A matching group.
 An inline group.
 #### Arguments:
   -   Argument 0: child tree (AST)
-  -   Argument 1: group flags, bitset of `enum group_flag` (number)
-  -   Argument 2: scratch used by the parser to store old flags (number)
+  -   Argument 1: group flags pulled up, bitset of `enum group_flag` (number)
+  -   Argument 2: group flags pulled down (number)
 
-#### Example: `(?i)a`
+#### Example: `(?i-s)a`
 ![BBRE_AST_TYPE_IGROUP AST example](generated/ast/bbre_ast_type_igroup_ast.svg)
 
 ![BBRE_AST_TYPE_IGROUP program example](generated/ast/bbre_ast_type_igroup_prog.svg)
 
-### BBRE_AST_TYPE_CC
-A character class.
+### BBRE_AST_TYPE_CC_LEAF
+A single range in a character class.
 #### Arguments:
-  -   Argument 0: BBRE_REF_NONE or another CC node in the charclass (AST)
-  -   Argument 1: character range begin (number)
-  -   Argument 2: character range end (number)
+  -   Argument 0: character range begin (number)
+  -   Argument 1: character range end (number)
 
-#### Example: `[a-zA-Z]`
-![BBRE_AST_TYPE_CC AST example](generated/ast/bbre_ast_type_cc_ast.svg)
+#### Example: `[a-z]`
+![BBRE_AST_TYPE_CC_LEAF AST example](generated/ast/bbre_ast_type_cc_leaf_ast.svg)
 
-![BBRE_AST_TYPE_CC program example](generated/ast/bbre_ast_type_cc_prog.svg)
+![BBRE_AST_TYPE_CC_LEAF program example](generated/ast/bbre_ast_type_cc_leaf_prog.svg)
 
-### BBRE_AST_TYPE_ICC
-An inverted character class.
+### BBRE_AST_TYPE_CC_BUILTIN
+A builtin character class.
 #### Arguments:
-  -   Argument 0: BBRE_REF_NONE or another CC node in the charclass (AST)
-  -   Argument 1: character range begin (number)
-  -   Argument 2: character range end (number)
+  -   Argument 0: starting index into the builtin_cc array
+  -   Argument 1: number of character ranges to parse
 
-#### Example: `[^a-zA-Z]`
-![BBRE_AST_TYPE_ICC AST example](generated/ast/bbre_ast_type_icc_ast.svg)
+#### Example: `[[:digit:]]`
+![BBRE_AST_TYPE_CC_BUILTIN AST example](generated/ast/bbre_ast_type_cc_builtin_ast.svg)
 
-![BBRE_AST_TYPE_ICC program example](generated/ast/bbre_ast_type_icc_prog.svg)
+![BBRE_AST_TYPE_CC_BUILTIN program example](generated/ast/bbre_ast_type_cc_builtin_prog.svg)
+
+### BBRE_AST_TYPE_CC_NOT
+The set-inversion of a character class.
+#### Arguments:
+  -   Argument 0: child tree (AST)
+
+#### Example: `[^a]`
+![BBRE_AST_TYPE_CC_NOT AST example](generated/ast/bbre_ast_type_cc_not_ast.svg)
+
+![BBRE_AST_TYPE_CC_NOT program example](generated/ast/bbre_ast_type_cc_not_prog.svg)
+
+### BBRE_AST_TYPE_CC_OR
+The set-disjunction of a character class.
+#### Arguments:
+  -   Argument 0: child tree A (AST)
+  -   Argument 1: child tree B (AST)
+
+#### Example: `[az]`
+![BBRE_AST_TYPE_CC_OR AST example](generated/ast/bbre_ast_type_cc_or_ast.svg)
+
+![BBRE_AST_TYPE_CC_OR program example](generated/ast/bbre_ast_type_cc_or_prog.svg)
+
+### BBRE_AST_TYPE_ANYCHAR
+Matches any character.
+
+#### Example: `.`
+![BBRE_AST_TYPE_ANYCHAR AST example](generated/ast/bbre_ast_type_anychar_ast.svg)
+
+![BBRE_AST_TYPE_ANYCHAR program example](generated/ast/bbre_ast_type_anychar_prog.svg)
 
 ### BBRE_AST_TYPE_ANYBYTE
 Matches any byte.

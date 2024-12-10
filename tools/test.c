@@ -1424,6 +1424,7 @@ SUITE(cls)
   RUN_TEST(cls_unicode_property_inverted);
   RUN_TEST(cls_unicode_property_range_end);
   RUN_TEST(cls_nevermatch);
+  RUN_TEST(cls_nevermatch_first);
   RUN_TEST(cls_reversed);
   RUN_TEST(cls_reversed_nonmatch);
   RUN_TEST(cls_assert);
@@ -3501,11 +3502,10 @@ int main(int argc, const char *const *argv)
   RUN_SUITE(assert);
   RUN_SUITE(limits);
   RUN_SUITE(api);
-#ifndef BBRE_COV
   /* regression tests should not account for coverage. we should explicitly
    * write tests that fully cover our code, as they are more documentable than
-   * potentially cryptic regression tests. */
+   * potentially cryptic regression tests. internally, this suite is fused off
+   * with an #ifdef BBRE_COV. */
   RUN_SUITE(fuzz_regression);
-#endif
   return MPTEST_MAIN_END();
 }

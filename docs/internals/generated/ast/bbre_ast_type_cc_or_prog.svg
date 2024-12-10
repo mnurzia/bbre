@@ -9,7 +9,7 @@
 <g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 379.34)">
 <title>D</title>
 <polygon fill="white" stroke="none" points="-4,4 -4,-379.34 144.5,-379.34 144.5,4 -4,4"/>
-<text text-anchor="middle" x="70.25" y="-358.04" font-family="sans-serif" font-size="14.00">program for &quot;l|r&quot;</text>
+<text text-anchor="middle" x="70.25" y="-358.04" font-family="sans-serif" font-size="14.00">program for &quot;[az]&quot;</text>
 <!-- I0001 -->
 <g id="node1" class="node">
 <title>I0001</title>
@@ -36,7 +36,7 @@
 <title>I0003</title>
 <polygon fill="#fbb4ae" stroke="black" points="65.5,-152.79 8.25,-152.79 8.25,-110.29 65.5,-110.29 65.5,-152.79"/>
 <text text-anchor="middle" x="36.88" y="-135.49" font-family="monospace" font-size="14.00">RANGE</text>
-<text text-anchor="middle" x="36.88" y="-118.24" font-family="monospace" font-size="14.00">l&#45;l</text>
+<text text-anchor="middle" x="36.88" y="-118.24" font-family="monospace" font-size="14.00">a&#45;a</text>
 <text text-anchor="middle" x="4.12" y="-156.74" font-family="monospace" font-size="14.00">3</text>
 </g>
 <!-- I0002&#45;&gt;I0003 -->
@@ -50,7 +50,7 @@
 <title>I0004</title>
 <polygon fill="#fbb4ae" stroke="black" points="140.5,-152.79 83.25,-152.79 83.25,-110.29 140.5,-110.29 140.5,-152.79"/>
 <text text-anchor="middle" x="111.88" y="-135.49" font-family="monospace" font-size="14.00">RANGE</text>
-<text text-anchor="middle" x="111.88" y="-118.24" font-family="monospace" font-size="14.00">r&#45;r</text>
+<text text-anchor="middle" x="111.88" y="-118.24" font-family="monospace" font-size="14.00">z&#45;z</text>
 <text text-anchor="middle" x="79.12" y="-156.74" font-family="monospace" font-size="14.00">4</text>
 </g>
 <!-- I0002&#45;&gt;I0004 -->

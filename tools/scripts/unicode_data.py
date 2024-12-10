@@ -252,7 +252,7 @@ def _cmd_gen_casefold_impl(args) -> int:
     out("current = begin + a0;")
     out("while (current != begin) {")
     out(
-        "  if ((err = bbre_compile_cc_append(r, frame, prev, bbre_rune_range_make(current, current))))"
+        "  if ((err = bbre_compile_ranges_append(r, frame, prev, bbre_rune_range_make(current, current))))"
     )
     out("    return err;")
     out("  current = (bbre_uint)((int)current + bbre_compcc_fold_next(current));")
