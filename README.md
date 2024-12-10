@@ -7,9 +7,27 @@ Features:
 - One `.h` file and one `.c` file
 - Supports matching many distinct patterns at once
 - Syntax parity with [re2](https://github.com/google/re2/wiki/Syntax)
-- ~5000 lines of code (only ~1500 semicolons)
-- Extensively tested 
+- ~6000 lines of code (only ~1800 semicolons)
+- Extensively tested
 - Pluggable allocator support
+
+## Usage
+
+```c
+#include <assert.h>
+#include <string.h>
+
+#include "bbre.h"
+
+int main(void)
+{
+  const char *text = "Hello WorLd!";
+  bbre *reg = bbre_init_pattern("Hel*o (?i)[w]orld!");
+  assert(bbre_is_match(reg, text, strlen(text)) == 1);
+  bbre_destroy(reg);
+  return 0;
+}
+```
 
 ## FAQ
 

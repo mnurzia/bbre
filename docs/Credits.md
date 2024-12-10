@@ -10,13 +10,13 @@ Most of the techniques used in this library are not original. I would have been 
 
 [Philip Hazel](http://quercite.dx.am/): Wrote [PCRE](https://en.wikipedia.org/wiki/Perl_Compatible_Regular_Expressions), arguably the standard for regular expressions. The breadth and utility of this library cannot be overstated. Hazel's advice on testing also resonates: "Effort put into building test harnesses is never wasted."
 
-[Andrew Gallant](https://github.com/BurntSushi): Wrote [Rust's regex crate](https://github.com/rust-lang/regex), which is an excellent library that everyone should use. When writing bbre, I took heavy inspiration from its intuitive API.
+[Andrew Gallant](https://github.com/BurntSushi): Wrote [Rust's regex crate](https://github.com/rust-lang/regex), which is an excellent library that everyone should use, if they can. When writing bbre, I took heavy inspiration from its intuitive API.
 
 [Chris Wellons](https://nullprogram.com/): Wrote the [integer hash function](https://nullprogram.com/blog/2018/07/31/) used in this library. Also, his blog is a great resource for learning about modern idiomatic C.
 
 [Bjoern Hoehrmann](https://bjoern.hoehrmann.de/): Wrote a [DFA-based UTF-8 decoder](https://bjoern.hoehrmann.de/utf-8/decoder/dfa/) which serves as the design basis for the respective component in this library.
 
-[Alexander Pankratov](https://swapped.cc/): Did an [informative writeup](https://github.com/apankrat/notes/blob/master/fast-case-conversion/README.md) on Wine's Unicode casefold array compression algorithm, a derivation of which is used in this library. The [original idea](https://github.com/wine-mirror/wine/commit/a02ce81082ef2f27fdfcf577efbe491582becd28a) seems to have come from [jgriffiths](https://github.com/jgriffiths).
+[Alexander Pankratov](https://swapped.cc/): Did an [informative writeup](https://github.com/apankrat/notes/blob/master/fast-case-conversion/README.md) on Wine's Unicode casefold array compression algorithm, a derivation of which is used in this library. The [original idea](https://github.com/wine-mirror/wine/commit/a02ce81082ef2f27fdfcf577efbe491582becd28a) seems to have come from [Jon Griffiths](https://github.com/jgriffiths).
 
 [Simon Tatham](https://www.chiark.greenend.org.uk/~sgtatham/): Invented an [excellent implementation of mergesort](https://www.chiark.greenend.org.uk/~sgtatham/algorithms/listsort.html) for linked lists. This implementation is stable, has guaranteed worst-case performance, and does not require any extra space. In bbre, this algorithm is used to normalize character classes. Tatham is also known for [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/). ([MinTTY](https://github.com/mintty/mintty), a fork of PuTTY, was one of the first terminal emulators I ever used.)
 

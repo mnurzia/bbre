@@ -1,12 +1,12 @@
 # Testing
 
-bbre is heavily tested.
+bbre is heavily tested, but it can always use more testing.
 
-A set of basic tests in `tools/test.c` provides XXX% coverage and defines the general behavior of the library. These tests are intended to be mostly readable and exercise all library features.
+A set of basic tests in `tools/test.c` provides 100% coverage and defines the general behavior of the library. These tests are intended to be readable by humans and exercise all library features.
 
-These tests are also instrumented with a harness that simulates out-of-memory conditions and ensures that the code behaves correctly under them. 
+These tests are also instrumented by using a harness that simulates out-of-memory conditions. This ensures that the code behaves correctly under such rare yet possible conditions.
 
-Additionally, the `tools/test_gen.c` file contains automatically generated tests that cover testing of large, tedious sets of inputs such as Unicode properties. These tests ensure, among other things, that `bbre` adheres to the Unicode standard.
+Additionally, the `tools/test_gen.c` file contains automatically generated tests that cover testing of large, tedious sets of inputs such as Unicode properties. These tests ensure, among other things, that `bbre` adheres to the parts of the Unicode standard that it claims to adhere to.
 
 The `tools/fuzzington` test harness, written in Rust, is a fuzzer that generates hundreds of thousands of regular expressions per second and matches them against generated text. This test harness has already caught dozens of bugs.
 

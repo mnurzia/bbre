@@ -46,7 +46,7 @@ OUT_DIR=build/$(PROFILE)
 BBRE_C=../bbre.c
 BBRE_H=../bbre.h
 
-DOCS_DIR=../docs
+DOCS_DIR=..
 EXAMPLES_DIR=../examples
 
 ## run target `test`
@@ -272,11 +272,12 @@ help_profiles:
 DOC_ARGS=--viz $(OUT_DIR)/viz --folder $(DOCS_DIR) --debug
 ## build documentation
 docs: build $(OUT_DIR)/viz
-	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_C) internals/AST.md
+	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_C) docs/internals/AST.md
 	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_C)\
-		internals/Charclass_Compiler.md
-	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_H) API.md
-	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_H) Syntax.md
+		docs/internals/Charclass_Compiler.md
+	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_H) docs/API.md
+	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_H) docs/Syntax.md
+	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_H) README.md
 
 ## build a folder with bbre + tests for testing on other platforms
 build/port: build $(BBRE_C) $(BBRE_H) test.c test_gen.c mptest.c mptest.h\

@@ -467,18 +467,32 @@ def _doc_syntax(args, lines: list[str]) -> int:
     return 0
 
 
+def _doc_readme(args, lines: list[str]) -> int:
+    my_path: Path = args.file
+    with open(my_path, "r+", encoding="utf-8") as my_file, open(
+        args.folder / "tools/port/hello_world.c", "r"
+    ) as hello_world:
+        insert_file(
+            my_file,
+            ["\n", "```c\n", *hello_world.readlines(), "```\n", "\n"],
+            "## Usage",
+            "## FAQ",
+        )
+
+
 PATH_FUNCS = {
-    "internals/AST.md": _doc_ast,
-    "internals/Charclass_Compiler.md": _doc_cccomp,
-    "API.md": _doc_api,
-    "Syntax.md": _doc_syntax,
+    "docs/internals/AST.md": _doc_ast,
+    "docs/internals/Charclass_Compiler.md": _doc_cccomp,
+    "docs/API.md": _doc_api,
+    "docs/Syntax.md": _doc_syntax,
+    "README.md": _doc_readme,
 }
 
 
 def main() -> int:
     """Main method."""
     ap = ArgumentParser()
-    ap.add_argument("--folder", type=Path, default=Path("../docs"))
+    ap.add_argument("--folder", type=Path, default=Path(".."))
     ap.add_argument("--viz", type=Path, default=Path("build/debug/viz"))
     ap.add_argument("--debug", default=False, action="store_true")
     ap.add_argument("re_source", type=FileType("r"))
