@@ -1059,7 +1059,7 @@ static int bbre_parse_hexdig(bbre *r, bbre_uint ch, bbre_uint *hex_digit)
  * digit, and the value of the digit in [0, 7] otherwise. */
 static int bbre_parse_is_octdig(bbre_uint ch)
 {
-  return (ch >= '0' && ch <= '7') ? ch - '0' : -1;
+  return (ch >= '0' && ch <= '7') ? (int)(ch - '0') : -1;
 }
 
 /* These functions are automatically generated and are implemented later in this
@@ -1675,7 +1675,7 @@ bbre_parse(bbre *r, const bbre_byte *ts, size_t tsz, bbre_flags start_flags)
         goto error;
     }
   }
-  bbre_buf_pop(&r->op_stk); /* pop argument node */
+  (void)(bbre_buf_pop(&r->op_stk)); /* pop argument node */
   while (bbre_buf_size(r->op_stk)) {
     if (*bbre_ast_type_ptr(r, bbre_buf_pop(&r->op_stk)) ==
         BBRE_AST_TYPE_GROUP) {
@@ -3620,7 +3620,7 @@ static int bbre_nfa_eps(bbre_exec *exec, size_t pos, bbre_assert_flag ass)
     }
       /* fall through */
     case BBRE_OPCODE_RANGE:
-      bbre_buf_pop(&exec->nfa.thrd_stk);
+      (void)(bbre_buf_pop(&exec->nfa.thrd_stk));
       assert(!bbre_sset_is_memb(&exec->dst, thrd.pc));
       bbre_sset_add_kv(&exec->dst, thrd); /* this is a range or final match */
       break;
@@ -4003,7 +4003,7 @@ static int bbre_dfa_eps(bbre_exec *exec, bbre_assert_flag ass)
     bbre_inst op = bbre_prog_get(exec->prog, pc);
     assert(pc);
     if (bbre_sset_is_memb(&exec->src, pc)) {
-      bbre_buf_pop(&exec->dfa.thrd_stk);
+      (void)bbre_buf_pop(&exec->dfa.thrd_stk);
       continue;
     }
     bbre_sset_add_k(&exec->src, pc);

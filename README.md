@@ -51,4 +51,5 @@ That would have been too much fun.
 - Not optimized for memory fragmentation: uses lots of variable-size buffers.
 - Assumes width of integer types in a way that's not completely compliant with C89/99. This works on 99% of platforms out there, but of course part of the fun in C is catering to the esoteric 1%.
 - Written in C90.
+- Probably won't work on EBCDIC systems.
 
