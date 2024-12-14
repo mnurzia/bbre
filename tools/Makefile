@@ -1,5 +1,7 @@
+# This Makefile contains targets used for developing bbre. It is *not* needed
+# to use bbre, which remains a single .c/.h pair alone.
 # This is a long and dense Makefile. If you need help figuring out how to use
-# this, run `make help_targets`.
+# it, run `make help_targets`.
 .SILENT: help_targets help_profiles loc
 
 # default profile: debug
@@ -234,6 +236,7 @@ tables:
 	$(UDATA) gen_casefold impl $(BBRE_C)
 	$(PYTHON) scripts/charclass_tree.py dfa $(BBRE_C)
 	$(UDATA) gen_ccs impl $(BBRE_C)
+	$(PYTHON) scripts/versioner.py $(BBRE_C)
 	$(FORMAT) $(BBRE_C)
 
 ## run clang-format/black on all .c/.py sources

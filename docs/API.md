@@ -29,6 +29,7 @@
 <li><a href="#bbre_set_is_match">bbre_set_is_match, bbre_set_matches</a></li>
 <li><a href="#bbre_set_is_match_at">bbre_set_is_match_at, bbre_set_matches_at</a></li>
 <li><a href="#bbre_clone">bbre_clone, bbre_set_clone</a></li>
+<li><a href="#bbre_version">bbre_version</a></li>
 </ul>
 <h2 id="BBRE_ERR_MEM"><code>BBRE_ERR_MEM</code>, <code>BBRE_ERR_PARSE</code>, <code>BBRE_ERR_LIMIT</code></h2>
 <p>Enumeration of error types.</p>
@@ -458,4 +459,14 @@ this function once per thread to obtain exclusive <a href="#bbre">bbre</a>/<a hr
 use, as <a href="#bbre">bbre</a> and <a href="#bbre_set">bbre_set</a> objects cannot be used concurrently.</p>
 <p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to clone the object, 0
 otherwise.</p>
+
+<h2 id="bbre_version"><code>bbre_version</code></h2>
+<p>Returns the null-terminated version string of this library.</p>
+
+```c
+const char *bbre_version(void);
+```
+<p>The version string matches the regex  <code>(\d*)[.](\d*)[.](\d*)-?(.*)</code>, with the
+groups denoting major, minor, patch, and extra git information (tag offset)
+respectively.</p>
 

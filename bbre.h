@@ -323,6 +323,13 @@ int bbre_clone(bbre **pout, const bbre *reg, const bbre_alloc *alloc);
 int bbre_set_clone(
     bbre_set **pout, const bbre_set *set, const bbre_alloc *alloc);
 
+/** Returns the null-terminated version string of this library.
+ **
+ ** The version string matches the regex `(\d*)[.](\d*)[.](\d*)-?(.*)`, with the
+ ** groups denoting major, minor, patch, and extra git information (tag offset)
+ ** respectively. */
+const char *bbre_version(void);
+
 #endif /* MN_BBRE_H */
 
 /* Copyright 2024 Max Nurzia

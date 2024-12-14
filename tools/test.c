@@ -100,7 +100,8 @@ int check_match_results(
   unsigned int i, j, k;
   /* run the match twice to ensure that which_captures() and captures() agree */
   for (i = 0; i < 2; i++) {
-    for (j = 0; j < (1 + (max_span && check_span ? !!check_span[0].begin : 0));
+    for (j = 0;
+         j < (1U + (max_span && check_span ? !!check_span[0].begin : 0U));
          j++) {
       memset(found_span, 0xCC, sizeof(found_span));
       memset(found_did_match, 0xCC, sizeof(found_did_match));
@@ -3482,7 +3483,29 @@ oom:
   OOM();
 }
 
-SUITE(api) { RUN_TEST(api_is_match_at); }
+TEST(api_version)
+{
+  bbre *r = bbre_init_pattern("(\\d*)[.](\\d*)[.](\\d*)-?(.*)");
+  const char *version_str = bbre_version();
+  int err;
+  if (!r)
+    OOM();
+  if ((err = bbre_is_match(r, version_str, strlen(version_str))) ==
+      BBRE_ERR_MEM)
+    goto oom;
+  ASSERT_EQ(err, 1);
+  bbre_destroy(r);
+  PASS();
+oom:
+  bbre_destroy(r);
+  OOM();
+}
+
+SUITE(api)
+{
+  RUN_TEST(api_is_match_at);
+  RUN_TEST(api_version);
+}
 
 int main(int argc, const char *const *argv)
 {
