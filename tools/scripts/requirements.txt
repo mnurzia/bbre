@@ -1,0 +1,4 @@
+black==24.10.0
+tree-sitter==0.23.2
+tree-sitter-c==0.23.2
+marko==2.1.2

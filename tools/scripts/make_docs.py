@@ -10,7 +10,7 @@ from subprocess import run
 import sys
 from typing import BinaryIO
 from tree_sitter import Language, Parser, Node
-import tree_sitter_c as tsc
+import tree_sitter_c
 import marko
 import marko.inline
 
@@ -274,7 +274,7 @@ def _doc_cccomp(args, _: list[str]) -> int:
 
 
 def _doc_api(args, lines: list[str]) -> int:
-    C_LANGUAGE = Language(tsc.language())
+    C_LANGUAGE = Language(tree_sitter_c.language())
 
     DOC_QUERY = C_LANGUAGE.query(
         r"""(
@@ -318,6 +318,8 @@ def _doc_api(args, lines: list[str]) -> int:
                     else FUNCTION_NAME_QUERY
                 )
                 name = chosen_name_query.matches(sub)[0][1]["name"]
+                if isinstance(name, list):
+                    name = name[0]
                 assert isinstance(name, Node) and name.text is not None
                 self.names.append(name.text.decode())
 
@@ -395,6 +397,8 @@ def _doc_api(args, lines: list[str]) -> int:
             continue
         comment = match[1]["comment"]
         node = match[1]["node"]
+        if isinstance(comment, list):
+            comment = comment[0]
         assert isinstance(comment, Node) and isinstance(node, list)
         apis.append(API(comment, node))
 
@@ -429,7 +433,7 @@ def _doc_api(args, lines: list[str]) -> int:
     return 0
 
 
-def _doc_syntax(args, lines: list[str]) -> int:
+def _doc_syntax(args, _: list[str]) -> int:
     my_path: Path = args.file
     output = StringIO()
     with redirect_stdout(output):
@@ -467,7 +471,7 @@ def _doc_syntax(args, lines: list[str]) -> int:
     return 0
 
 
-def _doc_readme(args, lines: list[str]) -> int:
+def _doc_readme(args, _: list[str]) -> int:
     my_path: Path = args.file
     with open(my_path, "r+", encoding="utf-8") as my_file, open(
         args.folder / "tools/port/hello_world.c", "r"
@@ -478,6 +482,7 @@ def _doc_readme(args, lines: list[str]) -> int:
             "## Usage",
             "## FAQ",
         )
+    return 0
 
 
 PATH_FUNCS = {

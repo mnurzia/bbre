@@ -261,6 +261,292 @@ SUITE(cls_builtin_ascii)
   RUN_TEST(cls_builtin_ascii_xdigit_inverted);
 }
 
+TEST(cls_builtin_unicode_property_Adlam)
+{
+  static const unsigned int ranges[] = {0x1E900, 0x1E94B, 0x1E950,
+                                        0x1E959, 0x1E95E, 0x1E95F};
+  PROPAGATE(assert_cc_match_raw("\\p{Adlam}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Adlam_inverted)
+{
+  static const unsigned int ranges[] = {0x1E900, 0x1E94B, 0x1E950,
+                                        0x1E959, 0x1E95E, 0x1E95F};
+  PROPAGATE(assert_cc_match_raw("\\P{Adlam}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Ahom)
+{
+  static const unsigned int ranges[] = {0x11700, 0x1171A, 0x1171D,
+                                        0x1172B, 0x11730, 0x11746};
+  PROPAGATE(assert_cc_match_raw("\\p{Ahom}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Ahom_inverted)
+{
+  static const unsigned int ranges[] = {0x11700, 0x1171A, 0x1171D,
+                                        0x1172B, 0x11730, 0x11746};
+  PROPAGATE(assert_cc_match_raw("\\P{Ahom}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Anatolian_Hieroglyphs)
+{
+  static const unsigned int ranges[] = {0x14400, 0x14646};
+  PROPAGATE(assert_cc_match_raw("\\p{Anatolian_Hieroglyphs}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Anatolian_Hieroglyphs_inverted)
+{
+  static const unsigned int ranges[] = {0x14400, 0x14646};
+  PROPAGATE(assert_cc_match_raw("\\P{Anatolian_Hieroglyphs}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Arabic)
+{
+  static const unsigned int ranges[] = {
+      0x600,   0x604,   0x606,   0x60B,   0x60D,   0x61A,   0x61C,   0x61E,
+      0x620,   0x63F,   0x641,   0x64A,   0x656,   0x66F,   0x671,   0x6DC,
+      0x6DE,   0x6FF,   0x750,   0x77F,   0x870,   0x88E,   0x890,   0x891,
+      0x898,   0x8E1,   0x8E3,   0x8FF,   0xFB50,  0xFBC2,  0xFBD3,  0xFD3D,
+      0xFD40,  0xFD8F,  0xFD92,  0xFDC7,  0xFDCF,  0xFDCF,  0xFDF0,  0xFDFF,
+      0xFE70,  0xFE74,  0xFE76,  0xFEFC,  0x10E60, 0x10E7E, 0x10EFD, 0x10EFF,
+      0x1EE00, 0x1EE03, 0x1EE05, 0x1EE1F, 0x1EE21, 0x1EE22, 0x1EE24, 0x1EE24,
+      0x1EE27, 0x1EE27, 0x1EE29, 0x1EE32, 0x1EE34, 0x1EE37, 0x1EE39, 0x1EE39,
+      0x1EE3B, 0x1EE3B, 0x1EE42, 0x1EE42, 0x1EE47, 0x1EE47, 0x1EE49, 0x1EE49,
+      0x1EE4B, 0x1EE4B, 0x1EE4D, 0x1EE4F, 0x1EE51, 0x1EE52, 0x1EE54, 0x1EE54,
+      0x1EE57, 0x1EE57, 0x1EE59, 0x1EE59, 0x1EE5B, 0x1EE5B, 0x1EE5D, 0x1EE5D,
+      0x1EE5F, 0x1EE5F, 0x1EE61, 0x1EE62, 0x1EE64, 0x1EE64, 0x1EE67, 0x1EE6A,
+      0x1EE6C, 0x1EE72, 0x1EE74, 0x1EE77, 0x1EE79, 0x1EE7C, 0x1EE7E, 0x1EE7E,
+      0x1EE80, 0x1EE89, 0x1EE8B, 0x1EE9B, 0x1EEA1, 0x1EEA3, 0x1EEA5, 0x1EEA9,
+      0x1EEAB, 0x1EEBB, 0x1EEF0, 0x1EEF1};
+  PROPAGATE(assert_cc_match_raw("\\p{Arabic}", ranges, 58, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Arabic_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x600,   0x604,   0x606,   0x60B,   0x60D,   0x61A,   0x61C,   0x61E,
+      0x620,   0x63F,   0x641,   0x64A,   0x656,   0x66F,   0x671,   0x6DC,
+      0x6DE,   0x6FF,   0x750,   0x77F,   0x870,   0x88E,   0x890,   0x891,
+      0x898,   0x8E1,   0x8E3,   0x8FF,   0xFB50,  0xFBC2,  0xFBD3,  0xFD3D,
+      0xFD40,  0xFD8F,  0xFD92,  0xFDC7,  0xFDCF,  0xFDCF,  0xFDF0,  0xFDFF,
+      0xFE70,  0xFE74,  0xFE76,  0xFEFC,  0x10E60, 0x10E7E, 0x10EFD, 0x10EFF,
+      0x1EE00, 0x1EE03, 0x1EE05, 0x1EE1F, 0x1EE21, 0x1EE22, 0x1EE24, 0x1EE24,
+      0x1EE27, 0x1EE27, 0x1EE29, 0x1EE32, 0x1EE34, 0x1EE37, 0x1EE39, 0x1EE39,
+      0x1EE3B, 0x1EE3B, 0x1EE42, 0x1EE42, 0x1EE47, 0x1EE47, 0x1EE49, 0x1EE49,
+      0x1EE4B, 0x1EE4B, 0x1EE4D, 0x1EE4F, 0x1EE51, 0x1EE52, 0x1EE54, 0x1EE54,
+      0x1EE57, 0x1EE57, 0x1EE59, 0x1EE59, 0x1EE5B, 0x1EE5B, 0x1EE5D, 0x1EE5D,
+      0x1EE5F, 0x1EE5F, 0x1EE61, 0x1EE62, 0x1EE64, 0x1EE64, 0x1EE67, 0x1EE6A,
+      0x1EE6C, 0x1EE72, 0x1EE74, 0x1EE77, 0x1EE79, 0x1EE7C, 0x1EE7E, 0x1EE7E,
+      0x1EE80, 0x1EE89, 0x1EE8B, 0x1EE9B, 0x1EEA1, 0x1EEA3, 0x1EEA5, 0x1EEA9,
+      0x1EEAB, 0x1EEBB, 0x1EEF0, 0x1EEF1};
+  PROPAGATE(assert_cc_match_raw("\\P{Arabic}", ranges, 58, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Armenian)
+{
+  static const unsigned int ranges[] = {0x531, 0x556, 0x559,  0x58A,
+                                        0x58D, 0x58F, 0xFB13, 0xFB17};
+  PROPAGATE(assert_cc_match_raw("\\p{Armenian}", ranges, 4, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Armenian_inverted)
+{
+  static const unsigned int ranges[] = {0x531, 0x556, 0x559,  0x58A,
+                                        0x58D, 0x58F, 0xFB13, 0xFB17};
+  PROPAGATE(assert_cc_match_raw("\\P{Armenian}", ranges, 4, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Avestan)
+{
+  static const unsigned int ranges[] = {0x10B00, 0x10B35, 0x10B39, 0x10B3F};
+  PROPAGATE(assert_cc_match_raw("\\p{Avestan}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Avestan_inverted)
+{
+  static const unsigned int ranges[] = {0x10B00, 0x10B35, 0x10B39, 0x10B3F};
+  PROPAGATE(assert_cc_match_raw("\\P{Avestan}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Balinese)
+{
+  static const unsigned int ranges[] = {0x1B00, 0x1B4C, 0x1B50, 0x1B7E};
+  PROPAGATE(assert_cc_match_raw("\\p{Balinese}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Balinese_inverted)
+{
+  static const unsigned int ranges[] = {0x1B00, 0x1B4C, 0x1B50, 0x1B7E};
+  PROPAGATE(assert_cc_match_raw("\\P{Balinese}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Bamum)
+{
+  static const unsigned int ranges[] = {0xA6A0, 0xA6F7, 0x16800, 0x16A38};
+  PROPAGATE(assert_cc_match_raw("\\p{Bamum}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Bamum_inverted)
+{
+  static const unsigned int ranges[] = {0xA6A0, 0xA6F7, 0x16800, 0x16A38};
+  PROPAGATE(assert_cc_match_raw("\\P{Bamum}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Bassa_Vah)
+{
+  static const unsigned int ranges[] = {0x16AD0, 0x16AED, 0x16AF0, 0x16AF5};
+  PROPAGATE(assert_cc_match_raw("\\p{Bassa_Vah}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Bassa_Vah_inverted)
+{
+  static const unsigned int ranges[] = {0x16AD0, 0x16AED, 0x16AF0, 0x16AF5};
+  PROPAGATE(assert_cc_match_raw("\\P{Bassa_Vah}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Batak)
+{
+  static const unsigned int ranges[] = {0x1BC0, 0x1BF3, 0x1BFC, 0x1BFF};
+  PROPAGATE(assert_cc_match_raw("\\p{Batak}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Batak_inverted)
+{
+  static const unsigned int ranges[] = {0x1BC0, 0x1BF3, 0x1BFC, 0x1BFF};
+  PROPAGATE(assert_cc_match_raw("\\P{Batak}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Bengali)
+{
+  static const unsigned int ranges[] = {
+      0x980, 0x983, 0x985, 0x98C, 0x98F, 0x990, 0x993, 0x9A8, 0x9AA, 0x9B0,
+      0x9B2, 0x9B2, 0x9B6, 0x9B9, 0x9BC, 0x9C4, 0x9C7, 0x9C8, 0x9CB, 0x9CE,
+      0x9D7, 0x9D7, 0x9DC, 0x9DD, 0x9DF, 0x9E3, 0x9E6, 0x9FE};
+  PROPAGATE(assert_cc_match_raw("\\p{Bengali}", ranges, 14, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Bengali_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x980, 0x983, 0x985, 0x98C, 0x98F, 0x990, 0x993, 0x9A8, 0x9AA, 0x9B0,
+      0x9B2, 0x9B2, 0x9B6, 0x9B9, 0x9BC, 0x9C4, 0x9C7, 0x9C8, 0x9CB, 0x9CE,
+      0x9D7, 0x9D7, 0x9DC, 0x9DD, 0x9DF, 0x9E3, 0x9E6, 0x9FE};
+  PROPAGATE(assert_cc_match_raw("\\P{Bengali}", ranges, 14, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Bhaiksuki)
+{
+  static const unsigned int ranges[] = {0x11C00, 0x11C08, 0x11C0A, 0x11C36,
+                                        0x11C38, 0x11C45, 0x11C50, 0x11C6C};
+  PROPAGATE(assert_cc_match_raw("\\p{Bhaiksuki}", ranges, 4, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Bhaiksuki_inverted)
+{
+  static const unsigned int ranges[] = {0x11C00, 0x11C08, 0x11C0A, 0x11C36,
+                                        0x11C38, 0x11C45, 0x11C50, 0x11C6C};
+  PROPAGATE(assert_cc_match_raw("\\P{Bhaiksuki}", ranges, 4, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Bopomofo)
+{
+  static const unsigned int ranges[] = {0x2EA,  0x2EB,  0x3105,
+                                        0x312F, 0x31A0, 0x31BF};
+  PROPAGATE(assert_cc_match_raw("\\p{Bopomofo}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Bopomofo_inverted)
+{
+  static const unsigned int ranges[] = {0x2EA,  0x2EB,  0x3105,
+                                        0x312F, 0x31A0, 0x31BF};
+  PROPAGATE(assert_cc_match_raw("\\P{Bopomofo}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Brahmi)
+{
+  static const unsigned int ranges[] = {0x11000, 0x1104D, 0x11052,
+                                        0x11075, 0x1107F, 0x1107F};
+  PROPAGATE(assert_cc_match_raw("\\p{Brahmi}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Brahmi_inverted)
+{
+  static const unsigned int ranges[] = {0x11000, 0x1104D, 0x11052,
+                                        0x11075, 0x1107F, 0x1107F};
+  PROPAGATE(assert_cc_match_raw("\\P{Brahmi}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Braille)
+{
+  static const unsigned int ranges[] = {0x2800, 0x28FF};
+  PROPAGATE(assert_cc_match_raw("\\p{Braille}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Braille_inverted)
+{
+  static const unsigned int ranges[] = {0x2800, 0x28FF};
+  PROPAGATE(assert_cc_match_raw("\\P{Braille}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Buginese)
+{
+  static const unsigned int ranges[] = {0x1A00, 0x1A1B, 0x1A1E, 0x1A1F};
+  PROPAGATE(assert_cc_match_raw("\\p{Buginese}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Buginese_inverted)
+{
+  static const unsigned int ranges[] = {0x1A00, 0x1A1B, 0x1A1E, 0x1A1F};
+  PROPAGATE(assert_cc_match_raw("\\P{Buginese}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Buhid)
+{
+  static const unsigned int ranges[] = {0x1740, 0x1753};
+  PROPAGATE(assert_cc_match_raw("\\p{Buhid}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Buhid_inverted)
+{
+  static const unsigned int ranges[] = {0x1740, 0x1753};
+  PROPAGATE(assert_cc_match_raw("\\P{Buhid}", ranges, 1, 1));
+  PASS();
+}
+
 TEST(cls_builtin_unicode_property_C)
 {
   static const unsigned int ranges[] = {
@@ -325,6 +611,50 @@ TEST(cls_builtin_unicode_property_C_single_inverted)
   PASS();
 }
 
+TEST(cls_builtin_unicode_property_Canadian_Aboriginal)
+{
+  static const unsigned int ranges[] = {0x1400, 0x167F,  0x18B0,
+                                        0x18F5, 0x11AB0, 0x11ABF};
+  PROPAGATE(assert_cc_match_raw("\\p{Canadian_Aboriginal}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Canadian_Aboriginal_inverted)
+{
+  static const unsigned int ranges[] = {0x1400, 0x167F,  0x18B0,
+                                        0x18F5, 0x11AB0, 0x11ABF};
+  PROPAGATE(assert_cc_match_raw("\\P{Canadian_Aboriginal}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Carian)
+{
+  static const unsigned int ranges[] = {0x102A0, 0x102D0};
+  PROPAGATE(assert_cc_match_raw("\\p{Carian}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Carian_inverted)
+{
+  static const unsigned int ranges[] = {0x102A0, 0x102D0};
+  PROPAGATE(assert_cc_match_raw("\\P{Carian}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Caucasian_Albanian)
+{
+  static const unsigned int ranges[] = {0x10530, 0x10563, 0x1056F, 0x1056F};
+  PROPAGATE(assert_cc_match_raw("\\p{Caucasian_Albanian}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Caucasian_Albanian_inverted)
+{
+  static const unsigned int ranges[] = {0x10530, 0x10563, 0x1056F, 0x1056F};
+  PROPAGATE(assert_cc_match_raw("\\P{Caucasian_Albanian}", ranges, 2, 1));
+  PASS();
+}
+
 TEST(cls_builtin_unicode_property_Cc)
 {
   static const unsigned int ranges[] = {0x0, 0x1F, 0x7F, 0x9F};
@@ -365,6 +695,66 @@ TEST(cls_builtin_unicode_property_Cf_inverted)
   PASS();
 }
 
+TEST(cls_builtin_unicode_property_Chakma)
+{
+  static const unsigned int ranges[] = {0x11100, 0x11134, 0x11136, 0x11147};
+  PROPAGATE(assert_cc_match_raw("\\p{Chakma}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Chakma_inverted)
+{
+  static const unsigned int ranges[] = {0x11100, 0x11134, 0x11136, 0x11147};
+  PROPAGATE(assert_cc_match_raw("\\P{Chakma}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Cham)
+{
+  static const unsigned int ranges[] = {0xAA00, 0xAA36, 0xAA40, 0xAA4D,
+                                        0xAA50, 0xAA59, 0xAA5C, 0xAA5F};
+  PROPAGATE(assert_cc_match_raw("\\p{Cham}", ranges, 4, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Cham_inverted)
+{
+  static const unsigned int ranges[] = {0xAA00, 0xAA36, 0xAA40, 0xAA4D,
+                                        0xAA50, 0xAA59, 0xAA5C, 0xAA5F};
+  PROPAGATE(assert_cc_match_raw("\\P{Cham}", ranges, 4, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Cherokee)
+{
+  static const unsigned int ranges[] = {0x13A0, 0x13F5, 0x13F8,
+                                        0x13FD, 0xAB70, 0xABBF};
+  PROPAGATE(assert_cc_match_raw("\\p{Cherokee}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Cherokee_inverted)
+{
+  static const unsigned int ranges[] = {0x13A0, 0x13F5, 0x13F8,
+                                        0x13FD, 0xAB70, 0xABBF};
+  PROPAGATE(assert_cc_match_raw("\\P{Cherokee}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Chorasmian)
+{
+  static const unsigned int ranges[] = {0x10FB0, 0x10FCB};
+  PROPAGATE(assert_cc_match_raw("\\p{Chorasmian}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Chorasmian_inverted)
+{
+  static const unsigned int ranges[] = {0x10FB0, 0x10FCB};
+  PROPAGATE(assert_cc_match_raw("\\P{Chorasmian}", ranges, 1, 1));
+  PASS();
+}
+
 TEST(cls_builtin_unicode_property_Co)
 {
   static const unsigned int ranges[] = {0xE000,   0xE000,   0xF8FF,   0xF8FF,
@@ -383,6 +773,124 @@ TEST(cls_builtin_unicode_property_Co_inverted)
   PASS();
 }
 
+TEST(cls_builtin_unicode_property_Common)
+{
+  static const unsigned int ranges[] = {
+      0x0,     0x40,    0x5B,    0x60,    0x7B,    0xA9,    0xAB,    0xB9,
+      0xBB,    0xBF,    0xD7,    0xD7,    0xF7,    0xF7,    0x2B9,   0x2DF,
+      0x2E5,   0x2E9,   0x2EC,   0x2FF,   0x374,   0x374,   0x37E,   0x37E,
+      0x385,   0x385,   0x387,   0x387,   0x605,   0x605,   0x60C,   0x60C,
+      0x61B,   0x61B,   0x61F,   0x61F,   0x640,   0x640,   0x6DD,   0x6DD,
+      0x8E2,   0x8E2,   0x964,   0x965,   0xE3F,   0xE3F,   0xFD5,   0xFD8,
+      0x10FB,  0x10FB,  0x16EB,  0x16ED,  0x1735,  0x1736,  0x1802,  0x1803,
+      0x1805,  0x1805,  0x1CD3,  0x1CD3,  0x1CE1,  0x1CE1,  0x1CE9,  0x1CEC,
+      0x1CEE,  0x1CF3,  0x1CF5,  0x1CF7,  0x1CFA,  0x1CFA,  0x2000,  0x200B,
+      0x200E,  0x2064,  0x2066,  0x2070,  0x2074,  0x207E,  0x2080,  0x208E,
+      0x20A0,  0x20C0,  0x2100,  0x2125,  0x2127,  0x2129,  0x212C,  0x2131,
+      0x2133,  0x214D,  0x214F,  0x215F,  0x2189,  0x218B,  0x2190,  0x2426,
+      0x2440,  0x244A,  0x2460,  0x27FF,  0x2900,  0x2B73,  0x2B76,  0x2B95,
+      0x2B97,  0x2BFF,  0x2E00,  0x2E5D,  0x2FF0,  0x3004,  0x3006,  0x3006,
+      0x3008,  0x3020,  0x3030,  0x3037,  0x303C,  0x303F,  0x309B,  0x309C,
+      0x30A0,  0x30A0,  0x30FB,  0x30FC,  0x3190,  0x319F,  0x31C0,  0x31E3,
+      0x31EF,  0x31EF,  0x3220,  0x325F,  0x327F,  0x32CF,  0x32FF,  0x32FF,
+      0x3358,  0x33FF,  0x4DC0,  0x4DFF,  0xA700,  0xA721,  0xA788,  0xA78A,
+      0xA830,  0xA839,  0xA92E,  0xA92E,  0xA9CF,  0xA9CF,  0xAB5B,  0xAB5B,
+      0xAB6A,  0xAB6B,  0xFD3E,  0xFD3F,  0xFE10,  0xFE19,  0xFE30,  0xFE52,
+      0xFE54,  0xFE66,  0xFE68,  0xFE6B,  0xFEFF,  0xFEFF,  0xFF01,  0xFF20,
+      0xFF3B,  0xFF40,  0xFF5B,  0xFF65,  0xFF70,  0xFF70,  0xFF9E,  0xFF9F,
+      0xFFE0,  0xFFE6,  0xFFE8,  0xFFEE,  0xFFF9,  0xFFFD,  0x10100, 0x10102,
+      0x10107, 0x10133, 0x10137, 0x1013F, 0x10190, 0x1019C, 0x101D0, 0x101FC,
+      0x102E1, 0x102FB, 0x1BCA0, 0x1BCA3, 0x1CF50, 0x1CFC3, 0x1D000, 0x1D0F5,
+      0x1D100, 0x1D126, 0x1D129, 0x1D166, 0x1D16A, 0x1D17A, 0x1D183, 0x1D184,
+      0x1D18C, 0x1D1A9, 0x1D1AE, 0x1D1EA, 0x1D2C0, 0x1D2D3, 0x1D2E0, 0x1D2F3,
+      0x1D300, 0x1D356, 0x1D360, 0x1D378, 0x1D400, 0x1D454, 0x1D456, 0x1D49C,
+      0x1D49E, 0x1D49F, 0x1D4A2, 0x1D4A2, 0x1D4A5, 0x1D4A6, 0x1D4A9, 0x1D4AC,
+      0x1D4AE, 0x1D4B9, 0x1D4BB, 0x1D4BB, 0x1D4BD, 0x1D4C3, 0x1D4C5, 0x1D505,
+      0x1D507, 0x1D50A, 0x1D50D, 0x1D514, 0x1D516, 0x1D51C, 0x1D51E, 0x1D539,
+      0x1D53B, 0x1D53E, 0x1D540, 0x1D544, 0x1D546, 0x1D546, 0x1D54A, 0x1D550,
+      0x1D552, 0x1D6A5, 0x1D6A8, 0x1D7CB, 0x1D7CE, 0x1D7FF, 0x1EC71, 0x1ECB4,
+      0x1ED01, 0x1ED3D, 0x1F000, 0x1F02B, 0x1F030, 0x1F093, 0x1F0A0, 0x1F0AE,
+      0x1F0B1, 0x1F0BF, 0x1F0C1, 0x1F0CF, 0x1F0D1, 0x1F0F5, 0x1F100, 0x1F1AD,
+      0x1F1E6, 0x1F1FF, 0x1F201, 0x1F202, 0x1F210, 0x1F23B, 0x1F240, 0x1F248,
+      0x1F250, 0x1F251, 0x1F260, 0x1F265, 0x1F300, 0x1F6D7, 0x1F6DC, 0x1F6EC,
+      0x1F6F0, 0x1F6FC, 0x1F700, 0x1F776, 0x1F77B, 0x1F7D9, 0x1F7E0, 0x1F7EB,
+      0x1F7F0, 0x1F7F0, 0x1F800, 0x1F80B, 0x1F810, 0x1F847, 0x1F850, 0x1F859,
+      0x1F860, 0x1F887, 0x1F890, 0x1F8AD, 0x1F8B0, 0x1F8B1, 0x1F900, 0x1FA53,
+      0x1FA60, 0x1FA6D, 0x1FA70, 0x1FA7C, 0x1FA80, 0x1FA88, 0x1FA90, 0x1FABD,
+      0x1FABF, 0x1FAC5, 0x1FACE, 0x1FADB, 0x1FAE0, 0x1FAE8, 0x1FAF0, 0x1FAF8,
+      0x1FB00, 0x1FB92, 0x1FB94, 0x1FBCA, 0x1FBF0, 0x1FBF9, 0xE0001, 0xE0001,
+      0xE0020, 0xE007F};
+  PROPAGATE(assert_cc_match_raw("\\p{Common}", ranges, 173, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Common_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x0,     0x40,    0x5B,    0x60,    0x7B,    0xA9,    0xAB,    0xB9,
+      0xBB,    0xBF,    0xD7,    0xD7,    0xF7,    0xF7,    0x2B9,   0x2DF,
+      0x2E5,   0x2E9,   0x2EC,   0x2FF,   0x374,   0x374,   0x37E,   0x37E,
+      0x385,   0x385,   0x387,   0x387,   0x605,   0x605,   0x60C,   0x60C,
+      0x61B,   0x61B,   0x61F,   0x61F,   0x640,   0x640,   0x6DD,   0x6DD,
+      0x8E2,   0x8E2,   0x964,   0x965,   0xE3F,   0xE3F,   0xFD5,   0xFD8,
+      0x10FB,  0x10FB,  0x16EB,  0x16ED,  0x1735,  0x1736,  0x1802,  0x1803,
+      0x1805,  0x1805,  0x1CD3,  0x1CD3,  0x1CE1,  0x1CE1,  0x1CE9,  0x1CEC,
+      0x1CEE,  0x1CF3,  0x1CF5,  0x1CF7,  0x1CFA,  0x1CFA,  0x2000,  0x200B,
+      0x200E,  0x2064,  0x2066,  0x2070,  0x2074,  0x207E,  0x2080,  0x208E,
+      0x20A0,  0x20C0,  0x2100,  0x2125,  0x2127,  0x2129,  0x212C,  0x2131,
+      0x2133,  0x214D,  0x214F,  0x215F,  0x2189,  0x218B,  0x2190,  0x2426,
+      0x2440,  0x244A,  0x2460,  0x27FF,  0x2900,  0x2B73,  0x2B76,  0x2B95,
+      0x2B97,  0x2BFF,  0x2E00,  0x2E5D,  0x2FF0,  0x3004,  0x3006,  0x3006,
+      0x3008,  0x3020,  0x3030,  0x3037,  0x303C,  0x303F,  0x309B,  0x309C,
+      0x30A0,  0x30A0,  0x30FB,  0x30FC,  0x3190,  0x319F,  0x31C0,  0x31E3,
+      0x31EF,  0x31EF,  0x3220,  0x325F,  0x327F,  0x32CF,  0x32FF,  0x32FF,
+      0x3358,  0x33FF,  0x4DC0,  0x4DFF,  0xA700,  0xA721,  0xA788,  0xA78A,
+      0xA830,  0xA839,  0xA92E,  0xA92E,  0xA9CF,  0xA9CF,  0xAB5B,  0xAB5B,
+      0xAB6A,  0xAB6B,  0xFD3E,  0xFD3F,  0xFE10,  0xFE19,  0xFE30,  0xFE52,
+      0xFE54,  0xFE66,  0xFE68,  0xFE6B,  0xFEFF,  0xFEFF,  0xFF01,  0xFF20,
+      0xFF3B,  0xFF40,  0xFF5B,  0xFF65,  0xFF70,  0xFF70,  0xFF9E,  0xFF9F,
+      0xFFE0,  0xFFE6,  0xFFE8,  0xFFEE,  0xFFF9,  0xFFFD,  0x10100, 0x10102,
+      0x10107, 0x10133, 0x10137, 0x1013F, 0x10190, 0x1019C, 0x101D0, 0x101FC,
+      0x102E1, 0x102FB, 0x1BCA0, 0x1BCA3, 0x1CF50, 0x1CFC3, 0x1D000, 0x1D0F5,
+      0x1D100, 0x1D126, 0x1D129, 0x1D166, 0x1D16A, 0x1D17A, 0x1D183, 0x1D184,
+      0x1D18C, 0x1D1A9, 0x1D1AE, 0x1D1EA, 0x1D2C0, 0x1D2D3, 0x1D2E0, 0x1D2F3,
+      0x1D300, 0x1D356, 0x1D360, 0x1D378, 0x1D400, 0x1D454, 0x1D456, 0x1D49C,
+      0x1D49E, 0x1D49F, 0x1D4A2, 0x1D4A2, 0x1D4A5, 0x1D4A6, 0x1D4A9, 0x1D4AC,
+      0x1D4AE, 0x1D4B9, 0x1D4BB, 0x1D4BB, 0x1D4BD, 0x1D4C3, 0x1D4C5, 0x1D505,
+      0x1D507, 0x1D50A, 0x1D50D, 0x1D514, 0x1D516, 0x1D51C, 0x1D51E, 0x1D539,
+      0x1D53B, 0x1D53E, 0x1D540, 0x1D544, 0x1D546, 0x1D546, 0x1D54A, 0x1D550,
+      0x1D552, 0x1D6A5, 0x1D6A8, 0x1D7CB, 0x1D7CE, 0x1D7FF, 0x1EC71, 0x1ECB4,
+      0x1ED01, 0x1ED3D, 0x1F000, 0x1F02B, 0x1F030, 0x1F093, 0x1F0A0, 0x1F0AE,
+      0x1F0B1, 0x1F0BF, 0x1F0C1, 0x1F0CF, 0x1F0D1, 0x1F0F5, 0x1F100, 0x1F1AD,
+      0x1F1E6, 0x1F1FF, 0x1F201, 0x1F202, 0x1F210, 0x1F23B, 0x1F240, 0x1F248,
+      0x1F250, 0x1F251, 0x1F260, 0x1F265, 0x1F300, 0x1F6D7, 0x1F6DC, 0x1F6EC,
+      0x1F6F0, 0x1F6FC, 0x1F700, 0x1F776, 0x1F77B, 0x1F7D9, 0x1F7E0, 0x1F7EB,
+      0x1F7F0, 0x1F7F0, 0x1F800, 0x1F80B, 0x1F810, 0x1F847, 0x1F850, 0x1F859,
+      0x1F860, 0x1F887, 0x1F890, 0x1F8AD, 0x1F8B0, 0x1F8B1, 0x1F900, 0x1FA53,
+      0x1FA60, 0x1FA6D, 0x1FA70, 0x1FA7C, 0x1FA80, 0x1FA88, 0x1FA90, 0x1FABD,
+      0x1FABF, 0x1FAC5, 0x1FACE, 0x1FADB, 0x1FAE0, 0x1FAE8, 0x1FAF0, 0x1FAF8,
+      0x1FB00, 0x1FB92, 0x1FB94, 0x1FBCA, 0x1FBF0, 0x1FBF9, 0xE0001, 0xE0001,
+      0xE0020, 0xE007F};
+  PROPAGATE(assert_cc_match_raw("\\P{Common}", ranges, 173, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Coptic)
+{
+  static const unsigned int ranges[] = {0x3E2,  0x3EF,  0x2C80,
+                                        0x2CF3, 0x2CF9, 0x2CFF};
+  PROPAGATE(assert_cc_match_raw("\\p{Coptic}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Coptic_inverted)
+{
+  static const unsigned int ranges[] = {0x3E2,  0x3EF,  0x2C80,
+                                        0x2CF3, 0x2CF9, 0x2CFF};
+  PROPAGATE(assert_cc_match_raw("\\P{Coptic}", ranges, 3, 1));
+  PASS();
+}
+
 TEST(cls_builtin_unicode_property_Cs)
 {
   static const unsigned int ranges[] = {0xD800, 0xD800, 0xDB7F, 0xDB80,
@@ -396,6 +904,774 @@ TEST(cls_builtin_unicode_property_Cs_inverted)
   static const unsigned int ranges[] = {0xD800, 0xD800, 0xDB7F, 0xDB80,
                                         0xDBFF, 0xDC00, 0xDFFF, 0xDFFF};
   PROPAGATE(assert_cc_match_raw("\\P{Cs}", ranges, 4, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Cuneiform)
+{
+  static const unsigned int ranges[] = {0x12000, 0x12399, 0x12400, 0x1246E,
+                                        0x12470, 0x12474, 0x12480, 0x12543};
+  PROPAGATE(assert_cc_match_raw("\\p{Cuneiform}", ranges, 4, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Cuneiform_inverted)
+{
+  static const unsigned int ranges[] = {0x12000, 0x12399, 0x12400, 0x1246E,
+                                        0x12470, 0x12474, 0x12480, 0x12543};
+  PROPAGATE(assert_cc_match_raw("\\P{Cuneiform}", ranges, 4, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Cypriot)
+{
+  static const unsigned int ranges[] = {0x10800, 0x10805, 0x10808, 0x10808,
+                                        0x1080A, 0x10835, 0x10837, 0x10838,
+                                        0x1083C, 0x1083C, 0x1083F, 0x1083F};
+  PROPAGATE(assert_cc_match_raw("\\p{Cypriot}", ranges, 6, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Cypriot_inverted)
+{
+  static const unsigned int ranges[] = {0x10800, 0x10805, 0x10808, 0x10808,
+                                        0x1080A, 0x10835, 0x10837, 0x10838,
+                                        0x1083C, 0x1083C, 0x1083F, 0x1083F};
+  PROPAGATE(assert_cc_match_raw("\\P{Cypriot}", ranges, 6, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Cypro_Minoan)
+{
+  static const unsigned int ranges[] = {0x12F90, 0x12FF2};
+  PROPAGATE(assert_cc_match_raw("\\p{Cypro_Minoan}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Cypro_Minoan_inverted)
+{
+  static const unsigned int ranges[] = {0x12F90, 0x12FF2};
+  PROPAGATE(assert_cc_match_raw("\\P{Cypro_Minoan}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Cyrillic)
+{
+  static const unsigned int ranges[] = {
+      0x400,  0x484,  0x487,   0x52F,   0x1C80,  0x1C88, 0x1D2B,
+      0x1D2B, 0x1D78, 0x1D78,  0x2DE0,  0x2DFF,  0xA640, 0xA69F,
+      0xFE2E, 0xFE2F, 0x1E030, 0x1E06D, 0x1E08F, 0x1E08F};
+  PROPAGATE(assert_cc_match_raw("\\p{Cyrillic}", ranges, 10, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Cyrillic_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x400,  0x484,  0x487,   0x52F,   0x1C80,  0x1C88, 0x1D2B,
+      0x1D2B, 0x1D78, 0x1D78,  0x2DE0,  0x2DFF,  0xA640, 0xA69F,
+      0xFE2E, 0xFE2F, 0x1E030, 0x1E06D, 0x1E08F, 0x1E08F};
+  PROPAGATE(assert_cc_match_raw("\\P{Cyrillic}", ranges, 10, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Deseret)
+{
+  static const unsigned int ranges[] = {0x10400, 0x1044F};
+  PROPAGATE(assert_cc_match_raw("\\p{Deseret}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Deseret_inverted)
+{
+  static const unsigned int ranges[] = {0x10400, 0x1044F};
+  PROPAGATE(assert_cc_match_raw("\\P{Deseret}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Devanagari)
+{
+  static const unsigned int ranges[] = {0x900,   0x950,  0x955,  0x963,
+                                        0x966,   0x97F,  0xA8E0, 0xA8FF,
+                                        0x11B00, 0x11B09};
+  PROPAGATE(assert_cc_match_raw("\\p{Devanagari}", ranges, 5, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Devanagari_inverted)
+{
+  static const unsigned int ranges[] = {0x900,   0x950,  0x955,  0x963,
+                                        0x966,   0x97F,  0xA8E0, 0xA8FF,
+                                        0x11B00, 0x11B09};
+  PROPAGATE(assert_cc_match_raw("\\P{Devanagari}", ranges, 5, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Dives_Akuru)
+{
+  static const unsigned int ranges[] = {
+      0x11900, 0x11906, 0x11909, 0x11909, 0x1190C, 0x11913, 0x11915, 0x11916,
+      0x11918, 0x11935, 0x11937, 0x11938, 0x1193B, 0x11946, 0x11950, 0x11959};
+  PROPAGATE(assert_cc_match_raw("\\p{Dives_Akuru}", ranges, 8, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Dives_Akuru_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x11900, 0x11906, 0x11909, 0x11909, 0x1190C, 0x11913, 0x11915, 0x11916,
+      0x11918, 0x11935, 0x11937, 0x11938, 0x1193B, 0x11946, 0x11950, 0x11959};
+  PROPAGATE(assert_cc_match_raw("\\P{Dives_Akuru}", ranges, 8, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Dogra)
+{
+  static const unsigned int ranges[] = {0x11800, 0x1183B};
+  PROPAGATE(assert_cc_match_raw("\\p{Dogra}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Dogra_inverted)
+{
+  static const unsigned int ranges[] = {0x11800, 0x1183B};
+  PROPAGATE(assert_cc_match_raw("\\P{Dogra}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Duployan)
+{
+  static const unsigned int ranges[] = {0x1BC00, 0x1BC6A, 0x1BC70, 0x1BC7C,
+                                        0x1BC80, 0x1BC88, 0x1BC90, 0x1BC99,
+                                        0x1BC9C, 0x1BC9F};
+  PROPAGATE(assert_cc_match_raw("\\p{Duployan}", ranges, 5, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Duployan_inverted)
+{
+  static const unsigned int ranges[] = {0x1BC00, 0x1BC6A, 0x1BC70, 0x1BC7C,
+                                        0x1BC80, 0x1BC88, 0x1BC90, 0x1BC99,
+                                        0x1BC9C, 0x1BC9F};
+  PROPAGATE(assert_cc_match_raw("\\P{Duployan}", ranges, 5, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Egyptian_Hieroglyphs)
+{
+  static const unsigned int ranges[] = {0x13000, 0x13455};
+  PROPAGATE(assert_cc_match_raw("\\p{Egyptian_Hieroglyphs}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Egyptian_Hieroglyphs_inverted)
+{
+  static const unsigned int ranges[] = {0x13000, 0x13455};
+  PROPAGATE(assert_cc_match_raw("\\P{Egyptian_Hieroglyphs}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Elbasan)
+{
+  static const unsigned int ranges[] = {0x10500, 0x10527};
+  PROPAGATE(assert_cc_match_raw("\\p{Elbasan}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Elbasan_inverted)
+{
+  static const unsigned int ranges[] = {0x10500, 0x10527};
+  PROPAGATE(assert_cc_match_raw("\\P{Elbasan}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Elymaic)
+{
+  static const unsigned int ranges[] = {0x10FE0, 0x10FF6};
+  PROPAGATE(assert_cc_match_raw("\\p{Elymaic}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Elymaic_inverted)
+{
+  static const unsigned int ranges[] = {0x10FE0, 0x10FF6};
+  PROPAGATE(assert_cc_match_raw("\\P{Elymaic}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Ethiopic)
+{
+  static const unsigned int ranges[] = {
+      0x1200,  0x1248,  0x124A,  0x124D,  0x1250,  0x1256,  0x1258,  0x1258,
+      0x125A,  0x125D,  0x1260,  0x1288,  0x128A,  0x128D,  0x1290,  0x12B0,
+      0x12B2,  0x12B5,  0x12B8,  0x12BE,  0x12C0,  0x12C0,  0x12C2,  0x12C5,
+      0x12C8,  0x12D6,  0x12D8,  0x1310,  0x1312,  0x1315,  0x1318,  0x135A,
+      0x135D,  0x137C,  0x1380,  0x1399,  0x2D80,  0x2D96,  0x2DA0,  0x2DA6,
+      0x2DA8,  0x2DAE,  0x2DB0,  0x2DB6,  0x2DB8,  0x2DBE,  0x2DC0,  0x2DC6,
+      0x2DC8,  0x2DCE,  0x2DD0,  0x2DD6,  0x2DD8,  0x2DDE,  0xAB01,  0xAB06,
+      0xAB09,  0xAB0E,  0xAB11,  0xAB16,  0xAB20,  0xAB26,  0xAB28,  0xAB2E,
+      0x1E7E0, 0x1E7E6, 0x1E7E8, 0x1E7EB, 0x1E7ED, 0x1E7EE, 0x1E7F0, 0x1E7FE};
+  PROPAGATE(assert_cc_match_raw("\\p{Ethiopic}", ranges, 36, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Ethiopic_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x1200,  0x1248,  0x124A,  0x124D,  0x1250,  0x1256,  0x1258,  0x1258,
+      0x125A,  0x125D,  0x1260,  0x1288,  0x128A,  0x128D,  0x1290,  0x12B0,
+      0x12B2,  0x12B5,  0x12B8,  0x12BE,  0x12C0,  0x12C0,  0x12C2,  0x12C5,
+      0x12C8,  0x12D6,  0x12D8,  0x1310,  0x1312,  0x1315,  0x1318,  0x135A,
+      0x135D,  0x137C,  0x1380,  0x1399,  0x2D80,  0x2D96,  0x2DA0,  0x2DA6,
+      0x2DA8,  0x2DAE,  0x2DB0,  0x2DB6,  0x2DB8,  0x2DBE,  0x2DC0,  0x2DC6,
+      0x2DC8,  0x2DCE,  0x2DD0,  0x2DD6,  0x2DD8,  0x2DDE,  0xAB01,  0xAB06,
+      0xAB09,  0xAB0E,  0xAB11,  0xAB16,  0xAB20,  0xAB26,  0xAB28,  0xAB2E,
+      0x1E7E0, 0x1E7E6, 0x1E7E8, 0x1E7EB, 0x1E7ED, 0x1E7EE, 0x1E7F0, 0x1E7FE};
+  PROPAGATE(assert_cc_match_raw("\\P{Ethiopic}", ranges, 36, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Georgian)
+{
+  static const unsigned int ranges[] = {0x10A0, 0x10C5, 0x10C7, 0x10C7, 0x10CD,
+                                        0x10CD, 0x10D0, 0x10FA, 0x10FC, 0x10FF,
+                                        0x1C90, 0x1CBA, 0x1CBD, 0x1CBF, 0x2D00,
+                                        0x2D25, 0x2D27, 0x2D27, 0x2D2D, 0x2D2D};
+  PROPAGATE(assert_cc_match_raw("\\p{Georgian}", ranges, 10, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Georgian_inverted)
+{
+  static const unsigned int ranges[] = {0x10A0, 0x10C5, 0x10C7, 0x10C7, 0x10CD,
+                                        0x10CD, 0x10D0, 0x10FA, 0x10FC, 0x10FF,
+                                        0x1C90, 0x1CBA, 0x1CBD, 0x1CBF, 0x2D00,
+                                        0x2D25, 0x2D27, 0x2D27, 0x2D2D, 0x2D2D};
+  PROPAGATE(assert_cc_match_raw("\\P{Georgian}", ranges, 10, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Glagolitic)
+{
+  static const unsigned int ranges[] = {0x2C00,  0x2C5F,  0x1E000, 0x1E006,
+                                        0x1E008, 0x1E018, 0x1E01B, 0x1E021,
+                                        0x1E023, 0x1E024, 0x1E026, 0x1E02A};
+  PROPAGATE(assert_cc_match_raw("\\p{Glagolitic}", ranges, 6, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Glagolitic_inverted)
+{
+  static const unsigned int ranges[] = {0x2C00,  0x2C5F,  0x1E000, 0x1E006,
+                                        0x1E008, 0x1E018, 0x1E01B, 0x1E021,
+                                        0x1E023, 0x1E024, 0x1E026, 0x1E02A};
+  PROPAGATE(assert_cc_match_raw("\\P{Glagolitic}", ranges, 6, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Gothic)
+{
+  static const unsigned int ranges[] = {0x10330, 0x1034A};
+  PROPAGATE(assert_cc_match_raw("\\p{Gothic}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Gothic_inverted)
+{
+  static const unsigned int ranges[] = {0x10330, 0x1034A};
+  PROPAGATE(assert_cc_match_raw("\\P{Gothic}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Grantha)
+{
+  static const unsigned int ranges[] = {
+      0x11300, 0x11303, 0x11305, 0x1130C, 0x1130F, 0x11310, 0x11313, 0x11328,
+      0x1132A, 0x11330, 0x11332, 0x11333, 0x11335, 0x11339, 0x1133C, 0x11344,
+      0x11347, 0x11348, 0x1134B, 0x1134D, 0x11350, 0x11350, 0x11357, 0x11357,
+      0x1135D, 0x11363, 0x11366, 0x1136C, 0x11370, 0x11374};
+  PROPAGATE(assert_cc_match_raw("\\p{Grantha}", ranges, 15, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Grantha_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x11300, 0x11303, 0x11305, 0x1130C, 0x1130F, 0x11310, 0x11313, 0x11328,
+      0x1132A, 0x11330, 0x11332, 0x11333, 0x11335, 0x11339, 0x1133C, 0x11344,
+      0x11347, 0x11348, 0x1134B, 0x1134D, 0x11350, 0x11350, 0x11357, 0x11357,
+      0x1135D, 0x11363, 0x11366, 0x1136C, 0x11370, 0x11374};
+  PROPAGATE(assert_cc_match_raw("\\P{Grantha}", ranges, 15, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Greek)
+{
+  static const unsigned int ranges[] = {
+      0x370,  0x373,  0x375,   0x377,   0x37A,   0x37D,   0x37F,   0x37F,
+      0x384,  0x384,  0x386,   0x386,   0x388,   0x38A,   0x38C,   0x38C,
+      0x38E,  0x3A1,  0x3A3,   0x3E1,   0x3F0,   0x3FF,   0x1D26,  0x1D2A,
+      0x1D5D, 0x1D61, 0x1D66,  0x1D6A,  0x1DBF,  0x1DBF,  0x1F00,  0x1F15,
+      0x1F18, 0x1F1D, 0x1F20,  0x1F45,  0x1F48,  0x1F4D,  0x1F50,  0x1F57,
+      0x1F59, 0x1F59, 0x1F5B,  0x1F5B,  0x1F5D,  0x1F5D,  0x1F5F,  0x1F7D,
+      0x1F80, 0x1FB4, 0x1FB6,  0x1FC4,  0x1FC6,  0x1FD3,  0x1FD6,  0x1FDB,
+      0x1FDD, 0x1FEF, 0x1FF2,  0x1FF4,  0x1FF6,  0x1FFE,  0x2126,  0x2126,
+      0xAB65, 0xAB65, 0x10140, 0x1018E, 0x101A0, 0x101A0, 0x1D200, 0x1D245};
+  PROPAGATE(assert_cc_match_raw("\\p{Greek}", ranges, 36, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Greek_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x370,  0x373,  0x375,   0x377,   0x37A,   0x37D,   0x37F,   0x37F,
+      0x384,  0x384,  0x386,   0x386,   0x388,   0x38A,   0x38C,   0x38C,
+      0x38E,  0x3A1,  0x3A3,   0x3E1,   0x3F0,   0x3FF,   0x1D26,  0x1D2A,
+      0x1D5D, 0x1D61, 0x1D66,  0x1D6A,  0x1DBF,  0x1DBF,  0x1F00,  0x1F15,
+      0x1F18, 0x1F1D, 0x1F20,  0x1F45,  0x1F48,  0x1F4D,  0x1F50,  0x1F57,
+      0x1F59, 0x1F59, 0x1F5B,  0x1F5B,  0x1F5D,  0x1F5D,  0x1F5F,  0x1F7D,
+      0x1F80, 0x1FB4, 0x1FB6,  0x1FC4,  0x1FC6,  0x1FD3,  0x1FD6,  0x1FDB,
+      0x1FDD, 0x1FEF, 0x1FF2,  0x1FF4,  0x1FF6,  0x1FFE,  0x2126,  0x2126,
+      0xAB65, 0xAB65, 0x10140, 0x1018E, 0x101A0, 0x101A0, 0x1D200, 0x1D245};
+  PROPAGATE(assert_cc_match_raw("\\P{Greek}", ranges, 36, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Gujarati)
+{
+  static const unsigned int ranges[] = {
+      0xA81, 0xA83, 0xA85, 0xA8D, 0xA8F, 0xA91, 0xA93, 0xAA8, 0xAAA, 0xAB0,
+      0xAB2, 0xAB3, 0xAB5, 0xAB9, 0xABC, 0xAC5, 0xAC7, 0xAC9, 0xACB, 0xACD,
+      0xAD0, 0xAD0, 0xAE0, 0xAE3, 0xAE6, 0xAF1, 0xAF9, 0xAFF};
+  PROPAGATE(assert_cc_match_raw("\\p{Gujarati}", ranges, 14, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Gujarati_inverted)
+{
+  static const unsigned int ranges[] = {
+      0xA81, 0xA83, 0xA85, 0xA8D, 0xA8F, 0xA91, 0xA93, 0xAA8, 0xAAA, 0xAB0,
+      0xAB2, 0xAB3, 0xAB5, 0xAB9, 0xABC, 0xAC5, 0xAC7, 0xAC9, 0xACB, 0xACD,
+      0xAD0, 0xAD0, 0xAE0, 0xAE3, 0xAE6, 0xAF1, 0xAF9, 0xAFF};
+  PROPAGATE(assert_cc_match_raw("\\P{Gujarati}", ranges, 14, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Gunjala_Gondi)
+{
+  static const unsigned int ranges[] = {0x11D60, 0x11D65, 0x11D67, 0x11D68,
+                                        0x11D6A, 0x11D8E, 0x11D90, 0x11D91,
+                                        0x11D93, 0x11D98, 0x11DA0, 0x11DA9};
+  PROPAGATE(assert_cc_match_raw("\\p{Gunjala_Gondi}", ranges, 6, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Gunjala_Gondi_inverted)
+{
+  static const unsigned int ranges[] = {0x11D60, 0x11D65, 0x11D67, 0x11D68,
+                                        0x11D6A, 0x11D8E, 0x11D90, 0x11D91,
+                                        0x11D93, 0x11D98, 0x11DA0, 0x11DA9};
+  PROPAGATE(assert_cc_match_raw("\\P{Gunjala_Gondi}", ranges, 6, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Gurmukhi)
+{
+  static const unsigned int ranges[] = {
+      0xA01, 0xA03, 0xA05, 0xA0A, 0xA0F, 0xA10, 0xA13, 0xA28,
+      0xA2A, 0xA30, 0xA32, 0xA33, 0xA35, 0xA36, 0xA38, 0xA39,
+      0xA3C, 0xA3C, 0xA3E, 0xA42, 0xA47, 0xA48, 0xA4B, 0xA4D,
+      0xA51, 0xA51, 0xA59, 0xA5C, 0xA5E, 0xA5E, 0xA66, 0xA76};
+  PROPAGATE(assert_cc_match_raw("\\p{Gurmukhi}", ranges, 16, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Gurmukhi_inverted)
+{
+  static const unsigned int ranges[] = {
+      0xA01, 0xA03, 0xA05, 0xA0A, 0xA0F, 0xA10, 0xA13, 0xA28,
+      0xA2A, 0xA30, 0xA32, 0xA33, 0xA35, 0xA36, 0xA38, 0xA39,
+      0xA3C, 0xA3C, 0xA3E, 0xA42, 0xA47, 0xA48, 0xA4B, 0xA4D,
+      0xA51, 0xA51, 0xA59, 0xA5C, 0xA5E, 0xA5E, 0xA66, 0xA76};
+  PROPAGATE(assert_cc_match_raw("\\P{Gurmukhi}", ranges, 16, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Han)
+{
+  static const unsigned int ranges[] = {
+      0x2E80,  0x2E99,  0x2E9B,  0x2EF3,  0x2F00,  0x2FD5,  0x3005,  0x3005,
+      0x3007,  0x3007,  0x3021,  0x3029,  0x3038,  0x303B,  0x3400,  0x4DBF,
+      0x4E00,  0x9FFF,  0xF900,  0xFA6D,  0xFA70,  0xFAD9,  0x16FE2, 0x16FE3,
+      0x16FF0, 0x16FF1, 0x20000, 0x2A6DF, 0x2A700, 0x2B739, 0x2B740, 0x2B81D,
+      0x2B820, 0x2CEA1, 0x2CEB0, 0x2EBE0, 0x2EBF0, 0x2EE5D, 0x2F800, 0x2FA1D,
+      0x30000, 0x3134A, 0x31350, 0x323AF};
+  PROPAGATE(assert_cc_match_raw("\\p{Han}", ranges, 22, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Han_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x2E80,  0x2E99,  0x2E9B,  0x2EF3,  0x2F00,  0x2FD5,  0x3005,  0x3005,
+      0x3007,  0x3007,  0x3021,  0x3029,  0x3038,  0x303B,  0x3400,  0x4DBF,
+      0x4E00,  0x9FFF,  0xF900,  0xFA6D,  0xFA70,  0xFAD9,  0x16FE2, 0x16FE3,
+      0x16FF0, 0x16FF1, 0x20000, 0x2A6DF, 0x2A700, 0x2B739, 0x2B740, 0x2B81D,
+      0x2B820, 0x2CEA1, 0x2CEB0, 0x2EBE0, 0x2EBF0, 0x2EE5D, 0x2F800, 0x2FA1D,
+      0x30000, 0x3134A, 0x31350, 0x323AF};
+  PROPAGATE(assert_cc_match_raw("\\P{Han}", ranges, 22, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Hangul)
+{
+  static const unsigned int ranges[] = {
+      0x1100, 0x11FF, 0x302E, 0x302F, 0x3131, 0x318E, 0x3200,
+      0x321E, 0x3260, 0x327E, 0xA960, 0xA97C, 0xAC00, 0xD7A3,
+      0xD7B0, 0xD7C6, 0xD7CB, 0xD7FB, 0xFFA0, 0xFFBE, 0xFFC2,
+      0xFFC7, 0xFFCA, 0xFFCF, 0xFFD2, 0xFFD7, 0xFFDA, 0xFFDC};
+  PROPAGATE(assert_cc_match_raw("\\p{Hangul}", ranges, 14, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Hangul_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x1100, 0x11FF, 0x302E, 0x302F, 0x3131, 0x318E, 0x3200,
+      0x321E, 0x3260, 0x327E, 0xA960, 0xA97C, 0xAC00, 0xD7A3,
+      0xD7B0, 0xD7C6, 0xD7CB, 0xD7FB, 0xFFA0, 0xFFBE, 0xFFC2,
+      0xFFC7, 0xFFCA, 0xFFCF, 0xFFD2, 0xFFD7, 0xFFDA, 0xFFDC};
+  PROPAGATE(assert_cc_match_raw("\\P{Hangul}", ranges, 14, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Hanifi_Rohingya)
+{
+  static const unsigned int ranges[] = {0x10D00, 0x10D27, 0x10D30, 0x10D39};
+  PROPAGATE(assert_cc_match_raw("\\p{Hanifi_Rohingya}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Hanifi_Rohingya_inverted)
+{
+  static const unsigned int ranges[] = {0x10D00, 0x10D27, 0x10D30, 0x10D39};
+  PROPAGATE(assert_cc_match_raw("\\P{Hanifi_Rohingya}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Hanunoo)
+{
+  static const unsigned int ranges[] = {0x1720, 0x1734};
+  PROPAGATE(assert_cc_match_raw("\\p{Hanunoo}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Hanunoo_inverted)
+{
+  static const unsigned int ranges[] = {0x1720, 0x1734};
+  PROPAGATE(assert_cc_match_raw("\\P{Hanunoo}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Hatran)
+{
+  static const unsigned int ranges[] = {0x108E0, 0x108F2, 0x108F4,
+                                        0x108F5, 0x108FB, 0x108FF};
+  PROPAGATE(assert_cc_match_raw("\\p{Hatran}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Hatran_inverted)
+{
+  static const unsigned int ranges[] = {0x108E0, 0x108F2, 0x108F4,
+                                        0x108F5, 0x108FB, 0x108FF};
+  PROPAGATE(assert_cc_match_raw("\\P{Hatran}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Hebrew)
+{
+  static const unsigned int ranges[] = {
+      0x591,  0x5C7,  0x5D0,  0x5EA,  0x5EF,  0x5F4,  0xFB1D, 0xFB36, 0xFB38,
+      0xFB3C, 0xFB3E, 0xFB3E, 0xFB40, 0xFB41, 0xFB43, 0xFB44, 0xFB46, 0xFB4F};
+  PROPAGATE(assert_cc_match_raw("\\p{Hebrew}", ranges, 9, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Hebrew_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x591,  0x5C7,  0x5D0,  0x5EA,  0x5EF,  0x5F4,  0xFB1D, 0xFB36, 0xFB38,
+      0xFB3C, 0xFB3E, 0xFB3E, 0xFB40, 0xFB41, 0xFB43, 0xFB44, 0xFB46, 0xFB4F};
+  PROPAGATE(assert_cc_match_raw("\\P{Hebrew}", ranges, 9, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Hiragana)
+{
+  static const unsigned int ranges[] = {0x3041,  0x3096,  0x309D,  0x309F,
+                                        0x1B001, 0x1B11F, 0x1B132, 0x1B132,
+                                        0x1B150, 0x1B152, 0x1F200, 0x1F200};
+  PROPAGATE(assert_cc_match_raw("\\p{Hiragana}", ranges, 6, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Hiragana_inverted)
+{
+  static const unsigned int ranges[] = {0x3041,  0x3096,  0x309D,  0x309F,
+                                        0x1B001, 0x1B11F, 0x1B132, 0x1B132,
+                                        0x1B150, 0x1B152, 0x1F200, 0x1F200};
+  PROPAGATE(assert_cc_match_raw("\\P{Hiragana}", ranges, 6, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Imperial_Aramaic)
+{
+  static const unsigned int ranges[] = {0x10840, 0x10855, 0x10857, 0x1085F};
+  PROPAGATE(assert_cc_match_raw("\\p{Imperial_Aramaic}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Imperial_Aramaic_inverted)
+{
+  static const unsigned int ranges[] = {0x10840, 0x10855, 0x10857, 0x1085F};
+  PROPAGATE(assert_cc_match_raw("\\P{Imperial_Aramaic}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Inherited)
+{
+  static const unsigned int ranges[] = {
+      0x300,   0x36F,   0x485,   0x486,   0x64B,   0x655,   0x670,   0x670,
+      0x951,   0x954,   0x1AB0,  0x1ACE,  0x1CD0,  0x1CD2,  0x1CD4,  0x1CE0,
+      0x1CE2,  0x1CE8,  0x1CED,  0x1CED,  0x1CF4,  0x1CF4,  0x1CF8,  0x1CF9,
+      0x1DC0,  0x1DFF,  0x200C,  0x200D,  0x20D0,  0x20F0,  0x302A,  0x302D,
+      0x3099,  0x309A,  0xFE00,  0xFE0F,  0xFE20,  0xFE2D,  0x101FD, 0x101FD,
+      0x102E0, 0x102E0, 0x1133B, 0x1133B, 0x1CF00, 0x1CF2D, 0x1CF30, 0x1CF46,
+      0x1D167, 0x1D169, 0x1D17B, 0x1D182, 0x1D185, 0x1D18B, 0x1D1AA, 0x1D1AD,
+      0xE0100, 0xE01EF};
+  PROPAGATE(assert_cc_match_raw("\\p{Inherited}", ranges, 29, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Inherited_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x300,   0x36F,   0x485,   0x486,   0x64B,   0x655,   0x670,   0x670,
+      0x951,   0x954,   0x1AB0,  0x1ACE,  0x1CD0,  0x1CD2,  0x1CD4,  0x1CE0,
+      0x1CE2,  0x1CE8,  0x1CED,  0x1CED,  0x1CF4,  0x1CF4,  0x1CF8,  0x1CF9,
+      0x1DC0,  0x1DFF,  0x200C,  0x200D,  0x20D0,  0x20F0,  0x302A,  0x302D,
+      0x3099,  0x309A,  0xFE00,  0xFE0F,  0xFE20,  0xFE2D,  0x101FD, 0x101FD,
+      0x102E0, 0x102E0, 0x1133B, 0x1133B, 0x1CF00, 0x1CF2D, 0x1CF30, 0x1CF46,
+      0x1D167, 0x1D169, 0x1D17B, 0x1D182, 0x1D185, 0x1D18B, 0x1D1AA, 0x1D1AD,
+      0xE0100, 0xE01EF};
+  PROPAGATE(assert_cc_match_raw("\\P{Inherited}", ranges, 29, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Inscriptional_Pahlavi)
+{
+  static const unsigned int ranges[] = {0x10B60, 0x10B72, 0x10B78, 0x10B7F};
+  PROPAGATE(assert_cc_match_raw("\\p{Inscriptional_Pahlavi}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Inscriptional_Pahlavi_inverted)
+{
+  static const unsigned int ranges[] = {0x10B60, 0x10B72, 0x10B78, 0x10B7F};
+  PROPAGATE(assert_cc_match_raw("\\P{Inscriptional_Pahlavi}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Inscriptional_Parthian)
+{
+  static const unsigned int ranges[] = {0x10B40, 0x10B55, 0x10B58, 0x10B5F};
+  PROPAGATE(assert_cc_match_raw("\\p{Inscriptional_Parthian}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Inscriptional_Parthian_inverted)
+{
+  static const unsigned int ranges[] = {0x10B40, 0x10B55, 0x10B58, 0x10B5F};
+  PROPAGATE(assert_cc_match_raw("\\P{Inscriptional_Parthian}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Javanese)
+{
+  static const unsigned int ranges[] = {0xA980, 0xA9CD, 0xA9D0,
+                                        0xA9D9, 0xA9DE, 0xA9DF};
+  PROPAGATE(assert_cc_match_raw("\\p{Javanese}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Javanese_inverted)
+{
+  static const unsigned int ranges[] = {0xA980, 0xA9CD, 0xA9D0,
+                                        0xA9D9, 0xA9DE, 0xA9DF};
+  PROPAGATE(assert_cc_match_raw("\\P{Javanese}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Kaithi)
+{
+  static const unsigned int ranges[] = {0x11080, 0x110C2, 0x110CD, 0x110CD};
+  PROPAGATE(assert_cc_match_raw("\\p{Kaithi}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Kaithi_inverted)
+{
+  static const unsigned int ranges[] = {0x11080, 0x110C2, 0x110CD, 0x110CD};
+  PROPAGATE(assert_cc_match_raw("\\P{Kaithi}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Kannada)
+{
+  static const unsigned int ranges[] = {
+      0xC80, 0xC8C, 0xC8E, 0xC90, 0xC92, 0xCA8, 0xCAA, 0xCB3, 0xCB5,
+      0xCB9, 0xCBC, 0xCC4, 0xCC6, 0xCC8, 0xCCA, 0xCCD, 0xCD5, 0xCD6,
+      0xCDD, 0xCDE, 0xCE0, 0xCE3, 0xCE6, 0xCEF, 0xCF1, 0xCF3};
+  PROPAGATE(assert_cc_match_raw("\\p{Kannada}", ranges, 13, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Kannada_inverted)
+{
+  static const unsigned int ranges[] = {
+      0xC80, 0xC8C, 0xC8E, 0xC90, 0xC92, 0xCA8, 0xCAA, 0xCB3, 0xCB5,
+      0xCB9, 0xCBC, 0xCC4, 0xCC6, 0xCC8, 0xCCA, 0xCCD, 0xCD5, 0xCD6,
+      0xCDD, 0xCDE, 0xCE0, 0xCE3, 0xCE6, 0xCEF, 0xCF1, 0xCF3};
+  PROPAGATE(assert_cc_match_raw("\\P{Kannada}", ranges, 13, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Katakana)
+{
+  static const unsigned int ranges[] = {
+      0x30A1,  0x30FA,  0x30FD,  0x30FF,  0x31F0,  0x31FF,  0x32D0,
+      0x32FE,  0x3300,  0x3357,  0xFF66,  0xFF6F,  0xFF71,  0xFF9D,
+      0x1AFF0, 0x1AFF3, 0x1AFF5, 0x1AFFB, 0x1AFFD, 0x1AFFE, 0x1B000,
+      0x1B000, 0x1B120, 0x1B122, 0x1B155, 0x1B155, 0x1B164, 0x1B167};
+  PROPAGATE(assert_cc_match_raw("\\p{Katakana}", ranges, 14, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Katakana_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x30A1,  0x30FA,  0x30FD,  0x30FF,  0x31F0,  0x31FF,  0x32D0,
+      0x32FE,  0x3300,  0x3357,  0xFF66,  0xFF6F,  0xFF71,  0xFF9D,
+      0x1AFF0, 0x1AFF3, 0x1AFF5, 0x1AFFB, 0x1AFFD, 0x1AFFE, 0x1B000,
+      0x1B000, 0x1B120, 0x1B122, 0x1B155, 0x1B155, 0x1B164, 0x1B167};
+  PROPAGATE(assert_cc_match_raw("\\P{Katakana}", ranges, 14, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Kawi)
+{
+  static const unsigned int ranges[] = {0x11F00, 0x11F10, 0x11F12,
+                                        0x11F3A, 0x11F3E, 0x11F59};
+  PROPAGATE(assert_cc_match_raw("\\p{Kawi}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Kawi_inverted)
+{
+  static const unsigned int ranges[] = {0x11F00, 0x11F10, 0x11F12,
+                                        0x11F3A, 0x11F3E, 0x11F59};
+  PROPAGATE(assert_cc_match_raw("\\P{Kawi}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Kayah_Li)
+{
+  static const unsigned int ranges[] = {0xA900, 0xA92D, 0xA92F, 0xA92F};
+  PROPAGATE(assert_cc_match_raw("\\p{Kayah_Li}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Kayah_Li_inverted)
+{
+  static const unsigned int ranges[] = {0xA900, 0xA92D, 0xA92F, 0xA92F};
+  PROPAGATE(assert_cc_match_raw("\\P{Kayah_Li}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Kharoshthi)
+{
+  static const unsigned int ranges[] = {
+      0x10A00, 0x10A03, 0x10A05, 0x10A06, 0x10A0C, 0x10A13, 0x10A15, 0x10A17,
+      0x10A19, 0x10A35, 0x10A38, 0x10A3A, 0x10A3F, 0x10A48, 0x10A50, 0x10A58};
+  PROPAGATE(assert_cc_match_raw("\\p{Kharoshthi}", ranges, 8, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Kharoshthi_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x10A00, 0x10A03, 0x10A05, 0x10A06, 0x10A0C, 0x10A13, 0x10A15, 0x10A17,
+      0x10A19, 0x10A35, 0x10A38, 0x10A3A, 0x10A3F, 0x10A48, 0x10A50, 0x10A58};
+  PROPAGATE(assert_cc_match_raw("\\P{Kharoshthi}", ranges, 8, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Khitan_Small_Script)
+{
+  static const unsigned int ranges[] = {0x16FE4, 0x16FE4, 0x18B00, 0x18CD5};
+  PROPAGATE(assert_cc_match_raw("\\p{Khitan_Small_Script}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Khitan_Small_Script_inverted)
+{
+  static const unsigned int ranges[] = {0x16FE4, 0x16FE4, 0x18B00, 0x18CD5};
+  PROPAGATE(assert_cc_match_raw("\\P{Khitan_Small_Script}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Khmer)
+{
+  static const unsigned int ranges[] = {0x1780, 0x17DD, 0x17E0, 0x17E9,
+                                        0x17F0, 0x17F9, 0x19E0, 0x19FF};
+  PROPAGATE(assert_cc_match_raw("\\p{Khmer}", ranges, 4, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Khmer_inverted)
+{
+  static const unsigned int ranges[] = {0x1780, 0x17DD, 0x17E0, 0x17E9,
+                                        0x17F0, 0x17F9, 0x19E0, 0x19FF};
+  PROPAGATE(assert_cc_match_raw("\\P{Khmer}", ranges, 4, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Khojki)
+{
+  static const unsigned int ranges[] = {0x11200, 0x11211, 0x11213, 0x11241};
+  PROPAGATE(assert_cc_match_raw("\\p{Khojki}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Khojki_inverted)
+{
+  static const unsigned int ranges[] = {0x11200, 0x11211, 0x11213, 0x11241};
+  PROPAGATE(assert_cc_match_raw("\\P{Khojki}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Khudawadi)
+{
+  static const unsigned int ranges[] = {0x112B0, 0x112EA, 0x112F0, 0x112F9};
+  PROPAGATE(assert_cc_match_raw("\\p{Khudawadi}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Khudawadi_inverted)
+{
+  static const unsigned int ranges[] = {0x112B0, 0x112EA, 0x112F0, 0x112F9};
+  PROPAGATE(assert_cc_match_raw("\\P{Khudawadi}", ranges, 2, 1));
   PASS();
 }
 
@@ -2339,6 +3615,140 @@ TEST(cls_builtin_unicode_property_L_single_inverted)
   PASS();
 }
 
+TEST(cls_builtin_unicode_property_Lao)
+{
+  static const unsigned int ranges[] = {
+      0xE81, 0xE82, 0xE84, 0xE84, 0xE86, 0xE8A, 0xE8C, 0xEA3,
+      0xEA5, 0xEA5, 0xEA7, 0xEBD, 0xEC0, 0xEC4, 0xEC6, 0xEC6,
+      0xEC8, 0xECE, 0xED0, 0xED9, 0xEDC, 0xEDF};
+  PROPAGATE(assert_cc_match_raw("\\p{Lao}", ranges, 11, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Lao_inverted)
+{
+  static const unsigned int ranges[] = {
+      0xE81, 0xE82, 0xE84, 0xE84, 0xE86, 0xE8A, 0xE8C, 0xEA3,
+      0xEA5, 0xEA5, 0xEA7, 0xEBD, 0xEC0, 0xEC4, 0xEC6, 0xEC6,
+      0xEC8, 0xECE, 0xED0, 0xED9, 0xEDC, 0xEDF};
+  PROPAGATE(assert_cc_match_raw("\\P{Lao}", ranges, 11, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Latin)
+{
+  static const unsigned int ranges[] = {
+      0x41,    0x5A,    0x61,    0x7A,    0xAA,    0xAA,    0xBA,    0xBA,
+      0xC0,    0xD6,    0xD8,    0xF6,    0xF8,    0x2B8,   0x2E0,   0x2E4,
+      0x1D00,  0x1D25,  0x1D2C,  0x1D5C,  0x1D62,  0x1D65,  0x1D6B,  0x1D77,
+      0x1D79,  0x1DBE,  0x1E00,  0x1EFF,  0x2071,  0x2071,  0x207F,  0x207F,
+      0x2090,  0x209C,  0x212A,  0x212B,  0x2132,  0x2132,  0x214E,  0x214E,
+      0x2160,  0x2188,  0x2C60,  0x2C7F,  0xA722,  0xA787,  0xA78B,  0xA7CA,
+      0xA7D0,  0xA7D1,  0xA7D3,  0xA7D3,  0xA7D5,  0xA7D9,  0xA7F2,  0xA7FF,
+      0xAB30,  0xAB5A,  0xAB5C,  0xAB64,  0xAB66,  0xAB69,  0xFB00,  0xFB06,
+      0xFF21,  0xFF3A,  0xFF41,  0xFF5A,  0x10780, 0x10785, 0x10787, 0x107B0,
+      0x107B2, 0x107BA, 0x1DF00, 0x1DF1E, 0x1DF25, 0x1DF2A};
+  PROPAGATE(assert_cc_match_raw("\\p{Latin}", ranges, 39, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Latin_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x41,    0x5A,    0x61,    0x7A,    0xAA,    0xAA,    0xBA,    0xBA,
+      0xC0,    0xD6,    0xD8,    0xF6,    0xF8,    0x2B8,   0x2E0,   0x2E4,
+      0x1D00,  0x1D25,  0x1D2C,  0x1D5C,  0x1D62,  0x1D65,  0x1D6B,  0x1D77,
+      0x1D79,  0x1DBE,  0x1E00,  0x1EFF,  0x2071,  0x2071,  0x207F,  0x207F,
+      0x2090,  0x209C,  0x212A,  0x212B,  0x2132,  0x2132,  0x214E,  0x214E,
+      0x2160,  0x2188,  0x2C60,  0x2C7F,  0xA722,  0xA787,  0xA78B,  0xA7CA,
+      0xA7D0,  0xA7D1,  0xA7D3,  0xA7D3,  0xA7D5,  0xA7D9,  0xA7F2,  0xA7FF,
+      0xAB30,  0xAB5A,  0xAB5C,  0xAB64,  0xAB66,  0xAB69,  0xFB00,  0xFB06,
+      0xFF21,  0xFF3A,  0xFF41,  0xFF5A,  0x10780, 0x10785, 0x10787, 0x107B0,
+      0x107B2, 0x107BA, 0x1DF00, 0x1DF1E, 0x1DF25, 0x1DF2A};
+  PROPAGATE(assert_cc_match_raw("\\P{Latin}", ranges, 39, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Lepcha)
+{
+  static const unsigned int ranges[] = {0x1C00, 0x1C37, 0x1C3B,
+                                        0x1C49, 0x1C4D, 0x1C4F};
+  PROPAGATE(assert_cc_match_raw("\\p{Lepcha}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Lepcha_inverted)
+{
+  static const unsigned int ranges[] = {0x1C00, 0x1C37, 0x1C3B,
+                                        0x1C49, 0x1C4D, 0x1C4F};
+  PROPAGATE(assert_cc_match_raw("\\P{Lepcha}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Limbu)
+{
+  static const unsigned int ranges[] = {0x1900, 0x191E, 0x1920, 0x192B, 0x1930,
+                                        0x193B, 0x1940, 0x1940, 0x1944, 0x194F};
+  PROPAGATE(assert_cc_match_raw("\\p{Limbu}", ranges, 5, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Limbu_inverted)
+{
+  static const unsigned int ranges[] = {0x1900, 0x191E, 0x1920, 0x192B, 0x1930,
+                                        0x193B, 0x1940, 0x1940, 0x1944, 0x194F};
+  PROPAGATE(assert_cc_match_raw("\\P{Limbu}", ranges, 5, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Linear_A)
+{
+  static const unsigned int ranges[] = {0x10600, 0x10736, 0x10740,
+                                        0x10755, 0x10760, 0x10767};
+  PROPAGATE(assert_cc_match_raw("\\p{Linear_A}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Linear_A_inverted)
+{
+  static const unsigned int ranges[] = {0x10600, 0x10736, 0x10740,
+                                        0x10755, 0x10760, 0x10767};
+  PROPAGATE(assert_cc_match_raw("\\P{Linear_A}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Linear_B)
+{
+  static const unsigned int ranges[] = {
+      0x10000, 0x1000B, 0x1000D, 0x10026, 0x10028, 0x1003A, 0x1003C,
+      0x1003D, 0x1003F, 0x1004D, 0x10050, 0x1005D, 0x10080, 0x100FA};
+  PROPAGATE(assert_cc_match_raw("\\p{Linear_B}", ranges, 7, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Linear_B_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x10000, 0x1000B, 0x1000D, 0x10026, 0x10028, 0x1003A, 0x1003C,
+      0x1003D, 0x1003F, 0x1004D, 0x10050, 0x1005D, 0x10080, 0x100FA};
+  PROPAGATE(assert_cc_match_raw("\\P{Linear_B}", ranges, 7, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Lisu)
+{
+  static const unsigned int ranges[] = {0xA4D0, 0xA4FF, 0x11FB0, 0x11FB0};
+  PROPAGATE(assert_cc_match_raw("\\p{Lisu}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Lisu_inverted)
+{
+  static const unsigned int ranges[] = {0xA4D0, 0xA4FF, 0x11FB0, 0x11FB0};
+  PROPAGATE(assert_cc_match_raw("\\P{Lisu}", ranges, 2, 1));
+  PASS();
+}
+
 TEST(cls_builtin_unicode_property_Ll)
 {
   static const unsigned int ranges[] = {
@@ -3367,6 +4777,34 @@ TEST(cls_builtin_unicode_property_Lu_inverted)
   PASS();
 }
 
+TEST(cls_builtin_unicode_property_Lycian)
+{
+  static const unsigned int ranges[] = {0x10280, 0x1029C};
+  PROPAGATE(assert_cc_match_raw("\\p{Lycian}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Lycian_inverted)
+{
+  static const unsigned int ranges[] = {0x10280, 0x1029C};
+  PROPAGATE(assert_cc_match_raw("\\P{Lycian}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Lydian)
+{
+  static const unsigned int ranges[] = {0x10920, 0x10939, 0x1093F, 0x1093F};
+  PROPAGATE(assert_cc_match_raw("\\p{Lydian}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Lydian_inverted)
+{
+  static const unsigned int ranges[] = {0x10920, 0x10939, 0x1093F, 0x1093F};
+  PROPAGATE(assert_cc_match_raw("\\P{Lydian}", ranges, 2, 1));
+  PASS();
+}
+
 TEST(cls_builtin_unicode_property_M)
 {
   static const unsigned int ranges[] = {
@@ -3931,6 +5369,114 @@ TEST(cls_builtin_unicode_property_M_single_inverted)
   PASS();
 }
 
+TEST(cls_builtin_unicode_property_Mahajani)
+{
+  static const unsigned int ranges[] = {0x11150, 0x11176};
+  PROPAGATE(assert_cc_match_raw("\\p{Mahajani}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Mahajani_inverted)
+{
+  static const unsigned int ranges[] = {0x11150, 0x11176};
+  PROPAGATE(assert_cc_match_raw("\\P{Mahajani}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Makasar)
+{
+  static const unsigned int ranges[] = {0x11EE0, 0x11EF8};
+  PROPAGATE(assert_cc_match_raw("\\p{Makasar}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Makasar_inverted)
+{
+  static const unsigned int ranges[] = {0x11EE0, 0x11EF8};
+  PROPAGATE(assert_cc_match_raw("\\P{Makasar}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Malayalam)
+{
+  static const unsigned int ranges[] = {0xD00, 0xD0C, 0xD0E, 0xD10, 0xD12,
+                                        0xD44, 0xD46, 0xD48, 0xD4A, 0xD4F,
+                                        0xD54, 0xD63, 0xD66, 0xD7F};
+  PROPAGATE(assert_cc_match_raw("\\p{Malayalam}", ranges, 7, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Malayalam_inverted)
+{
+  static const unsigned int ranges[] = {0xD00, 0xD0C, 0xD0E, 0xD10, 0xD12,
+                                        0xD44, 0xD46, 0xD48, 0xD4A, 0xD4F,
+                                        0xD54, 0xD63, 0xD66, 0xD7F};
+  PROPAGATE(assert_cc_match_raw("\\P{Malayalam}", ranges, 7, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Mandaic)
+{
+  static const unsigned int ranges[] = {0x840, 0x85B, 0x85E, 0x85E};
+  PROPAGATE(assert_cc_match_raw("\\p{Mandaic}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Mandaic_inverted)
+{
+  static const unsigned int ranges[] = {0x840, 0x85B, 0x85E, 0x85E};
+  PROPAGATE(assert_cc_match_raw("\\P{Mandaic}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Manichaean)
+{
+  static const unsigned int ranges[] = {0x10AC0, 0x10AE6, 0x10AEB, 0x10AF6};
+  PROPAGATE(assert_cc_match_raw("\\p{Manichaean}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Manichaean_inverted)
+{
+  static const unsigned int ranges[] = {0x10AC0, 0x10AE6, 0x10AEB, 0x10AF6};
+  PROPAGATE(assert_cc_match_raw("\\P{Manichaean}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Marchen)
+{
+  static const unsigned int ranges[] = {0x11C70, 0x11C8F, 0x11C92,
+                                        0x11CA7, 0x11CA9, 0x11CB6};
+  PROPAGATE(assert_cc_match_raw("\\p{Marchen}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Marchen_inverted)
+{
+  static const unsigned int ranges[] = {0x11C70, 0x11C8F, 0x11C92,
+                                        0x11CA7, 0x11CA9, 0x11CB6};
+  PROPAGATE(assert_cc_match_raw("\\P{Marchen}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Masaram_Gondi)
+{
+  static const unsigned int ranges[] = {
+      0x11D00, 0x11D06, 0x11D08, 0x11D09, 0x11D0B, 0x11D36, 0x11D3A,
+      0x11D3A, 0x11D3C, 0x11D3D, 0x11D3F, 0x11D47, 0x11D50, 0x11D59};
+  PROPAGATE(assert_cc_match_raw("\\p{Masaram_Gondi}", ranges, 7, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Masaram_Gondi_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x11D00, 0x11D06, 0x11D08, 0x11D09, 0x11D0B, 0x11D36, 0x11D3A,
+      0x11D3A, 0x11D3C, 0x11D3D, 0x11D3F, 0x11D47, 0x11D50, 0x11D59};
+  PROPAGATE(assert_cc_match_raw("\\P{Masaram_Gondi}", ranges, 7, 1));
+  PASS();
+}
+
 TEST(cls_builtin_unicode_property_Mc)
 {
   static const unsigned int ranges[] = {
@@ -4050,6 +5596,96 @@ TEST(cls_builtin_unicode_property_Me_inverted)
   static const unsigned int ranges[] = {0x488,  0x489,  0x1ABE, 0x1ABE, 0x20DD,
                                         0x20E0, 0x20E2, 0x20E4, 0xA670, 0xA672};
   PROPAGATE(assert_cc_match_raw("\\P{Me}", ranges, 5, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Medefaidrin)
+{
+  static const unsigned int ranges[] = {0x16E40, 0x16E9A};
+  PROPAGATE(assert_cc_match_raw("\\p{Medefaidrin}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Medefaidrin_inverted)
+{
+  static const unsigned int ranges[] = {0x16E40, 0x16E9A};
+  PROPAGATE(assert_cc_match_raw("\\P{Medefaidrin}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Meetei_Mayek)
+{
+  static const unsigned int ranges[] = {0xAAE0, 0xAAF6, 0xABC0,
+                                        0xABED, 0xABF0, 0xABF9};
+  PROPAGATE(assert_cc_match_raw("\\p{Meetei_Mayek}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Meetei_Mayek_inverted)
+{
+  static const unsigned int ranges[] = {0xAAE0, 0xAAF6, 0xABC0,
+                                        0xABED, 0xABF0, 0xABF9};
+  PROPAGATE(assert_cc_match_raw("\\P{Meetei_Mayek}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Mende_Kikakui)
+{
+  static const unsigned int ranges[] = {0x1E800, 0x1E8C4, 0x1E8C7, 0x1E8D6};
+  PROPAGATE(assert_cc_match_raw("\\p{Mende_Kikakui}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Mende_Kikakui_inverted)
+{
+  static const unsigned int ranges[] = {0x1E800, 0x1E8C4, 0x1E8C7, 0x1E8D6};
+  PROPAGATE(assert_cc_match_raw("\\P{Mende_Kikakui}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Meroitic_Cursive)
+{
+  static const unsigned int ranges[] = {0x109A0, 0x109B7, 0x109BC,
+                                        0x109CF, 0x109D2, 0x109FF};
+  PROPAGATE(assert_cc_match_raw("\\p{Meroitic_Cursive}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Meroitic_Cursive_inverted)
+{
+  static const unsigned int ranges[] = {0x109A0, 0x109B7, 0x109BC,
+                                        0x109CF, 0x109D2, 0x109FF};
+  PROPAGATE(assert_cc_match_raw("\\P{Meroitic_Cursive}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Meroitic_Hieroglyphs)
+{
+  static const unsigned int ranges[] = {0x10980, 0x1099F};
+  PROPAGATE(assert_cc_match_raw("\\p{Meroitic_Hieroglyphs}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Meroitic_Hieroglyphs_inverted)
+{
+  static const unsigned int ranges[] = {0x10980, 0x1099F};
+  PROPAGATE(assert_cc_match_raw("\\P{Meroitic_Hieroglyphs}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Miao)
+{
+  static const unsigned int ranges[] = {0x16F00, 0x16F4A, 0x16F4F,
+                                        0x16F87, 0x16F8F, 0x16F9F};
+  PROPAGATE(assert_cc_match_raw("\\p{Miao}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Miao_inverted)
+{
+  static const unsigned int ranges[] = {0x16F00, 0x16F4A, 0x16F4F,
+                                        0x16F87, 0x16F8F, 0x16F9F};
+  PROPAGATE(assert_cc_match_raw("\\P{Miao}", ranges, 3, 1));
   PASS();
 }
 
@@ -4241,6 +5877,88 @@ TEST(cls_builtin_unicode_property_Mn_inverted)
   PASS();
 }
 
+TEST(cls_builtin_unicode_property_Modi)
+{
+  static const unsigned int ranges[] = {0x11600, 0x11644, 0x11650, 0x11659};
+  PROPAGATE(assert_cc_match_raw("\\p{Modi}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Modi_inverted)
+{
+  static const unsigned int ranges[] = {0x11600, 0x11644, 0x11650, 0x11659};
+  PROPAGATE(assert_cc_match_raw("\\P{Modi}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Mongolian)
+{
+  static const unsigned int ranges[] = {0x1800, 0x1801, 0x1804,  0x1804,
+                                        0x1806, 0x1819, 0x1820,  0x1878,
+                                        0x1880, 0x18AA, 0x11660, 0x1166C};
+  PROPAGATE(assert_cc_match_raw("\\p{Mongolian}", ranges, 6, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Mongolian_inverted)
+{
+  static const unsigned int ranges[] = {0x1800, 0x1801, 0x1804,  0x1804,
+                                        0x1806, 0x1819, 0x1820,  0x1878,
+                                        0x1880, 0x18AA, 0x11660, 0x1166C};
+  PROPAGATE(assert_cc_match_raw("\\P{Mongolian}", ranges, 6, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Mro)
+{
+  static const unsigned int ranges[] = {0x16A40, 0x16A5E, 0x16A60,
+                                        0x16A69, 0x16A6E, 0x16A6F};
+  PROPAGATE(assert_cc_match_raw("\\p{Mro}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Mro_inverted)
+{
+  static const unsigned int ranges[] = {0x16A40, 0x16A5E, 0x16A60,
+                                        0x16A69, 0x16A6E, 0x16A6F};
+  PROPAGATE(assert_cc_match_raw("\\P{Mro}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Multani)
+{
+  static const unsigned int ranges[] = {0x11280, 0x11286, 0x11288, 0x11288,
+                                        0x1128A, 0x1128D, 0x1128F, 0x1129D,
+                                        0x1129F, 0x112A9};
+  PROPAGATE(assert_cc_match_raw("\\p{Multani}", ranges, 5, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Multani_inverted)
+{
+  static const unsigned int ranges[] = {0x11280, 0x11286, 0x11288, 0x11288,
+                                        0x1128A, 0x1128D, 0x1128F, 0x1129D,
+                                        0x1129F, 0x112A9};
+  PROPAGATE(assert_cc_match_raw("\\P{Multani}", ranges, 5, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Myanmar)
+{
+  static const unsigned int ranges[] = {0x1000, 0x109F, 0xA9E0,
+                                        0xA9FE, 0xAA60, 0xAA7F};
+  PROPAGATE(assert_cc_match_raw("\\p{Myanmar}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Myanmar_inverted)
+{
+  static const unsigned int ranges[] = {0x1000, 0x109F, 0xA9E0,
+                                        0xA9FE, 0xAA60, 0xAA7F};
+  PROPAGATE(assert_cc_match_raw("\\P{Myanmar}", ranges, 3, 1));
+  PASS();
+}
+
 TEST(cls_builtin_unicode_property_N)
 {
   static const unsigned int ranges[] = {
@@ -4417,6 +6135,50 @@ TEST(cls_builtin_unicode_property_N_single_inverted)
   PASS();
 }
 
+TEST(cls_builtin_unicode_property_Nabataean)
+{
+  static const unsigned int ranges[] = {0x10880, 0x1089E, 0x108A7, 0x108AF};
+  PROPAGATE(assert_cc_match_raw("\\p{Nabataean}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Nabataean_inverted)
+{
+  static const unsigned int ranges[] = {0x10880, 0x1089E, 0x108A7, 0x108AF};
+  PROPAGATE(assert_cc_match_raw("\\P{Nabataean}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Nag_Mundari)
+{
+  static const unsigned int ranges[] = {0x1E4D0, 0x1E4F9};
+  PROPAGATE(assert_cc_match_raw("\\p{Nag_Mundari}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Nag_Mundari_inverted)
+{
+  static const unsigned int ranges[] = {0x1E4D0, 0x1E4F9};
+  PROPAGATE(assert_cc_match_raw("\\P{Nag_Mundari}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Nandinagari)
+{
+  static const unsigned int ranges[] = {0x119A0, 0x119A7, 0x119AA,
+                                        0x119D7, 0x119DA, 0x119E4};
+  PROPAGATE(assert_cc_match_raw("\\p{Nandinagari}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Nandinagari_inverted)
+{
+  static const unsigned int ranges[] = {0x119A0, 0x119A7, 0x119AA,
+                                        0x119D7, 0x119DA, 0x119E4};
+  PROPAGATE(assert_cc_match_raw("\\P{Nandinagari}", ranges, 3, 1));
+  PASS();
+}
+
 TEST(cls_builtin_unicode_property_Nd)
 {
   static const unsigned int ranges[] = {
@@ -4460,6 +6222,50 @@ TEST(cls_builtin_unicode_property_Nd_inverted)
       0x16AC0, 0x16AC9, 0x16B50, 0x16B59, 0x1D7CE, 0x1D7FF, 0x1E140, 0x1E149,
       0x1E2F0, 0x1E2F9, 0x1E4F0, 0x1E4F9, 0x1E950, 0x1E959, 0x1FBF0, 0x1FBF9};
   PROPAGATE(assert_cc_match_raw("\\P{Nd}", ranges, 64, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_New_Tai_Lue)
+{
+  static const unsigned int ranges[] = {0x1980, 0x19AB, 0x19B0, 0x19C9,
+                                        0x19D0, 0x19DA, 0x19DE, 0x19DF};
+  PROPAGATE(assert_cc_match_raw("\\p{New_Tai_Lue}", ranges, 4, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_New_Tai_Lue_inverted)
+{
+  static const unsigned int ranges[] = {0x1980, 0x19AB, 0x19B0, 0x19C9,
+                                        0x19D0, 0x19DA, 0x19DE, 0x19DF};
+  PROPAGATE(assert_cc_match_raw("\\P{New_Tai_Lue}", ranges, 4, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Newa)
+{
+  static const unsigned int ranges[] = {0x11400, 0x1145B, 0x1145D, 0x11461};
+  PROPAGATE(assert_cc_match_raw("\\p{Newa}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Newa_inverted)
+{
+  static const unsigned int ranges[] = {0x11400, 0x1145B, 0x1145D, 0x11461};
+  PROPAGATE(assert_cc_match_raw("\\P{Newa}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Nko)
+{
+  static const unsigned int ranges[] = {0x7C0, 0x7FA, 0x7FD, 0x7FF};
+  PROPAGATE(assert_cc_match_raw("\\p{Nko}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Nko_inverted)
+{
+  static const unsigned int ranges[] = {0x7C0, 0x7FA, 0x7FD, 0x7FF};
+  PROPAGATE(assert_cc_match_raw("\\P{Nko}", ranges, 2, 1));
   PASS();
 }
 
@@ -4530,6 +6336,240 @@ TEST(cls_builtin_unicode_property_No_inverted)
       0x1D360, 0x1D378, 0x1E8C7, 0x1E8CF, 0x1EC71, 0x1ECAB, 0x1ECAD, 0x1ECAF,
       0x1ECB1, 0x1ECB4, 0x1ED01, 0x1ED2D, 0x1ED2F, 0x1ED3D, 0x1F100, 0x1F10C};
   PROPAGATE(assert_cc_match_raw("\\P{No}", ranges, 72, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Nushu)
+{
+  static const unsigned int ranges[] = {0x16FE1, 0x16FE1, 0x1B170, 0x1B2FB};
+  PROPAGATE(assert_cc_match_raw("\\p{Nushu}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Nushu_inverted)
+{
+  static const unsigned int ranges[] = {0x16FE1, 0x16FE1, 0x1B170, 0x1B2FB};
+  PROPAGATE(assert_cc_match_raw("\\P{Nushu}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Nyiakeng_Puachue_Hmong)
+{
+  static const unsigned int ranges[] = {0x1E100, 0x1E12C, 0x1E130, 0x1E13D,
+                                        0x1E140, 0x1E149, 0x1E14E, 0x1E14F};
+  PROPAGATE(assert_cc_match_raw("\\p{Nyiakeng_Puachue_Hmong}", ranges, 4, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Nyiakeng_Puachue_Hmong_inverted)
+{
+  static const unsigned int ranges[] = {0x1E100, 0x1E12C, 0x1E130, 0x1E13D,
+                                        0x1E140, 0x1E149, 0x1E14E, 0x1E14F};
+  PROPAGATE(assert_cc_match_raw("\\P{Nyiakeng_Puachue_Hmong}", ranges, 4, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Ogham)
+{
+  static const unsigned int ranges[] = {0x1680, 0x169C};
+  PROPAGATE(assert_cc_match_raw("\\p{Ogham}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Ogham_inverted)
+{
+  static const unsigned int ranges[] = {0x1680, 0x169C};
+  PROPAGATE(assert_cc_match_raw("\\P{Ogham}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Ol_Chiki)
+{
+  static const unsigned int ranges[] = {0x1C50, 0x1C7F};
+  PROPAGATE(assert_cc_match_raw("\\p{Ol_Chiki}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Ol_Chiki_inverted)
+{
+  static const unsigned int ranges[] = {0x1C50, 0x1C7F};
+  PROPAGATE(assert_cc_match_raw("\\P{Ol_Chiki}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Hungarian)
+{
+  static const unsigned int ranges[] = {0x10C80, 0x10CB2, 0x10CC0,
+                                        0x10CF2, 0x10CFA, 0x10CFF};
+  PROPAGATE(assert_cc_match_raw("\\p{Old_Hungarian}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Hungarian_inverted)
+{
+  static const unsigned int ranges[] = {0x10C80, 0x10CB2, 0x10CC0,
+                                        0x10CF2, 0x10CFA, 0x10CFF};
+  PROPAGATE(assert_cc_match_raw("\\P{Old_Hungarian}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Italic)
+{
+  static const unsigned int ranges[] = {0x10300, 0x10323, 0x1032D, 0x1032F};
+  PROPAGATE(assert_cc_match_raw("\\p{Old_Italic}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Italic_inverted)
+{
+  static const unsigned int ranges[] = {0x10300, 0x10323, 0x1032D, 0x1032F};
+  PROPAGATE(assert_cc_match_raw("\\P{Old_Italic}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_North_Arabian)
+{
+  static const unsigned int ranges[] = {0x10A80, 0x10A9F};
+  PROPAGATE(assert_cc_match_raw("\\p{Old_North_Arabian}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_North_Arabian_inverted)
+{
+  static const unsigned int ranges[] = {0x10A80, 0x10A9F};
+  PROPAGATE(assert_cc_match_raw("\\P{Old_North_Arabian}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Permic)
+{
+  static const unsigned int ranges[] = {0x10350, 0x1037A};
+  PROPAGATE(assert_cc_match_raw("\\p{Old_Permic}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Permic_inverted)
+{
+  static const unsigned int ranges[] = {0x10350, 0x1037A};
+  PROPAGATE(assert_cc_match_raw("\\P{Old_Permic}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Persian)
+{
+  static const unsigned int ranges[] = {0x103A0, 0x103C3, 0x103C8, 0x103D5};
+  PROPAGATE(assert_cc_match_raw("\\p{Old_Persian}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Persian_inverted)
+{
+  static const unsigned int ranges[] = {0x103A0, 0x103C3, 0x103C8, 0x103D5};
+  PROPAGATE(assert_cc_match_raw("\\P{Old_Persian}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Sogdian)
+{
+  static const unsigned int ranges[] = {0x10F00, 0x10F27};
+  PROPAGATE(assert_cc_match_raw("\\p{Old_Sogdian}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Sogdian_inverted)
+{
+  static const unsigned int ranges[] = {0x10F00, 0x10F27};
+  PROPAGATE(assert_cc_match_raw("\\P{Old_Sogdian}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_South_Arabian)
+{
+  static const unsigned int ranges[] = {0x10A60, 0x10A7F};
+  PROPAGATE(assert_cc_match_raw("\\p{Old_South_Arabian}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_South_Arabian_inverted)
+{
+  static const unsigned int ranges[] = {0x10A60, 0x10A7F};
+  PROPAGATE(assert_cc_match_raw("\\P{Old_South_Arabian}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Turkic)
+{
+  static const unsigned int ranges[] = {0x10C00, 0x10C48};
+  PROPAGATE(assert_cc_match_raw("\\p{Old_Turkic}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Turkic_inverted)
+{
+  static const unsigned int ranges[] = {0x10C00, 0x10C48};
+  PROPAGATE(assert_cc_match_raw("\\P{Old_Turkic}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Uyghur)
+{
+  static const unsigned int ranges[] = {0x10F70, 0x10F89};
+  PROPAGATE(assert_cc_match_raw("\\p{Old_Uyghur}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Old_Uyghur_inverted)
+{
+  static const unsigned int ranges[] = {0x10F70, 0x10F89};
+  PROPAGATE(assert_cc_match_raw("\\P{Old_Uyghur}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Oriya)
+{
+  static const unsigned int ranges[] = {
+      0xB01, 0xB03, 0xB05, 0xB0C, 0xB0F, 0xB10, 0xB13, 0xB28, 0xB2A, 0xB30,
+      0xB32, 0xB33, 0xB35, 0xB39, 0xB3C, 0xB44, 0xB47, 0xB48, 0xB4B, 0xB4D,
+      0xB55, 0xB57, 0xB5C, 0xB5D, 0xB5F, 0xB63, 0xB66, 0xB77};
+  PROPAGATE(assert_cc_match_raw("\\p{Oriya}", ranges, 14, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Oriya_inverted)
+{
+  static const unsigned int ranges[] = {
+      0xB01, 0xB03, 0xB05, 0xB0C, 0xB0F, 0xB10, 0xB13, 0xB28, 0xB2A, 0xB30,
+      0xB32, 0xB33, 0xB35, 0xB39, 0xB3C, 0xB44, 0xB47, 0xB48, 0xB4B, 0xB4D,
+      0xB55, 0xB57, 0xB5C, 0xB5D, 0xB5F, 0xB63, 0xB66, 0xB77};
+  PROPAGATE(assert_cc_match_raw("\\P{Oriya}", ranges, 14, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Osage)
+{
+  static const unsigned int ranges[] = {0x104B0, 0x104D3, 0x104D8, 0x104FB};
+  PROPAGATE(assert_cc_match_raw("\\p{Osage}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Osage_inverted)
+{
+  static const unsigned int ranges[] = {0x104B0, 0x104D3, 0x104D8, 0x104FB};
+  PROPAGATE(assert_cc_match_raw("\\P{Osage}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Osmanya)
+{
+  static const unsigned int ranges[] = {0x10480, 0x1049D, 0x104A0, 0x104A9};
+  PROPAGATE(assert_cc_match_raw("\\p{Osmanya}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Osmanya_inverted)
+{
+  static const unsigned int ranges[] = {0x10480, 0x1049D, 0x104A0, 0x104A9};
+  PROPAGATE(assert_cc_match_raw("\\P{Osmanya}", ranges, 2, 1));
   PASS();
 }
 
@@ -4949,6 +6989,52 @@ TEST(cls_builtin_unicode_property_P_single_inverted)
   PASS();
 }
 
+TEST(cls_builtin_unicode_property_Pahawh_Hmong)
+{
+  static const unsigned int ranges[] = {0x16B00, 0x16B45, 0x16B50, 0x16B59,
+                                        0x16B5B, 0x16B61, 0x16B63, 0x16B77,
+                                        0x16B7D, 0x16B8F};
+  PROPAGATE(assert_cc_match_raw("\\p{Pahawh_Hmong}", ranges, 5, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Pahawh_Hmong_inverted)
+{
+  static const unsigned int ranges[] = {0x16B00, 0x16B45, 0x16B50, 0x16B59,
+                                        0x16B5B, 0x16B61, 0x16B63, 0x16B77,
+                                        0x16B7D, 0x16B8F};
+  PROPAGATE(assert_cc_match_raw("\\P{Pahawh_Hmong}", ranges, 5, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Palmyrene)
+{
+  static const unsigned int ranges[] = {0x10860, 0x1087F};
+  PROPAGATE(assert_cc_match_raw("\\p{Palmyrene}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Palmyrene_inverted)
+{
+  static const unsigned int ranges[] = {0x10860, 0x1087F};
+  PROPAGATE(assert_cc_match_raw("\\P{Palmyrene}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Pau_Cin_Hau)
+{
+  static const unsigned int ranges[] = {0x11AC0, 0x11AF8};
+  PROPAGATE(assert_cc_match_raw("\\p{Pau_Cin_Hau}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Pau_Cin_Hau_inverted)
+{
+  static const unsigned int ranges[] = {0x11AC0, 0x11AF8};
+  PROPAGATE(assert_cc_match_raw("\\P{Pau_Cin_Hau}", ranges, 1, 1));
+  PASS();
+}
+
 TEST(cls_builtin_unicode_property_Pc)
 {
   static const unsigned int ranges[] = {0x5F,   0x5F,   0x203F, 0x2040,
@@ -5056,6 +7142,34 @@ TEST(cls_builtin_unicode_property_Pf_inverted)
                                         0x2E05, 0x2E05, 0x2E0A, 0x2E0A, 0x2E0D,
                                         0x2E0D, 0x2E1D, 0x2E1D, 0x2E21, 0x2E21};
   PROPAGATE(assert_cc_match_raw("\\P{Pf}", ranges, 10, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Phags_Pa)
+{
+  static const unsigned int ranges[] = {0xA840, 0xA877};
+  PROPAGATE(assert_cc_match_raw("\\p{Phags_Pa}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Phags_Pa_inverted)
+{
+  static const unsigned int ranges[] = {0xA840, 0xA877};
+  PROPAGATE(assert_cc_match_raw("\\P{Phags_Pa}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Phoenician)
+{
+  static const unsigned int ranges[] = {0x10900, 0x1091B, 0x1091F, 0x1091F};
+  PROPAGATE(assert_cc_match_raw("\\p{Phoenician}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Phoenician_inverted)
+{
+  static const unsigned int ranges[] = {0x10900, 0x1091B, 0x1091F, 0x1091F};
+  PROPAGATE(assert_cc_match_raw("\\P{Phoenician}", ranges, 2, 1));
   PASS();
 }
 
@@ -5234,6 +7348,50 @@ TEST(cls_builtin_unicode_property_Ps_inverted)
       0xFE5B, 0xFE5B, 0xFE5D, 0xFE5D, 0xFF08, 0xFF08, 0xFF3B, 0xFF3B, 0xFF5B,
       0xFF5B, 0xFF5F, 0xFF5F, 0xFF62, 0xFF62};
   PROPAGATE(assert_cc_match_raw("\\P{Ps}", ranges, 79, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Psalter_Pahlavi)
+{
+  static const unsigned int ranges[] = {0x10B80, 0x10B91, 0x10B99,
+                                        0x10B9C, 0x10BA9, 0x10BAF};
+  PROPAGATE(assert_cc_match_raw("\\p{Psalter_Pahlavi}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Psalter_Pahlavi_inverted)
+{
+  static const unsigned int ranges[] = {0x10B80, 0x10B91, 0x10B99,
+                                        0x10B9C, 0x10BA9, 0x10BAF};
+  PROPAGATE(assert_cc_match_raw("\\P{Psalter_Pahlavi}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Rejang)
+{
+  static const unsigned int ranges[] = {0xA930, 0xA953, 0xA95F, 0xA95F};
+  PROPAGATE(assert_cc_match_raw("\\p{Rejang}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Rejang_inverted)
+{
+  static const unsigned int ranges[] = {0xA930, 0xA953, 0xA95F, 0xA95F};
+  PROPAGATE(assert_cc_match_raw("\\P{Rejang}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Runic)
+{
+  static const unsigned int ranges[] = {0x16A0, 0x16EA, 0x16EE, 0x16F8};
+  PROPAGATE(assert_cc_match_raw("\\p{Runic}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Runic_inverted)
+{
+  static const unsigned int ranges[] = {0x16A0, 0x16EA, 0x16EE, 0x16F8};
+  PROPAGATE(assert_cc_match_raw("\\P{Runic}", ranges, 2, 1));
   PASS();
 }
 
@@ -5569,6 +7727,34 @@ TEST(cls_builtin_unicode_property_S_single_inverted)
   PASS();
 }
 
+TEST(cls_builtin_unicode_property_Samaritan)
+{
+  static const unsigned int ranges[] = {0x800, 0x82D, 0x830, 0x83E};
+  PROPAGATE(assert_cc_match_raw("\\p{Samaritan}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Samaritan_inverted)
+{
+  static const unsigned int ranges[] = {0x800, 0x82D, 0x830, 0x83E};
+  PROPAGATE(assert_cc_match_raw("\\P{Samaritan}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Saurashtra)
+{
+  static const unsigned int ranges[] = {0xA880, 0xA8C5, 0xA8CE, 0xA8D9};
+  PROPAGATE(assert_cc_match_raw("\\p{Saurashtra}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Saurashtra_inverted)
+{
+  static const unsigned int ranges[] = {0xA880, 0xA8C5, 0xA8CE, 0xA8D9};
+  PROPAGATE(assert_cc_match_raw("\\P{Saurashtra}", ranges, 2, 1));
+  PASS();
+}
+
 TEST(cls_builtin_unicode_property_Sc)
 {
   static const unsigned int ranges[] = {
@@ -5592,6 +7778,84 @@ TEST(cls_builtin_unicode_property_Sc_inverted)
       0xFE69, 0xFE69,  0xFF04,  0xFF04,  0xFFE0,  0xFFE1,  0xFFE5,
       0xFFE6, 0x11FDD, 0x11FE0, 0x1E2FF, 0x1E2FF, 0x1ECB0, 0x1ECB0};
   PROPAGATE(assert_cc_match_raw("\\P{Sc}", ranges, 21, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Sharada)
+{
+  static const unsigned int ranges[] = {0x11180, 0x111DF};
+  PROPAGATE(assert_cc_match_raw("\\p{Sharada}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Sharada_inverted)
+{
+  static const unsigned int ranges[] = {0x11180, 0x111DF};
+  PROPAGATE(assert_cc_match_raw("\\P{Sharada}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Shavian)
+{
+  static const unsigned int ranges[] = {0x10450, 0x1047F};
+  PROPAGATE(assert_cc_match_raw("\\p{Shavian}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Shavian_inverted)
+{
+  static const unsigned int ranges[] = {0x10450, 0x1047F};
+  PROPAGATE(assert_cc_match_raw("\\P{Shavian}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Siddham)
+{
+  static const unsigned int ranges[] = {0x11580, 0x115B5, 0x115B8, 0x115DD};
+  PROPAGATE(assert_cc_match_raw("\\p{Siddham}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Siddham_inverted)
+{
+  static const unsigned int ranges[] = {0x11580, 0x115B5, 0x115B8, 0x115DD};
+  PROPAGATE(assert_cc_match_raw("\\P{Siddham}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_SignWriting)
+{
+  static const unsigned int ranges[] = {0x1D800, 0x1DA8B, 0x1DA9B,
+                                        0x1DA9F, 0x1DAA1, 0x1DAAF};
+  PROPAGATE(assert_cc_match_raw("\\p{SignWriting}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_SignWriting_inverted)
+{
+  static const unsigned int ranges[] = {0x1D800, 0x1DA8B, 0x1DA9B,
+                                        0x1DA9F, 0x1DAA1, 0x1DAAF};
+  PROPAGATE(assert_cc_match_raw("\\P{SignWriting}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Sinhala)
+{
+  static const unsigned int ranges[] = {
+      0xD81, 0xD83, 0xD85, 0xD96, 0xD9A, 0xDB1, 0xDB3,   0xDBB,  0xDBD,
+      0xDBD, 0xDC0, 0xDC6, 0xDCA, 0xDCA, 0xDCF, 0xDD4,   0xDD6,  0xDD6,
+      0xDD8, 0xDDF, 0xDE6, 0xDEF, 0xDF2, 0xDF4, 0x111E1, 0x111F4};
+  PROPAGATE(assert_cc_match_raw("\\p{Sinhala}", ranges, 13, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Sinhala_inverted)
+{
+  static const unsigned int ranges[] = {
+      0xD81, 0xD83, 0xD85, 0xD96, 0xD9A, 0xDB1, 0xDB3,   0xDBB,  0xDBD,
+      0xDBD, 0xDC0, 0xDC6, 0xDCA, 0xDCA, 0xDCF, 0xDD4,   0xDD6,  0xDD6,
+      0xDD8, 0xDDF, 0xDE6, 0xDEF, 0xDF2, 0xDF4, 0x111E1, 0x111F4};
+  PROPAGATE(assert_cc_match_raw("\\P{Sinhala}", ranges, 13, 1));
   PASS();
 }
 
@@ -5777,6 +8041,446 @@ TEST(cls_builtin_unicode_property_So_inverted)
   PASS();
 }
 
+TEST(cls_builtin_unicode_property_Sogdian)
+{
+  static const unsigned int ranges[] = {0x10F30, 0x10F59};
+  PROPAGATE(assert_cc_match_raw("\\p{Sogdian}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Sogdian_inverted)
+{
+  static const unsigned int ranges[] = {0x10F30, 0x10F59};
+  PROPAGATE(assert_cc_match_raw("\\P{Sogdian}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Sora_Sompeng)
+{
+  static const unsigned int ranges[] = {0x110D0, 0x110E8, 0x110F0, 0x110F9};
+  PROPAGATE(assert_cc_match_raw("\\p{Sora_Sompeng}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Sora_Sompeng_inverted)
+{
+  static const unsigned int ranges[] = {0x110D0, 0x110E8, 0x110F0, 0x110F9};
+  PROPAGATE(assert_cc_match_raw("\\P{Sora_Sompeng}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Soyombo)
+{
+  static const unsigned int ranges[] = {0x11A50, 0x11AA2};
+  PROPAGATE(assert_cc_match_raw("\\p{Soyombo}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Soyombo_inverted)
+{
+  static const unsigned int ranges[] = {0x11A50, 0x11AA2};
+  PROPAGATE(assert_cc_match_raw("\\P{Soyombo}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Sundanese)
+{
+  static const unsigned int ranges[] = {0x1B80, 0x1BBF, 0x1CC0, 0x1CC7};
+  PROPAGATE(assert_cc_match_raw("\\p{Sundanese}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Sundanese_inverted)
+{
+  static const unsigned int ranges[] = {0x1B80, 0x1BBF, 0x1CC0, 0x1CC7};
+  PROPAGATE(assert_cc_match_raw("\\P{Sundanese}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Syloti_Nagri)
+{
+  static const unsigned int ranges[] = {0xA800, 0xA82C};
+  PROPAGATE(assert_cc_match_raw("\\p{Syloti_Nagri}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Syloti_Nagri_inverted)
+{
+  static const unsigned int ranges[] = {0xA800, 0xA82C};
+  PROPAGATE(assert_cc_match_raw("\\P{Syloti_Nagri}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Syriac)
+{
+  static const unsigned int ranges[] = {0x700, 0x70D, 0x70F, 0x74A,
+                                        0x74D, 0x74F, 0x860, 0x86A};
+  PROPAGATE(assert_cc_match_raw("\\p{Syriac}", ranges, 4, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Syriac_inverted)
+{
+  static const unsigned int ranges[] = {0x700, 0x70D, 0x70F, 0x74A,
+                                        0x74D, 0x74F, 0x860, 0x86A};
+  PROPAGATE(assert_cc_match_raw("\\P{Syriac}", ranges, 4, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tagalog)
+{
+  static const unsigned int ranges[] = {0x1700, 0x1715, 0x171F, 0x171F};
+  PROPAGATE(assert_cc_match_raw("\\p{Tagalog}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tagalog_inverted)
+{
+  static const unsigned int ranges[] = {0x1700, 0x1715, 0x171F, 0x171F};
+  PROPAGATE(assert_cc_match_raw("\\P{Tagalog}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tagbanwa)
+{
+  static const unsigned int ranges[] = {0x1760, 0x176C, 0x176E,
+                                        0x1770, 0x1772, 0x1773};
+  PROPAGATE(assert_cc_match_raw("\\p{Tagbanwa}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tagbanwa_inverted)
+{
+  static const unsigned int ranges[] = {0x1760, 0x176C, 0x176E,
+                                        0x1770, 0x1772, 0x1773};
+  PROPAGATE(assert_cc_match_raw("\\P{Tagbanwa}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tai_Le)
+{
+  static const unsigned int ranges[] = {0x1950, 0x196D, 0x1970, 0x1974};
+  PROPAGATE(assert_cc_match_raw("\\p{Tai_Le}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tai_Le_inverted)
+{
+  static const unsigned int ranges[] = {0x1950, 0x196D, 0x1970, 0x1974};
+  PROPAGATE(assert_cc_match_raw("\\P{Tai_Le}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tai_Tham)
+{
+  static const unsigned int ranges[] = {0x1A20, 0x1A5E, 0x1A60, 0x1A7C, 0x1A7F,
+                                        0x1A89, 0x1A90, 0x1A99, 0x1AA0, 0x1AAD};
+  PROPAGATE(assert_cc_match_raw("\\p{Tai_Tham}", ranges, 5, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tai_Tham_inverted)
+{
+  static const unsigned int ranges[] = {0x1A20, 0x1A5E, 0x1A60, 0x1A7C, 0x1A7F,
+                                        0x1A89, 0x1A90, 0x1A99, 0x1AA0, 0x1AAD};
+  PROPAGATE(assert_cc_match_raw("\\P{Tai_Tham}", ranges, 5, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tai_Viet)
+{
+  static const unsigned int ranges[] = {0xAA80, 0xAAC2, 0xAADB, 0xAADF};
+  PROPAGATE(assert_cc_match_raw("\\p{Tai_Viet}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tai_Viet_inverted)
+{
+  static const unsigned int ranges[] = {0xAA80, 0xAAC2, 0xAADB, 0xAADF};
+  PROPAGATE(assert_cc_match_raw("\\P{Tai_Viet}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Takri)
+{
+  static const unsigned int ranges[] = {0x11680, 0x116B9, 0x116C0, 0x116C9};
+  PROPAGATE(assert_cc_match_raw("\\p{Takri}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Takri_inverted)
+{
+  static const unsigned int ranges[] = {0x11680, 0x116B9, 0x116C0, 0x116C9};
+  PROPAGATE(assert_cc_match_raw("\\P{Takri}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tamil)
+{
+  static const unsigned int ranges[] = {
+      0xB82, 0xB83, 0xB85, 0xB8A, 0xB8E, 0xB90,   0xB92,   0xB95,   0xB99,
+      0xB9A, 0xB9C, 0xB9C, 0xB9E, 0xB9F, 0xBA3,   0xBA4,   0xBA8,   0xBAA,
+      0xBAE, 0xBB9, 0xBBE, 0xBC2, 0xBC6, 0xBC8,   0xBCA,   0xBCD,   0xBD0,
+      0xBD0, 0xBD7, 0xBD7, 0xBE6, 0xBFA, 0x11FC0, 0x11FF1, 0x11FFF, 0x11FFF};
+  PROPAGATE(assert_cc_match_raw("\\p{Tamil}", ranges, 18, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tamil_inverted)
+{
+  static const unsigned int ranges[] = {
+      0xB82, 0xB83, 0xB85, 0xB8A, 0xB8E, 0xB90,   0xB92,   0xB95,   0xB99,
+      0xB9A, 0xB9C, 0xB9C, 0xB9E, 0xB9F, 0xBA3,   0xBA4,   0xBA8,   0xBAA,
+      0xBAE, 0xBB9, 0xBBE, 0xBC2, 0xBC6, 0xBC8,   0xBCA,   0xBCD,   0xBD0,
+      0xBD0, 0xBD7, 0xBD7, 0xBE6, 0xBFA, 0x11FC0, 0x11FF1, 0x11FFF, 0x11FFF};
+  PROPAGATE(assert_cc_match_raw("\\P{Tamil}", ranges, 18, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tangsa)
+{
+  static const unsigned int ranges[] = {0x16A70, 0x16ABE, 0x16AC0, 0x16AC9};
+  PROPAGATE(assert_cc_match_raw("\\p{Tangsa}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tangsa_inverted)
+{
+  static const unsigned int ranges[] = {0x16A70, 0x16ABE, 0x16AC0, 0x16AC9};
+  PROPAGATE(assert_cc_match_raw("\\P{Tangsa}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tangut)
+{
+  static const unsigned int ranges[] = {0x16FE0, 0x16FE0, 0x17000, 0x187F7,
+                                        0x18800, 0x18AFF, 0x18D00, 0x18D08};
+  PROPAGATE(assert_cc_match_raw("\\p{Tangut}", ranges, 4, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tangut_inverted)
+{
+  static const unsigned int ranges[] = {0x16FE0, 0x16FE0, 0x17000, 0x187F7,
+                                        0x18800, 0x18AFF, 0x18D00, 0x18D08};
+  PROPAGATE(assert_cc_match_raw("\\P{Tangut}", ranges, 4, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Telugu)
+{
+  static const unsigned int ranges[] = {
+      0xC00, 0xC0C, 0xC0E, 0xC10, 0xC12, 0xC28, 0xC2A, 0xC39, 0xC3C,
+      0xC44, 0xC46, 0xC48, 0xC4A, 0xC4D, 0xC55, 0xC56, 0xC58, 0xC5A,
+      0xC5D, 0xC5D, 0xC60, 0xC63, 0xC66, 0xC6F, 0xC77, 0xC7F};
+  PROPAGATE(assert_cc_match_raw("\\p{Telugu}", ranges, 13, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Telugu_inverted)
+{
+  static const unsigned int ranges[] = {
+      0xC00, 0xC0C, 0xC0E, 0xC10, 0xC12, 0xC28, 0xC2A, 0xC39, 0xC3C,
+      0xC44, 0xC46, 0xC48, 0xC4A, 0xC4D, 0xC55, 0xC56, 0xC58, 0xC5A,
+      0xC5D, 0xC5D, 0xC60, 0xC63, 0xC66, 0xC6F, 0xC77, 0xC7F};
+  PROPAGATE(assert_cc_match_raw("\\P{Telugu}", ranges, 13, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Thaana)
+{
+  static const unsigned int ranges[] = {0x780, 0x7B1};
+  PROPAGATE(assert_cc_match_raw("\\p{Thaana}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Thaana_inverted)
+{
+  static const unsigned int ranges[] = {0x780, 0x7B1};
+  PROPAGATE(assert_cc_match_raw("\\P{Thaana}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Thai)
+{
+  static const unsigned int ranges[] = {0xE01, 0xE3A, 0xE40, 0xE5B};
+  PROPAGATE(assert_cc_match_raw("\\p{Thai}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Thai_inverted)
+{
+  static const unsigned int ranges[] = {0xE01, 0xE3A, 0xE40, 0xE5B};
+  PROPAGATE(assert_cc_match_raw("\\P{Thai}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tibetan)
+{
+  static const unsigned int ranges[] = {0xF00, 0xF47, 0xF49, 0xF6C, 0xF71,
+                                        0xF97, 0xF99, 0xFBC, 0xFBE, 0xFCC,
+                                        0xFCE, 0xFD4, 0xFD9, 0xFDA};
+  PROPAGATE(assert_cc_match_raw("\\p{Tibetan}", ranges, 7, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tibetan_inverted)
+{
+  static const unsigned int ranges[] = {0xF00, 0xF47, 0xF49, 0xF6C, 0xF71,
+                                        0xF97, 0xF99, 0xFBC, 0xFBE, 0xFCC,
+                                        0xFCE, 0xFD4, 0xFD9, 0xFDA};
+  PROPAGATE(assert_cc_match_raw("\\P{Tibetan}", ranges, 7, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tifinagh)
+{
+  static const unsigned int ranges[] = {0x2D30, 0x2D67, 0x2D6F,
+                                        0x2D70, 0x2D7F, 0x2D7F};
+  PROPAGATE(assert_cc_match_raw("\\p{Tifinagh}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tifinagh_inverted)
+{
+  static const unsigned int ranges[] = {0x2D30, 0x2D67, 0x2D6F,
+                                        0x2D70, 0x2D7F, 0x2D7F};
+  PROPAGATE(assert_cc_match_raw("\\P{Tifinagh}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tirhuta)
+{
+  static const unsigned int ranges[] = {0x11480, 0x114C7, 0x114D0, 0x114D9};
+  PROPAGATE(assert_cc_match_raw("\\p{Tirhuta}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Tirhuta_inverted)
+{
+  static const unsigned int ranges[] = {0x11480, 0x114C7, 0x114D0, 0x114D9};
+  PROPAGATE(assert_cc_match_raw("\\P{Tirhuta}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Toto)
+{
+  static const unsigned int ranges[] = {0x1E290, 0x1E2AE};
+  PROPAGATE(assert_cc_match_raw("\\p{Toto}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Toto_inverted)
+{
+  static const unsigned int ranges[] = {0x1E290, 0x1E2AE};
+  PROPAGATE(assert_cc_match_raw("\\P{Toto}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Ugaritic)
+{
+  static const unsigned int ranges[] = {0x10380, 0x1039D, 0x1039F, 0x1039F};
+  PROPAGATE(assert_cc_match_raw("\\p{Ugaritic}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Ugaritic_inverted)
+{
+  static const unsigned int ranges[] = {0x10380, 0x1039D, 0x1039F, 0x1039F};
+  PROPAGATE(assert_cc_match_raw("\\P{Ugaritic}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Vai)
+{
+  static const unsigned int ranges[] = {0xA500, 0xA62B};
+  PROPAGATE(assert_cc_match_raw("\\p{Vai}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Vai_inverted)
+{
+  static const unsigned int ranges[] = {0xA500, 0xA62B};
+  PROPAGATE(assert_cc_match_raw("\\P{Vai}", ranges, 1, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Vithkuqi)
+{
+  static const unsigned int ranges[] = {
+      0x10570, 0x1057A, 0x1057C, 0x1058A, 0x1058C, 0x10592, 0x10594, 0x10595,
+      0x10597, 0x105A1, 0x105A3, 0x105B1, 0x105B3, 0x105B9, 0x105BB, 0x105BC};
+  PROPAGATE(assert_cc_match_raw("\\p{Vithkuqi}", ranges, 8, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Vithkuqi_inverted)
+{
+  static const unsigned int ranges[] = {
+      0x10570, 0x1057A, 0x1057C, 0x1058A, 0x1058C, 0x10592, 0x10594, 0x10595,
+      0x10597, 0x105A1, 0x105A3, 0x105B1, 0x105B3, 0x105B9, 0x105BB, 0x105BC};
+  PROPAGATE(assert_cc_match_raw("\\P{Vithkuqi}", ranges, 8, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Wancho)
+{
+  static const unsigned int ranges[] = {0x1E2C0, 0x1E2F9, 0x1E2FF, 0x1E2FF};
+  PROPAGATE(assert_cc_match_raw("\\p{Wancho}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Wancho_inverted)
+{
+  static const unsigned int ranges[] = {0x1E2C0, 0x1E2F9, 0x1E2FF, 0x1E2FF};
+  PROPAGATE(assert_cc_match_raw("\\P{Wancho}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Warang_Citi)
+{
+  static const unsigned int ranges[] = {0x118A0, 0x118F2, 0x118FF, 0x118FF};
+  PROPAGATE(assert_cc_match_raw("\\p{Warang_Citi}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Warang_Citi_inverted)
+{
+  static const unsigned int ranges[] = {0x118A0, 0x118F2, 0x118FF, 0x118FF};
+  PROPAGATE(assert_cc_match_raw("\\P{Warang_Citi}", ranges, 2, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Yezidi)
+{
+  static const unsigned int ranges[] = {0x10E80, 0x10EA9, 0x10EAB,
+                                        0x10EAD, 0x10EB0, 0x10EB1};
+  PROPAGATE(assert_cc_match_raw("\\p{Yezidi}", ranges, 3, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Yezidi_inverted)
+{
+  static const unsigned int ranges[] = {0x10E80, 0x10EA9, 0x10EAB,
+                                        0x10EAD, 0x10EB0, 0x10EB1};
+  PROPAGATE(assert_cc_match_raw("\\P{Yezidi}", ranges, 3, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Yi)
+{
+  static const unsigned int ranges[] = {0xA000, 0xA48C, 0xA490, 0xA4C6};
+  PROPAGATE(assert_cc_match_raw("\\p{Yi}", ranges, 2, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Yi_inverted)
+{
+  static const unsigned int ranges[] = {0xA000, 0xA48C, 0xA490, 0xA4C6};
+  PROPAGATE(assert_cc_match_raw("\\P{Yi}", ranges, 2, 1));
+  PASS();
+}
+
 TEST(cls_builtin_unicode_property_Z)
 {
   static const unsigned int ranges[] = {
@@ -5810,6 +8514,20 @@ TEST(cls_builtin_unicode_property_Z_single_inverted)
       0x20,   0x20,   0xA0,   0xA0,   0x1680, 0x1680, 0x2000, 0x200A, 0x202F,
       0x202F, 0x205F, 0x205F, 0x3000, 0x3000, 0x2028, 0x2028, 0x2029, 0x2029};
   PROPAGATE(assert_cc_match_raw("\\PZ", ranges, 9, 1));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Zanabazar_Square)
+{
+  static const unsigned int ranges[] = {0x11A00, 0x11A47};
+  PROPAGATE(assert_cc_match_raw("\\p{Zanabazar_Square}", ranges, 1, 0));
+  PASS();
+}
+
+TEST(cls_builtin_unicode_property_Zanabazar_Square_inverted)
+{
+  static const unsigned int ranges[] = {0x11A00, 0x11A47};
+  PROPAGATE(assert_cc_match_raw("\\P{Zanabazar_Square}", ranges, 1, 1));
   PASS();
 }
 
@@ -5861,22 +8579,174 @@ TEST(cls_builtin_unicode_property_Zs_inverted)
 
 SUITE(cls_builtin_unicode_property)
 {
+  RUN_TEST(cls_builtin_unicode_property_Adlam);
+  RUN_TEST(cls_builtin_unicode_property_Adlam_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Ahom);
+  RUN_TEST(cls_builtin_unicode_property_Ahom_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Anatolian_Hieroglyphs);
+  RUN_TEST(cls_builtin_unicode_property_Anatolian_Hieroglyphs_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Arabic);
+  RUN_TEST(cls_builtin_unicode_property_Arabic_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Armenian);
+  RUN_TEST(cls_builtin_unicode_property_Armenian_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Avestan);
+  RUN_TEST(cls_builtin_unicode_property_Avestan_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Balinese);
+  RUN_TEST(cls_builtin_unicode_property_Balinese_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Bamum);
+  RUN_TEST(cls_builtin_unicode_property_Bamum_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Bassa_Vah);
+  RUN_TEST(cls_builtin_unicode_property_Bassa_Vah_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Batak);
+  RUN_TEST(cls_builtin_unicode_property_Batak_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Bengali);
+  RUN_TEST(cls_builtin_unicode_property_Bengali_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Bhaiksuki);
+  RUN_TEST(cls_builtin_unicode_property_Bhaiksuki_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Bopomofo);
+  RUN_TEST(cls_builtin_unicode_property_Bopomofo_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Brahmi);
+  RUN_TEST(cls_builtin_unicode_property_Brahmi_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Braille);
+  RUN_TEST(cls_builtin_unicode_property_Braille_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Buginese);
+  RUN_TEST(cls_builtin_unicode_property_Buginese_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Buhid);
+  RUN_TEST(cls_builtin_unicode_property_Buhid_inverted);
   RUN_TEST(cls_builtin_unicode_property_C);
   RUN_TEST(cls_builtin_unicode_property_C_single);
   RUN_TEST(cls_builtin_unicode_property_C_inverted);
   RUN_TEST(cls_builtin_unicode_property_C_single_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Canadian_Aboriginal);
+  RUN_TEST(cls_builtin_unicode_property_Canadian_Aboriginal_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Carian);
+  RUN_TEST(cls_builtin_unicode_property_Carian_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Caucasian_Albanian);
+  RUN_TEST(cls_builtin_unicode_property_Caucasian_Albanian_inverted);
   RUN_TEST(cls_builtin_unicode_property_Cc);
   RUN_TEST(cls_builtin_unicode_property_Cc_inverted);
   RUN_TEST(cls_builtin_unicode_property_Cf);
   RUN_TEST(cls_builtin_unicode_property_Cf_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Chakma);
+  RUN_TEST(cls_builtin_unicode_property_Chakma_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Cham);
+  RUN_TEST(cls_builtin_unicode_property_Cham_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Cherokee);
+  RUN_TEST(cls_builtin_unicode_property_Cherokee_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Chorasmian);
+  RUN_TEST(cls_builtin_unicode_property_Chorasmian_inverted);
   RUN_TEST(cls_builtin_unicode_property_Co);
   RUN_TEST(cls_builtin_unicode_property_Co_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Common);
+  RUN_TEST(cls_builtin_unicode_property_Common_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Coptic);
+  RUN_TEST(cls_builtin_unicode_property_Coptic_inverted);
   RUN_TEST(cls_builtin_unicode_property_Cs);
   RUN_TEST(cls_builtin_unicode_property_Cs_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Cuneiform);
+  RUN_TEST(cls_builtin_unicode_property_Cuneiform_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Cypriot);
+  RUN_TEST(cls_builtin_unicode_property_Cypriot_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Cypro_Minoan);
+  RUN_TEST(cls_builtin_unicode_property_Cypro_Minoan_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Cyrillic);
+  RUN_TEST(cls_builtin_unicode_property_Cyrillic_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Deseret);
+  RUN_TEST(cls_builtin_unicode_property_Deseret_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Devanagari);
+  RUN_TEST(cls_builtin_unicode_property_Devanagari_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Dives_Akuru);
+  RUN_TEST(cls_builtin_unicode_property_Dives_Akuru_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Dogra);
+  RUN_TEST(cls_builtin_unicode_property_Dogra_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Duployan);
+  RUN_TEST(cls_builtin_unicode_property_Duployan_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Egyptian_Hieroglyphs);
+  RUN_TEST(cls_builtin_unicode_property_Egyptian_Hieroglyphs_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Elbasan);
+  RUN_TEST(cls_builtin_unicode_property_Elbasan_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Elymaic);
+  RUN_TEST(cls_builtin_unicode_property_Elymaic_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Ethiopic);
+  RUN_TEST(cls_builtin_unicode_property_Ethiopic_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Georgian);
+  RUN_TEST(cls_builtin_unicode_property_Georgian_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Glagolitic);
+  RUN_TEST(cls_builtin_unicode_property_Glagolitic_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Gothic);
+  RUN_TEST(cls_builtin_unicode_property_Gothic_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Grantha);
+  RUN_TEST(cls_builtin_unicode_property_Grantha_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Greek);
+  RUN_TEST(cls_builtin_unicode_property_Greek_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Gujarati);
+  RUN_TEST(cls_builtin_unicode_property_Gujarati_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Gunjala_Gondi);
+  RUN_TEST(cls_builtin_unicode_property_Gunjala_Gondi_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Gurmukhi);
+  RUN_TEST(cls_builtin_unicode_property_Gurmukhi_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Han);
+  RUN_TEST(cls_builtin_unicode_property_Han_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Hangul);
+  RUN_TEST(cls_builtin_unicode_property_Hangul_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Hanifi_Rohingya);
+  RUN_TEST(cls_builtin_unicode_property_Hanifi_Rohingya_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Hanunoo);
+  RUN_TEST(cls_builtin_unicode_property_Hanunoo_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Hatran);
+  RUN_TEST(cls_builtin_unicode_property_Hatran_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Hebrew);
+  RUN_TEST(cls_builtin_unicode_property_Hebrew_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Hiragana);
+  RUN_TEST(cls_builtin_unicode_property_Hiragana_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Imperial_Aramaic);
+  RUN_TEST(cls_builtin_unicode_property_Imperial_Aramaic_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Inherited);
+  RUN_TEST(cls_builtin_unicode_property_Inherited_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Inscriptional_Pahlavi);
+  RUN_TEST(cls_builtin_unicode_property_Inscriptional_Pahlavi_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Inscriptional_Parthian);
+  RUN_TEST(cls_builtin_unicode_property_Inscriptional_Parthian_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Javanese);
+  RUN_TEST(cls_builtin_unicode_property_Javanese_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Kaithi);
+  RUN_TEST(cls_builtin_unicode_property_Kaithi_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Kannada);
+  RUN_TEST(cls_builtin_unicode_property_Kannada_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Katakana);
+  RUN_TEST(cls_builtin_unicode_property_Katakana_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Kawi);
+  RUN_TEST(cls_builtin_unicode_property_Kawi_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Kayah_Li);
+  RUN_TEST(cls_builtin_unicode_property_Kayah_Li_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Kharoshthi);
+  RUN_TEST(cls_builtin_unicode_property_Kharoshthi_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Khitan_Small_Script);
+  RUN_TEST(cls_builtin_unicode_property_Khitan_Small_Script_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Khmer);
+  RUN_TEST(cls_builtin_unicode_property_Khmer_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Khojki);
+  RUN_TEST(cls_builtin_unicode_property_Khojki_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Khudawadi);
+  RUN_TEST(cls_builtin_unicode_property_Khudawadi_inverted);
   RUN_TEST(cls_builtin_unicode_property_L);
   RUN_TEST(cls_builtin_unicode_property_L_single);
   RUN_TEST(cls_builtin_unicode_property_L_inverted);
   RUN_TEST(cls_builtin_unicode_property_L_single_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Lao);
+  RUN_TEST(cls_builtin_unicode_property_Lao_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Latin);
+  RUN_TEST(cls_builtin_unicode_property_Latin_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Lepcha);
+  RUN_TEST(cls_builtin_unicode_property_Lepcha_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Limbu);
+  RUN_TEST(cls_builtin_unicode_property_Limbu_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Linear_A);
+  RUN_TEST(cls_builtin_unicode_property_Linear_A_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Linear_B);
+  RUN_TEST(cls_builtin_unicode_property_Linear_B_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Lisu);
+  RUN_TEST(cls_builtin_unicode_property_Lisu_inverted);
   RUN_TEST(cls_builtin_unicode_property_Ll);
   RUN_TEST(cls_builtin_unicode_property_Ll_inverted);
   RUN_TEST(cls_builtin_unicode_property_Lm);
@@ -5887,30 +8757,120 @@ SUITE(cls_builtin_unicode_property)
   RUN_TEST(cls_builtin_unicode_property_Lt_inverted);
   RUN_TEST(cls_builtin_unicode_property_Lu);
   RUN_TEST(cls_builtin_unicode_property_Lu_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Lycian);
+  RUN_TEST(cls_builtin_unicode_property_Lycian_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Lydian);
+  RUN_TEST(cls_builtin_unicode_property_Lydian_inverted);
   RUN_TEST(cls_builtin_unicode_property_M);
   RUN_TEST(cls_builtin_unicode_property_M_single);
   RUN_TEST(cls_builtin_unicode_property_M_inverted);
   RUN_TEST(cls_builtin_unicode_property_M_single_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Mahajani);
+  RUN_TEST(cls_builtin_unicode_property_Mahajani_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Makasar);
+  RUN_TEST(cls_builtin_unicode_property_Makasar_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Malayalam);
+  RUN_TEST(cls_builtin_unicode_property_Malayalam_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Mandaic);
+  RUN_TEST(cls_builtin_unicode_property_Mandaic_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Manichaean);
+  RUN_TEST(cls_builtin_unicode_property_Manichaean_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Marchen);
+  RUN_TEST(cls_builtin_unicode_property_Marchen_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Masaram_Gondi);
+  RUN_TEST(cls_builtin_unicode_property_Masaram_Gondi_inverted);
   RUN_TEST(cls_builtin_unicode_property_Mc);
   RUN_TEST(cls_builtin_unicode_property_Mc_inverted);
   RUN_TEST(cls_builtin_unicode_property_Me);
   RUN_TEST(cls_builtin_unicode_property_Me_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Medefaidrin);
+  RUN_TEST(cls_builtin_unicode_property_Medefaidrin_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Meetei_Mayek);
+  RUN_TEST(cls_builtin_unicode_property_Meetei_Mayek_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Mende_Kikakui);
+  RUN_TEST(cls_builtin_unicode_property_Mende_Kikakui_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Meroitic_Cursive);
+  RUN_TEST(cls_builtin_unicode_property_Meroitic_Cursive_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Meroitic_Hieroglyphs);
+  RUN_TEST(cls_builtin_unicode_property_Meroitic_Hieroglyphs_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Miao);
+  RUN_TEST(cls_builtin_unicode_property_Miao_inverted);
   RUN_TEST(cls_builtin_unicode_property_Mn);
   RUN_TEST(cls_builtin_unicode_property_Mn_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Modi);
+  RUN_TEST(cls_builtin_unicode_property_Modi_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Mongolian);
+  RUN_TEST(cls_builtin_unicode_property_Mongolian_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Mro);
+  RUN_TEST(cls_builtin_unicode_property_Mro_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Multani);
+  RUN_TEST(cls_builtin_unicode_property_Multani_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Myanmar);
+  RUN_TEST(cls_builtin_unicode_property_Myanmar_inverted);
   RUN_TEST(cls_builtin_unicode_property_N);
   RUN_TEST(cls_builtin_unicode_property_N_single);
   RUN_TEST(cls_builtin_unicode_property_N_inverted);
   RUN_TEST(cls_builtin_unicode_property_N_single_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Nabataean);
+  RUN_TEST(cls_builtin_unicode_property_Nabataean_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Nag_Mundari);
+  RUN_TEST(cls_builtin_unicode_property_Nag_Mundari_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Nandinagari);
+  RUN_TEST(cls_builtin_unicode_property_Nandinagari_inverted);
   RUN_TEST(cls_builtin_unicode_property_Nd);
   RUN_TEST(cls_builtin_unicode_property_Nd_inverted);
+  RUN_TEST(cls_builtin_unicode_property_New_Tai_Lue);
+  RUN_TEST(cls_builtin_unicode_property_New_Tai_Lue_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Newa);
+  RUN_TEST(cls_builtin_unicode_property_Newa_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Nko);
+  RUN_TEST(cls_builtin_unicode_property_Nko_inverted);
   RUN_TEST(cls_builtin_unicode_property_Nl);
   RUN_TEST(cls_builtin_unicode_property_Nl_inverted);
   RUN_TEST(cls_builtin_unicode_property_No);
   RUN_TEST(cls_builtin_unicode_property_No_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Nushu);
+  RUN_TEST(cls_builtin_unicode_property_Nushu_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Nyiakeng_Puachue_Hmong);
+  RUN_TEST(cls_builtin_unicode_property_Nyiakeng_Puachue_Hmong_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Ogham);
+  RUN_TEST(cls_builtin_unicode_property_Ogham_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Ol_Chiki);
+  RUN_TEST(cls_builtin_unicode_property_Ol_Chiki_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Old_Hungarian);
+  RUN_TEST(cls_builtin_unicode_property_Old_Hungarian_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Old_Italic);
+  RUN_TEST(cls_builtin_unicode_property_Old_Italic_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Old_North_Arabian);
+  RUN_TEST(cls_builtin_unicode_property_Old_North_Arabian_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Old_Permic);
+  RUN_TEST(cls_builtin_unicode_property_Old_Permic_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Old_Persian);
+  RUN_TEST(cls_builtin_unicode_property_Old_Persian_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Old_Sogdian);
+  RUN_TEST(cls_builtin_unicode_property_Old_Sogdian_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Old_South_Arabian);
+  RUN_TEST(cls_builtin_unicode_property_Old_South_Arabian_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Old_Turkic);
+  RUN_TEST(cls_builtin_unicode_property_Old_Turkic_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Old_Uyghur);
+  RUN_TEST(cls_builtin_unicode_property_Old_Uyghur_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Oriya);
+  RUN_TEST(cls_builtin_unicode_property_Oriya_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Osage);
+  RUN_TEST(cls_builtin_unicode_property_Osage_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Osmanya);
+  RUN_TEST(cls_builtin_unicode_property_Osmanya_inverted);
   RUN_TEST(cls_builtin_unicode_property_P);
   RUN_TEST(cls_builtin_unicode_property_P_single);
   RUN_TEST(cls_builtin_unicode_property_P_inverted);
   RUN_TEST(cls_builtin_unicode_property_P_single_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Pahawh_Hmong);
+  RUN_TEST(cls_builtin_unicode_property_Pahawh_Hmong_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Palmyrene);
+  RUN_TEST(cls_builtin_unicode_property_Palmyrene_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Pau_Cin_Hau);
+  RUN_TEST(cls_builtin_unicode_property_Pau_Cin_Hau_inverted);
   RUN_TEST(cls_builtin_unicode_property_Pc);
   RUN_TEST(cls_builtin_unicode_property_Pc_inverted);
   RUN_TEST(cls_builtin_unicode_property_Pd);
@@ -5919,28 +8879,112 @@ SUITE(cls_builtin_unicode_property)
   RUN_TEST(cls_builtin_unicode_property_Pe_inverted);
   RUN_TEST(cls_builtin_unicode_property_Pf);
   RUN_TEST(cls_builtin_unicode_property_Pf_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Phags_Pa);
+  RUN_TEST(cls_builtin_unicode_property_Phags_Pa_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Phoenician);
+  RUN_TEST(cls_builtin_unicode_property_Phoenician_inverted);
   RUN_TEST(cls_builtin_unicode_property_Pi);
   RUN_TEST(cls_builtin_unicode_property_Pi_inverted);
   RUN_TEST(cls_builtin_unicode_property_Po);
   RUN_TEST(cls_builtin_unicode_property_Po_inverted);
   RUN_TEST(cls_builtin_unicode_property_Ps);
   RUN_TEST(cls_builtin_unicode_property_Ps_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Psalter_Pahlavi);
+  RUN_TEST(cls_builtin_unicode_property_Psalter_Pahlavi_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Rejang);
+  RUN_TEST(cls_builtin_unicode_property_Rejang_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Runic);
+  RUN_TEST(cls_builtin_unicode_property_Runic_inverted);
   RUN_TEST(cls_builtin_unicode_property_S);
   RUN_TEST(cls_builtin_unicode_property_S_single);
   RUN_TEST(cls_builtin_unicode_property_S_inverted);
   RUN_TEST(cls_builtin_unicode_property_S_single_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Samaritan);
+  RUN_TEST(cls_builtin_unicode_property_Samaritan_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Saurashtra);
+  RUN_TEST(cls_builtin_unicode_property_Saurashtra_inverted);
   RUN_TEST(cls_builtin_unicode_property_Sc);
   RUN_TEST(cls_builtin_unicode_property_Sc_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Sharada);
+  RUN_TEST(cls_builtin_unicode_property_Sharada_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Shavian);
+  RUN_TEST(cls_builtin_unicode_property_Shavian_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Siddham);
+  RUN_TEST(cls_builtin_unicode_property_Siddham_inverted);
+  RUN_TEST(cls_builtin_unicode_property_SignWriting);
+  RUN_TEST(cls_builtin_unicode_property_SignWriting_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Sinhala);
+  RUN_TEST(cls_builtin_unicode_property_Sinhala_inverted);
   RUN_TEST(cls_builtin_unicode_property_Sk);
   RUN_TEST(cls_builtin_unicode_property_Sk_inverted);
   RUN_TEST(cls_builtin_unicode_property_Sm);
   RUN_TEST(cls_builtin_unicode_property_Sm_inverted);
   RUN_TEST(cls_builtin_unicode_property_So);
   RUN_TEST(cls_builtin_unicode_property_So_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Sogdian);
+  RUN_TEST(cls_builtin_unicode_property_Sogdian_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Sora_Sompeng);
+  RUN_TEST(cls_builtin_unicode_property_Sora_Sompeng_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Soyombo);
+  RUN_TEST(cls_builtin_unicode_property_Soyombo_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Sundanese);
+  RUN_TEST(cls_builtin_unicode_property_Sundanese_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Syloti_Nagri);
+  RUN_TEST(cls_builtin_unicode_property_Syloti_Nagri_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Syriac);
+  RUN_TEST(cls_builtin_unicode_property_Syriac_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Tagalog);
+  RUN_TEST(cls_builtin_unicode_property_Tagalog_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Tagbanwa);
+  RUN_TEST(cls_builtin_unicode_property_Tagbanwa_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Tai_Le);
+  RUN_TEST(cls_builtin_unicode_property_Tai_Le_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Tai_Tham);
+  RUN_TEST(cls_builtin_unicode_property_Tai_Tham_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Tai_Viet);
+  RUN_TEST(cls_builtin_unicode_property_Tai_Viet_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Takri);
+  RUN_TEST(cls_builtin_unicode_property_Takri_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Tamil);
+  RUN_TEST(cls_builtin_unicode_property_Tamil_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Tangsa);
+  RUN_TEST(cls_builtin_unicode_property_Tangsa_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Tangut);
+  RUN_TEST(cls_builtin_unicode_property_Tangut_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Telugu);
+  RUN_TEST(cls_builtin_unicode_property_Telugu_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Thaana);
+  RUN_TEST(cls_builtin_unicode_property_Thaana_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Thai);
+  RUN_TEST(cls_builtin_unicode_property_Thai_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Tibetan);
+  RUN_TEST(cls_builtin_unicode_property_Tibetan_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Tifinagh);
+  RUN_TEST(cls_builtin_unicode_property_Tifinagh_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Tirhuta);
+  RUN_TEST(cls_builtin_unicode_property_Tirhuta_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Toto);
+  RUN_TEST(cls_builtin_unicode_property_Toto_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Ugaritic);
+  RUN_TEST(cls_builtin_unicode_property_Ugaritic_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Vai);
+  RUN_TEST(cls_builtin_unicode_property_Vai_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Vithkuqi);
+  RUN_TEST(cls_builtin_unicode_property_Vithkuqi_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Wancho);
+  RUN_TEST(cls_builtin_unicode_property_Wancho_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Warang_Citi);
+  RUN_TEST(cls_builtin_unicode_property_Warang_Citi_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Yezidi);
+  RUN_TEST(cls_builtin_unicode_property_Yezidi_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Yi);
+  RUN_TEST(cls_builtin_unicode_property_Yi_inverted);
   RUN_TEST(cls_builtin_unicode_property_Z);
   RUN_TEST(cls_builtin_unicode_property_Z_single);
   RUN_TEST(cls_builtin_unicode_property_Z_inverted);
   RUN_TEST(cls_builtin_unicode_property_Z_single_inverted);
+  RUN_TEST(cls_builtin_unicode_property_Zanabazar_Square);
+  RUN_TEST(cls_builtin_unicode_property_Zanabazar_Square_inverted);
   RUN_TEST(cls_builtin_unicode_property_Zl);
   RUN_TEST(cls_builtin_unicode_property_Zl_inverted);
   RUN_TEST(cls_builtin_unicode_property_Zp);

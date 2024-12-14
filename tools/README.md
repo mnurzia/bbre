@@ -6,7 +6,7 @@ This directory contains tools for developing and maintaining `bbre`.
 |----|-----------|
 |`Makefile`|contains targets that aid development (run `make help_targets` for info)|
 |`README.md`|this file|
-|`bench.c`|benchmarking utility, runs various predefined benchmarks on the code|
+|`bench.c`|benchmarking utility, runs various predefined benchmarks on the code (currently, these are pretty useless)|
 |`precommit.sh`|shell script that runs all soak tests and checks (intended to be used before releases)|
 |`debug_utils.c`|utility functions callable from a debugger that visualize internal data structures|
 |`fuzz_db.json`|database of test cases found through fuzzing|

@@ -2,7 +2,9 @@
 
 bbre is heavily tested, but it can always use more testing.
 
-A set of basic tests in `tools/test.c` provides 100% coverage and defines the general behavior of the library. These tests are intended to be readable by humans and exercise all library features.
+A set of basic tests in `tools/test.c` provides 100% coverage (both line and branch) and defines the general behavior of the library. These tests are intended to be readable by humans and exercise all library features.
+
+*A note about that 100% number:* 100% coverage is not a silver bullet; but in my experience it seriously reduced the amount of logic bugs I had to contend with while writing a piece of complex software in C. Getting to 100% coverage implies removing all dead code, and removing all dead code implies having a much deeper understanding of the invariants of your algorithms. This kind of coverage testing does not protect you from more fundamental, semantical disconnects in the developer's brain, it just proves that their code (probably) does what they want it to.
 
 These tests are also instrumented by using a harness that simulates out-of-memory conditions. This ensures that the code behaves correctly under such rare yet possible conditions.
 

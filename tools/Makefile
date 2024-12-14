@@ -272,7 +272,8 @@ help_profiles:
 DOC_ARGS=--viz $(OUT_DIR)/viz --folder $(DOCS_DIR) --debug
 ## build documentation
 docs: build $(OUT_DIR)/viz
-	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_C) docs/internals/AST.md
+	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_C)\
+		docs/internals/AST.md
 	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_C)\
 		docs/internals/Charclass_Compiler.md
 	$(PYTHON) scripts/make_docs.py $(DOC_ARGS) $(BBRE_H) docs/API.md
@@ -315,14 +316,23 @@ bin_size: $(OUT_DIR)/bbre.o
 $(OUT_DIR)/examples:
 	mkdir -p $(OUT_DIR)/examples
 
-$(OUT_DIR)/examples/grep: $(OUT_DIR)/examples $(EXAMPLES_DIR)/grep.c $(BBRE_C) $(BBRE_H)
+$(OUT_DIR)/examples/grep: $(OUT_DIR)/examples $(EXAMPLES_DIR)/grep.c $(BBRE_C)\
+	$(BBRE_H)
 	$(CC) $(CFLAGS) $(BBRE_C) $(EXAMPLES_DIR)/grep.c -o $@
 
-$(OUT_DIR)/examples/ls: $(OUT_DIR)/examples $(EXAMPLES_DIR)/ls.c $(BBRE_C) $(BBRE_H)
+$(OUT_DIR)/examples/ls: $(OUT_DIR)/examples $(EXAMPLES_DIR)/ls.c $(BBRE_C)\
+	$(BBRE_H)
 	$(CC) $(CFLAGS) $(BBRE_C) $(EXAMPLES_DIR)/ls.c -o $@
 	
-$(OUT_DIR)/examples/rpn: $(OUT_DIR)/examples $(EXAMPLES_DIR)/rpn.c $(BBRE_C) $(BBRE_H)
+$(OUT_DIR)/examples/rpn: $(OUT_DIR)/examples $(EXAMPLES_DIR)/rpn.c $(BBRE_C)\
+	$(BBRE_H)
 	$(CC) $(CFLAGS) $(BBRE_C) $(EXAMPLES_DIR)/rpn.c -o $@
 
 ## build examples
-examples: $(OUT_DIR)/examples $(OUT_DIR)/examples/grep $(OUT_DIR)/examples/ls $(OUT_DIR)/examples/rpn
+examples: $(OUT_DIR)/examples $(OUT_DIR)/examples/grep $(OUT_DIR)/examples/ls\
+	$(OUT_DIR)/examples/rpn
+
+## initialize a python virtualenv for running build scripts at build/venv
+venv:
+	$(PYTHON) -m venv build/venv
+	. build/venv/bin/activate; pip install -Ur scripts/requirements.txt

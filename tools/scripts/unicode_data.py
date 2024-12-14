@@ -71,11 +71,16 @@ class UnicodeData:
         )
 
     @staticmethod
-    def _remove_comments(line: str) -> list[str] | None:
-        parts = line.split(";")
-        if len(parts) < 3:
-            return None
-        return list(map(str.strip, parts))
+    def make_line_filter(fields: int) -> Callable[[str], list[str] | None]:
+        def filter_func(line: str) -> list[str] | None:
+            if (index := line.find("#")) != -1:
+                line = line[:index]
+            parts = line.split(";")
+            if len(parts) < fields:
+                return None
+            return list(map(str.strip, parts))
+
+        return filter_func
 
     def load_file(
         self,
@@ -84,7 +89,7 @@ class UnicodeData:
         line_filter: Callable[[str], list[str] | None] | None = None,
     ) -> Iterator[list[str]]:
         """Load a file from the UCD, applying `line_filter` to each line."""
-        line_filter = self._remove_comments if line_filter is None else line_filter
+        line_filter = self.make_line_filter(3) if line_filter is None else line_filter
         if isinstance(self.source, zipfile.ZipFile):
             file = io.TextIOWrapper(self.source.open(str(relpath)), "utf-8")
         else:
@@ -500,6 +505,25 @@ def _gen_builtin_ccs(args) -> set[_BuiltinCC | _CompoundBuiltinCC]:
                 ),
             )
         )
+    scripts: dict[str, RuneRanges] = {}
+    for code_expr, script_name_with_comment, *_ in udata.load_file(
+        Path("Scripts.txt"), line_filter=udata.make_line_filter(2)
+    ):
+        range_expr = code_expr.split("..")
+        lo = int(range_expr[0], 16)
+        hi = int(range_expr[1], 16) if len(range_expr) == 2 else lo
+        script_name = script_name_with_comment.split()[0]
+        scripts[script_name] = scripts.get(script_name, []) + [(lo, hi)]
+
+    for script_name, ranges in scripts.items():
+        builtin_ccs.add(
+            _BuiltinCC(
+                _BuiltinCCType.UNICODE_PROPERTY,
+                script_name,
+                tuple(nranges_normalize(ranges)),
+            )
+        )
+
     for name, cc in ASCII_CHARCLASSES.items():
         builtin_ccs.add(
             _BuiltinCC(
@@ -538,9 +562,12 @@ def _cmd_gen_ccs_impl(args) -> int:
         data_ccs.append(builtin_cc)
     num_ranges = sum([len(bcc.ranges) for bcc in data_ccs])
     encoded_arr = list(_pack_bits_words(encoded_bits))
+    num_uncompressed_bytes = num_ranges * 4
+    num_compressed_bytes = len(encoded_arr) * 4
     out(
-        f"/* {num_ranges} ranges, {num_ranges * 2} integers, {len(encoded_arr) * 4} bytes */"
+        f"/* {num_ranges} ranges, {num_ranges * 2} integers, {num_compressed_bytes} bytes */"
     )
+    out(f"/* Compression ratio: {num_uncompressed_bytes/num_compressed_bytes:.2f} */")
     out(f"static const bbre_uint bbre_builtin_cc_data[{len(encoded_arr)}] = {{")
     out(",".join(f"0x{e:08X}" for e in encoded_arr))
     out("};")
