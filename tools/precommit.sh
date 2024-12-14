@@ -39,7 +39,7 @@ step() {
 
 step "Clean Environment" make clean
 step "Build venv" make venv
-step "Install venv" source build/venv/bin/activate
+step "Install venv" . build/venv/bin/activate
 step "Update Unicode Tables" make tables
 step "Format Sources" make format
 step "Check Sources" make check_sources
