@@ -10,7 +10,7 @@ bbre's list of design goals (in rough order of priority) are:
 </li>
 <li>
 
-*Safety*: Deep down, I, as the author of this library, know that bbre is inherently unsafe, solely because it is written in C. However, we should try as hard as possible, through aggressive testing/fuzzing, to expose and correct safety issues. Additionally, the API and design of the code should minimize the potential for safety issues. See [Testing](Testing.md) for more philosophy about this. Part of being safe is providing complexity guarantees too: untrusted inputs to bbre only influence linear or logarithmic algorithms, with the exception of character class compilation, which is quadratic but conservatively bounded.
+*Safety*: Being written in C, bbre is prone to the usual classes of safety bugs that C programs are subject to. However, we should try as hard as possible, through aggressive testing/fuzzing, to expose and correct safety issues. Additionally, the API and design of the code should minimize the potential for safety issues. See [Testing](Testing.md) for more philosophy about this. Part of being safe is providing complexity guarantees too: untrusted inputs to bbre only influence linear or logarithmic algorithms, with the exception of character class compilation, which is quadratic but explicitly and conservatively bounded.
 
 </li>
 <li>

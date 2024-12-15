@@ -2,7 +2,7 @@
   #define MN_BBRE_H
   #include <stddef.h> /* size_t */
 
-  /** Enumeration of error types. */
+  /** Error codes. */
   #define BBRE_ERR_MEM   (-1) /* Out of memory. */
   #define BBRE_ERR_PARSE (-2) /* Parsing failed. */
   #define BBRE_ERR_LIMIT (-3) /* Hard limit reached (program size, etc.) */
@@ -24,7 +24,7 @@
  **
  ** This is a little different from the three-callback option provided by most
  ** libraries. If you are confused, this might help you understand:
- ** ```c
+ ** ```
  ** alloc_cb(user,    NULL,        0, new_size) = malloc(new_size)
  ** alloc_cb(user, old_ptr, old_size, new_size) = realloc(old_ptr, new_size)
  ** alloc_cb(user, old_ptr, old_size,        0) = free(old_ptr)
@@ -87,6 +87,7 @@ typedef struct bbre bbre;
  ** memory to store the object. Internally, this function calls
  ** bbre_init(), which can return more than one error code if the pattern is
  ** malformed: this function still just returns NULL if these errors occur.
+ **
  ** If you require more robust error checking, use bbre_init() directly. */
 bbre *bbre_init_pattern(const char *pat_nt);
 
@@ -100,6 +101,7 @@ bbre *bbre_init_pattern(const char *pat_nt);
  ** BBRE_ERR_MEM if there was not enough memory to parse or compile the
  ** pattern, BBRE_ERR_LIMIT if the pattern's compiled size is too large, or 0
  ** if there was no error.
+ **
  ** If this function returns BBRE_ERR_PARSE, you can use the bbre_get_error()
  ** function to retrieve a detailed error message, and an index into the pattern
  ** where the error occurred. */
@@ -248,12 +250,14 @@ typedef struct bbre_set bbre_set;
 /** Initialize a bbre_set.
  ** - `ppats_nt` is an array of null-terminated patterns to initialize the
  **   set with.
- ** - `num_pats` is the number of patterns in `pats_nt`.
+ ** - `num_pats` is the number of patterns in `ppats_nt`.
  **
  ** Returns a newly-constructed bbre_set object, or NULL if there was not enough
  ** memory to store the object. Internally, this function calls
  ** bbre_set_init(), which can return more than one error code: this function
- ** assumes that input patterns are correct and will abort if these errors occur
+ ** assumes that input patterns are correct and will return NULL if any of these
+ ** errors occur.
+ **
  ** If you require more robust error checking, use bbre_set_init() directly. */
 bbre_set *bbre_set_init_patterns(const char *const *ppats_nt, size_t num_pats);
 /** Initialize a bbre_set from a bbre_set_builder.

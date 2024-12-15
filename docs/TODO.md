@@ -8,3 +8,4 @@ Below is a list of features that I'd like `bbre` to support, but either don't ha
 - Less fraggy memory allocations: under the hood, `bbre` objects are a bunch of big-ass vectors that get reallocated a lot; not great for embedded applications
 - ICU character class support (maybe just tighten up ICU regex support thoroughly)
 - Decouple from or fix up the [`mptest`](https://github.com/mnurzia/mptest) library. I wrote this library in my freshman year of college, which was when I started getting serious about testing my C code. This library has lots of features but requires an antequated external build system that needs to be dropped before I stop feeling embarrassed about testing `bbre` with it.
+- Testing against other regexp libraries for consistency (want at least: re2, rust-regex)

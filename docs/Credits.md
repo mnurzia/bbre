@@ -28,4 +28,4 @@ Most of the techniques used in this library are not original. I would have been 
 
 Every software developer stands on the shoulders of giants. I have immense respect for these individuals and their contributions.
 
-I (Max Nurzia) originally wrote this program throughout 2024, during my fourth year at Northeastern University in Boston, MA. During my first year of college, I wrote [another regular expression library](https://github.com/mnurzia/re). This library had numerous inherent issues and was never fully finished, but many of the ideas contained in it were carried over to bbre.
+I (Max Nurzia) originally wrote this program throughout 2024, during my third year at Northeastern University in Boston, MA. During my first year of college, I wrote [another regular expression library](https://github.com/mnurzia/re). This library had numerous inherent issues and was never fully finished, but many of the ideas contained in it were carried over to bbre.

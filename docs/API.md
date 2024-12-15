@@ -32,7 +32,7 @@
 <li><a href="#bbre_version">bbre_version</a></li>
 </ul>
 <h2 id="BBRE_ERR_MEM"><code>BBRE_ERR_MEM</code>, <code>BBRE_ERR_PARSE</code>, <code>BBRE_ERR_LIMIT</code></h2>
-<p>Enumeration of error types.</p>
+<p>Error codes.</p>
 
 ```c
 #define BBRE_ERR_MEM   (-1) /* Out of memory. */
@@ -65,7 +65,7 @@ optionally set  <code>alloc-&gt;user</code> to a context pointer. The library wi
 </ul>
 <p>This is a little different from the three-callback option provided by most
 libraries. If you are confused, this might help you understand:</p>
-<pre><code class="language-c">alloc_cb(user,    NULL,        0, new_size) = malloc(new_size)
+<pre><code>alloc_cb(user,    NULL,        0, new_size) = malloc(new_size)
 alloc_cb(user, old_ptr, old_size, new_size) = realloc(old_ptr, new_size)
 alloc_cb(user, old_ptr, old_size,        0) = free(old_ptr)
 </code></pre>
@@ -150,8 +150,8 @@ bbre *bbre_init_pattern(const char *pat_nt);
 <p>Returns a newly-constructed <a href="#bbre">bbre</a> object, or NULL if there was not enough
 memory to store the object. Internally, this function calls
 <a href="#bbre_init">bbre_init</a>(), which can return more than one error code if the pattern is
-malformed: this function still just returns NULL if these errors occur.
-If you require more robust error checking, use <a href="#bbre_init">bbre_init</a>() directly.</p>
+malformed: this function still just returns NULL if these errors occur.</p>
+<p>If you require more robust error checking, use <a href="#bbre_init">bbre_init</a>() directly.</p>
 
 <h2 id="bbre_init"><code>bbre_init</code></h2>
 <p>Initialize a <a href="#bbre">bbre</a> from a <a href="#bbre_builder">bbre_builder</a>.</p>
@@ -168,8 +168,8 @@ int bbre_init(bbre **preg, const bbre_builder *build, const bbre_alloc *alloc);
 <p>Returns <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a> if the pattern in  <code>build</code> contains a parsing error,
 <a href="#BBRE_ERR_MEM">BBRE_ERR_MEM</a> if there was not enough memory to parse or compile the
 pattern, <a href="#BBRE_ERR_MEM">BBRE_ERR_LIMIT</a> if the pattern's compiled size is too large, or 0
-if there was no error.
-If this function returns <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a>, you can use the bbre_get_error()
+if there was no error.</p>
+<p>If this function returns <a href="#BBRE_ERR_MEM">BBRE_ERR_PARSE</a>, you can use the bbre_get_error()
 function to retrieve a detailed error message, and an index into the pattern
 where the error occurred.</p>
 
@@ -365,13 +365,14 @@ bbre_set *bbre_set_init_patterns(const char *const *ppats_nt, size_t num_pats);
 <ul>
 <li><code>ppats_nt</code> is an array of null-terminated patterns to initialize the
 set with.</li>
-<li><code>num_pats</code> is the number of patterns in  <code>pats_nt</code>.</li>
+<li><code>num_pats</code> is the number of patterns in  <code>ppats_nt</code>.</li>
 </ul>
 <p>Returns a newly-constructed <a href="#bbre_set">bbre_set</a> object, or NULL if there was not enough
 memory to store the object. Internally, this function calls
 <a href="#bbre_set_init">bbre_set_init</a>(), which can return more than one error code: this function
-assumes that input patterns are correct and will abort if these errors occur
-If you require more robust error checking, use <a href="#bbre_set_init">bbre_set_init</a>() directly.</p>
+assumes that input patterns are correct and will return NULL if any of these
+errors occur.</p>
+<p>If you require more robust error checking, use <a href="#bbre_set_init">bbre_set_init</a>() directly.</p>
 
 <h2 id="bbre_set_init"><code>bbre_set_init</code></h2>
 <p>Initialize a <a href="#bbre_set">bbre_set</a> from a <a href="#bbre_set_builder">bbre_set_builder</a>.</p>
