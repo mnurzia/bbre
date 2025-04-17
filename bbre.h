@@ -1,3 +1,6 @@
+/* bbre.h - non-backtracking regular expression library */
+/* Originally written by Max Nurzia, Jan-Dec 2024 */
+
 #ifndef MN_BBRE_H
   #define MN_BBRE_H
   #include <stddef.h> /* size_t */
